@@ -1,0 +1,1324 @@
+import 'package:flutter/material.dart';
+import 'dart:math';
+
+import 'package:pipe_and_wire_clean/keypad_volt_drop.dart';
+
+// --- STYLE CONSTANTS ---
+const kRed = Color(0xFFE53935);
+const kBlack = Colors.black;
+const kLight = Colors.white;
+const kSilver = Color(0xFF9E9E9E);
+
+// --- ENUMS for State Management ---
+enum CalculatorStep { pipe, box, wire, insulation, ambientTemp, targetAmps, free }
+enum PullType { straight, angle }
+
+// --- DATA MODELS & DATABASE ---
+class ConduitDB {
+  // Conductor volumes from NEC Table 314.16(B) in cubic inches
+  static const Map<String, double> wireVolumes = {
+    "14 AWG": 2.00, "12 AWG": 2.25, "10 AWG": 2.50, "8 AWG": 3.00, "6 AWG": 5.00,
+    "4 AWG": 5.00, "3 AWG": 5.00, "2 AWG": 5.00, "1 AWG": 5.00,
+  };
+
+  // Standard box volumes in cubic inches
+  static const Map<String, double> boxVolumes = {
+    "4x1-1/2 Sq": 21.0, "4x2-1/8 Sq": 30.3, "4-11/16x2-1/8 Sq": 42.0,
+    "4x2-1/8 Oct": 15.5, "4x2-1/8 Deep Oct": 21.5,
+    "6x6x4": 144.0, "8x8x4": 256.0, "10x10x4": 400.0, "12x12x4": 576.0, "12x12x6": 864.0,
+  };
+
+  static const Map<String, Map<String, int>> copperAmpacities = {
+    "14 AWG": {"60C": 15, "75C": 20, "90C": 25}, "12 AWG": {"60C": 20, "75C": 25, "90C": 30},
+    "10 AWG": {"60C": 30, "75C": 35, "90C": 40}, "8 AWG": {"60C": 40, "75C": 50, "90C": 55},
+    "6 AWG": {"60C": 55, "75C": 65, "90C": 75}, "4 AWG": {"60C": 70, "75C": 85, "90C": 95},
+    "3 AWG": {"60C": 85, "75C": 100, "90C": 115}, "2 AWG": {"60C": 95, "75C": 115, "90C": 130},
+    "1 AWG": {"60C": 110, "75C": 130, "90C": 145},
+  };
+
+  static const Map<String, Map<String, double>> wireAreas = {
+    "14 AWG": {"THHN": 0.0097, "XHHW": 0.0139, "THWN-2": 0.0097}, "12 AWG": {"THHN": 0.0133, "XHHW": 0.0181, "THWN-2": 0.0133},
+    "10 AWG": {"THHN": 0.0211, "XHHW": 0.0278, "THWN-2": 0.0211}, "8 AWG": {"THHN": 0.0366, "XHHW": 0.0437, "THWN-2": 0.0366},
+    "6 AWG": {"THHN": 0.0507, "XHHW": 0.0590, "THWN-2": 0.0507}, "4 AWG": {"THHN": 0.0824, "XHHW": 0.0955, "THWN-2": 0.0824},
+    "3 AWG": {"THHN": 0.0973, "XHHW": 0.1112, "THWN-2": 0.0973}, "2 AWG": {"THHN": 0.1158, "XHHW": 0.1332, "THWN-2": 0.1158},
+    "1 AWG": {"THHN": 0.1562, "XHHW": 0.1771, "THWN-2": 0.1562},
+  };
+
+  static const Map<String, double> emtMaxFill = {
+    "1/2": 0.122, "3/4": 0.213, "1": 0.346, "1-1/4": 0.598, "1-1/2": 0.814, "2": 1.342,
+  };
+
+  static const Map<String, double> tradeSizesInches = {
+    "1/2": 0.5, "3/4": 0.75, "1": 1.0, "1-1/4": 1.25, "1-1/2": 1.5, "2": 2.0,
+  };
+
+  static const Map<String, Map<String, double>> temperatureCorrectionFactors = {
+    "75C": {
+      "70-77": 1.04, "78-86": 1.00, "87-95": 0.96, "96-104": 0.91,
+      "105-113": 0.87, "114-122": 0.82, "123-131": 0.76, "132-140": 0.71,
+    },
+    "90C": {
+      "70-77°F": 1.04, "78-86°F": 1.00, "87-95°F": 0.96, "96-104°F": 0.91,
+      "105-113°F": 0.87, "114-122°F": 0.82, "123-131°F": 0.76, "132-140°F": 0.71,
+    }
+  };
+
+  static const Map<String, double> wireResistance = {
+    "14 AWG": 3.07, "12 AWG": 1.93, "10 AWG": 1.21, "8 AWG": 0.778,
+    "6 AWG": 0.491, "4 AWG": 0.308, "3 AWG": 0.245, "2 AWG": 0.194, "1 AWG": 0.154,
+  };
+
+  static const List<int> standardBreakerSizes = [15, 20, 25, 30, 40, 45, 50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200];
+}
+
+class Wire {
+  final String id = UniqueKey().toString();
+  String size;
+  String insulation;
+  bool isGround;
+  bool isNeutral;
+  bool isCurrentCarrying;
+
+  Wire({ required this.size, required this.insulation, this.isGround = false, this.isNeutral = false, this.isCurrentCarrying = true });
+}
+
+class Pipe {
+  final String id = UniqueKey().toString();
+  String? size;
+  PullType pullType;
+  List<Wire> wires = [];
+
+  Pipe({this.size, this.pullType = PullType.straight});
+}
+
+class UnifiedFeederCalculator extends StatefulWidget {
+  const UnifiedFeederCalculator({super.key});
+  @override
+  State<UnifiedFeederCalculator> createState() => _UnifiedFeederCalculatorState();
+}
+
+class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with TickerProviderStateMixin {
+  CalculatorStep _currentStep = CalculatorStep.pipe;
+  bool _isInitialSetupComplete = false;
+
+  List<Pipe> _pipes = [Pipe()];
+  int _activePipeIndex = 0;
+
+  String? _selectedBoxSize;
+  String? _selectedWireSize;
+  String? _selectedInsulation;
+
+  int _deviceCount = 0;
+  int _clampCount = 0;
+  int _supportFittingCount = 0;
+
+  String? _selectedAmbientTempKey;
+  int? _targetBreakerSize;
+  double _length = 0.0;
+  double _voltage = 0.0;
+
+  late AnimationController _borderAnimationController;
+  late AnimationController _infoBarAnimationController;
+  late Animation<double> _infoBarAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _borderAnimationController = AnimationController(vsync: this, duration: const Duration(seconds: 5))..repeat(reverse: true);
+    _infoBarAnimationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
+    _infoBarAnimation = CurvedAnimation(parent: _infoBarAnimationController, curve: Curves.easeIn);
+    _infoBarAnimationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _borderAnimationController.dispose();
+    _infoBarAnimationController.dispose();
+    super.dispose();
+  }
+
+  Pipe get _activePipe => _pipes[_activePipeIndex];
+  List<Wire> get _allWires => _pipes.expand((p) => p.wires).toList();
+
+  void _addWire(String type) {
+    if (_selectedWireSize == null || _selectedInsulation == null) return;
+    setState(() {
+      if (type == 'Hot') {
+        _activePipe.wires.add(Wire(size: _selectedWireSize!, insulation: _selectedInsulation!, isCurrentCarrying: true));
+      } else if (type == 'Neutral') {
+        _showNeutralDialog();
+      } else if (type == 'Ground') {
+        _activePipe.wires.add(Wire(size: _selectedWireSize!, insulation: _selectedInsulation!, isGround: true, isCurrentCarrying: false));
+      }
+    });
+  }
+
+  void _removeLastWireOfType(String type) {
+    setState(() {
+      int indexToRemove = -1;
+      if (type == 'Hot') {
+        indexToRemove = _activePipe.wires.lastIndexWhere((w) => !w.isNeutral && !w.isGround);
+      } else if (type == 'Neutral') {
+        indexToRemove = _activePipe.wires.lastIndexWhere((w) => w.isNeutral);
+      } else if (type == 'Ground') {
+        indexToRemove = _activePipe.wires.lastIndexWhere((w) => w.isGround);
+      }
+
+      if (indexToRemove != -1) {
+        _activePipe.wires.removeAt(indexToRemove);
+      }
+    });
+  }
+
+  void _showNeutralDialog() {
+    if (_selectedWireSize == null || _selectedInsulation == null) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF2C3030),
+        title: const Text("Neutral Type?", style: TextStyle(color: kLight)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            title: const Text("Shared Neutral (MWBC)", style: TextStyle(color: kLight)),
+            subtitle: const Text("Does NOT count for heat.", style: TextStyle(color: Colors.white70)),
+            onTap: () {
+              setState(() => _activePipe.wires.add(Wire(size: _selectedWireSize!, insulation: _selectedInsulation!, isNeutral: true, isCurrentCarrying: false)));
+              Navigator.pop(ctx);
+            },
+          ),
+          ListTile(
+            title: const Text("Dedicated Neutral (2-Wire)", style: TextStyle(color: kLight)),
+            subtitle: const Text("ADDS to heat calculation.", style: TextStyle(color: Colors.white70)),
+            onTap: () {
+              setState(() => _activePipe.wires.add(Wire(size: _selectedWireSize!, insulation: _selectedInsulation!, isNeutral: true, isCurrentCarrying: true)));
+              Navigator.pop(ctx);
+            },
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Map<String, dynamic> _calculateResults() {
+    final Map<String, dynamic> boxSizing = _calculateBoxSizing();
+    final defaultResults = {
+      "isReady": false, "conduitFillPercent": 0.0, "isConduitFillViolation": false,
+      "boxFillPercent": 0.0, "isBoxFillViolation": false, "startingAmpacity": 0,
+      "newAmpacity": 0.0, "finalBreakerSize": 0, "adjustmentFactor": 1.0,
+      "tempCorrectionFactor": 1.0, "voltageDrop": 0.0, "voltageDropPercent": 0.0,
+      "maxWires": 0, "maxBoxWires": 0, ...boxSizing
+    };
+
+    if (_activePipe.size == null || _selectedWireSize == null || _selectedInsulation == null) {
+      return {...defaultResults, ...boxSizing};
+    }
+
+    final allWires = _allWires;
+
+    final double? wireArea = ConduitDB.wireAreas[_selectedWireSize]?[_selectedInsulation];
+    final double? maxArea = ConduitDB.emtMaxFill[_activePipe.size!];
+    int maxWires = 0;
+    if (wireArea != null && maxArea != null && wireArea > 0) {
+      maxWires = (maxArea / wireArea).floor();
+    }
+
+    int maxBoxWires = 0;
+    if (_selectedBoxSize != null) {
+      final double? boxVolume = ConduitDB.boxVolumes[_selectedBoxSize];
+      final double? wireVolume = ConduitDB.wireVolumes[_selectedWireSize];
+      if (boxVolume != null && wireVolume != null && wireVolume > 0) {
+        maxBoxWires = (boxVolume / wireVolume).floor();
+      }
+    }
+
+
+    if (allWires.isEmpty) {
+      return {
+        ...defaultResults, "isReady": true, "maxWires": maxWires, "maxBoxWires": maxBoxWires, ...boxSizing
+      };
+    }
+
+    double totalConduitArea = _activePipe.wires.fold(0.0, (sum, w) => sum + (ConduitDB.wireAreas[w.size]?[w.insulation] ?? 0.0));
+    final double conduitFillPercent = totalConduitArea.isFinite && maxArea != null && maxArea > 0 ? (totalConduitArea / maxArea) * 100 : 0.0;
+    final bool isConduitFillViolation = maxArea != null && totalConduitArea > maxArea;
+
+    double boxFillPercent = 0.0;
+    bool isBoxFillViolation = false;
+    if (_selectedBoxSize != null) {
+      final double maxBoxVolume = ConduitDB.boxVolumes[_selectedBoxSize]!;
+      double conductorVolume = allWires.fold(0.0, (sum, w) => sum + (ConduitDB.wireVolumes[w.size] ?? 0.0));
+      Wire? largestConductor = allWires.where((w) => !w.isGround).toList().fold(null, (largest, current) {
+        if (largest == null) return current;
+        final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
+        final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
+        return currentSize < largestSize ? current : largest;
+      });
+      Wire? largestGround = allWires.where((w) => w.isGround).toList().fold(null, (largest, current) {
+        if (largest == null) return current;
+        final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
+        final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
+        return currentSize < largestSize ? current : largest;
+      });
+      double allowanceVolume = 0;
+      if (largestConductor != null) {
+        final double allowance = ConduitDB.wireVolumes[largestConductor.size]!;
+        if (_clampCount > 0) {
+          allowanceVolume += allowance;
+        }
+        allowanceVolume += _supportFittingCount * allowance;
+        allowanceVolume += _deviceCount * 2 * allowance;
+      }
+      if (largestGround != null) {
+        allowanceVolume += ConduitDB.wireVolumes[largestGround.size]!;
+      }
+      double totalBoxVolume = conductorVolume + allowanceVolume;
+      boxFillPercent = totalBoxVolume.isFinite && maxBoxVolume > 0 ? (totalBoxVolume / maxBoxVolume) * 100 : 0.0;
+      isBoxFillViolation = totalBoxVolume > maxBoxVolume;
+    }
+
+
+    final int cccCount = allWires.where((w) => w.isCurrentCarrying).length;
+    double adjustmentFactor = 1.0;
+    if (cccCount >= 4 && cccCount <= 6) {
+      adjustmentFactor = 0.80;
+    } else if (cccCount >= 7 && cccCount <= 9) {
+      adjustmentFactor = 0.70;
+    } else if (cccCount >= 10 && cccCount <= 20) {
+      adjustmentFactor = 0.50;
+    } else if (cccCount >= 21 && cccCount <= 30) {
+      adjustmentFactor = 0.45;
+    } else if (cccCount >= 31 && cccCount <= 40) {
+      adjustmentFactor = 0.40;
+    } else if (cccCount >= 41) {
+      adjustmentFactor = 0.35;
+    }
+
+    final tempCorrectionFactor = _selectedAmbientTempKey != null ? ConduitDB.temperatureCorrectionFactors["90C"]![_selectedAmbientTempKey!] ?? 1.0 : 1.0;
+
+    Wire? smallestCCCWire = allWires.where((w) => w.isCurrentCarrying).toList().fold(null, (smallest, current) {
+      if (smallest == null) return current;
+      final smallestSize = int.tryParse(smallest.size.replaceAll(" AWG", "")) ?? 0;
+      final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
+      return currentSize > smallestSize ? current : smallest;
+    });
+
+    if (smallestCCCWire == null) {
+      return {
+        ...defaultResults, "isReady": true, "conduitFillPercent": conduitFillPercent,
+        "isConduitFillViolation": isConduitFillViolation, "boxFillPercent": boxFillPercent,
+        "isBoxFillViolation": isBoxFillViolation, "maxWires": maxWires, "maxBoxWires": maxBoxWires, ...boxSizing,
+      };
+    }
+
+    final int startingAmpacity = ConduitDB.copperAmpacities[smallestCCCWire.size]?["90C"] ?? 0;
+    final double newAmpacity = startingAmpacity * adjustmentFactor * tempCorrectionFactor;
+    final int capAmps75 = ConduitDB.copperAmpacities[smallestCCCWire.size]?["75C"] ?? 0;
+    final double finalAmps = min(newAmpacity, capAmps75.toDouble());
+
+    int overcurrentLimit = 1000;
+    if (smallestCCCWire.size == "14 AWG") {
+      overcurrentLimit = 15;
+    } else if (smallestCCCWire.size == "12 AWG") {
+      overcurrentLimit = 20;
+    } else if (smallestCCCWire.size == "10 AWG") {
+      overcurrentLimit = 30;
+    }
+
+    int finalBreakerSize = ConduitDB.standardBreakerSizes.lastWhere((s) => s <= finalAmps, orElse: () => 0);
+    finalBreakerSize = min(overcurrentLimit, finalBreakerSize);
+
+    double voltageDrop = 0.0;
+    double voltageDropPercent = 0.0;
+    if (_length > 0 && _voltage > 0 && finalBreakerSize > 0) {
+      final double resistance = ConduitDB.wireResistance[smallestCCCWire.size] ?? 0.0;
+      voltageDrop = (2 * resistance * _length * finalBreakerSize) / 1000;
+      voltageDropPercent = (voltageDrop / _voltage) * 100;
+    }
+
+    return {
+      "isReady": true, "conduitFillPercent": conduitFillPercent, "isConduitFillViolation": isConduitFillViolation,
+      "boxFillPercent": boxFillPercent, "isBoxFillViolation": isBoxFillViolation,
+      "startingAmpacity": startingAmpacity, "newAmpacity": newAmpacity,
+      "finalBreakerSize": finalBreakerSize, "adjustmentFactor": adjustmentFactor,
+      "tempCorrectionFactor": tempCorrectionFactor, "voltageDrop": voltageDrop,
+      "voltageDropPercent": voltageDropPercent, "maxWires": maxWires, "maxBoxWires": maxBoxWires, ...boxSizing,
+    };
+  }
+
+  Map<String, double> _calculateBoxSizing() {
+    double largestStraight = 0;
+    double largestAngle = 0;
+
+    for (final pipe in _pipes) {
+      if (pipe.size != null) {
+        final double sizeInInches = ConduitDB.tradeSizesInches[pipe.size!] ?? 0.0;
+        if (pipe.pullType == PullType.straight && sizeInInches > largestStraight) {
+          largestStraight = sizeInInches;
+        }
+        if (pipe.pullType == PullType.angle && sizeInInches > largestAngle) {
+          largestAngle = sizeInInches;
+        }
+      }
+    }
+    return { "minStraight": largestStraight * 8, "minAngle": largestAngle * 6 };
+  }
+
+  void _updateStep(CalculatorStep newStep) {
+    if (_isInitialSetupComplete) {
+      setState(() { _currentStep = CalculatorStep.free; });
+      return;
+    }
+    setState(() {
+      _currentStep = newStep;
+      _infoBarAnimationController.reset();
+      _infoBarAnimationController.forward();
+    });
+  }
+
+  void _addPipe() {
+    setState(() {
+      _pipes.add(Pipe());
+      _activePipeIndex = _pipes.length - 1;
+    });
+  }
+
+  void _setActivePipe(int index) {
+    if (index == _activePipeIndex) return;
+    setState(() => _activePipeIndex = index);
+  }
+
+  void _toggleBox() {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 700),
+        pageBuilder: (context, animation, secondaryAnimation) => _BoxUIDetailView(
+          results: _calculateResults(),
+          deviceCount: _deviceCount,
+          clampCount: _clampCount,
+          supportFittingCount: _supportFittingCount,
+          pipes: _pipes,
+          onDeviceCountChanged: (c) => setState(() => _deviceCount = c),
+          onClampCountChanged: (c) => setState(() => _clampCount = c),
+          onSupportFittingCountChanged: (c) => setState(() => _supportFittingCount = c),
+          onPullTypeChanged: (pipeId, pullType) {
+            setState(() {
+              final pipeToUpdate = _pipes.firstWhere((p) => p.id == pipeId);
+              pipeToUpdate.pullType = pullType;
+            });
+          },
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
+  }
+
+  void _togglePipeUI() {
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        transitionDuration: const Duration(milliseconds: 700),
+        pageBuilder: (context, animation, secondaryAnimation) => _PipeUIDetailView(
+          pipes: _pipes,
+          activePipeIndex: _activePipeIndex,
+          onAddPipe: _addPipe,
+          onSetActivePipe: _setActivePipe,
+          animationController: _borderAnimationController,
+          results: _calculateResults(),
+          selectedBoxSize: _selectedBoxSize,
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(opacity: animation, child: child);
+        },
+      ),
+    );
+  }
+
+  void _reset() {
+    setState(() {
+      _pipes = [Pipe()];
+      _activePipeIndex = 0;
+      _selectedBoxSize = null;
+      _selectedWireSize = null;
+      _selectedInsulation = null;
+      _currentStep = CalculatorStep.pipe;
+      _isInitialSetupComplete = false;
+      _deviceCount = 0;
+      _clampCount = 0;
+      _supportFittingCount = 0;
+      _selectedAmbientTempKey = null;
+      _targetBreakerSize = null;
+      _length = 0.0;
+      _voltage = 0.0;
+    });
+  }
+
+  void _showVoltDropKeypad(String type) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: VoltDropKeypad(
+          initialValue: type == 'Length' ? _length.toString() : _voltage.toString(),
+          onConfirm: (value) {
+            setState(() {
+              if (type == 'Length') {
+                _length = value;
+              } else {
+                _voltage = value;
+              }
+            });
+            Navigator.pop(context);
+          },
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final results = _calculateResults();
+
+    return Scaffold(
+      backgroundColor: kBlack,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1F1F1F),
+        foregroundColor: kLight,
+        title: const Text('Pipe and Box Fill', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
+        centerTitle: true,
+        elevation: 0.5,
+      ),
+      body: AnimatedBuilder(
+        animation: _borderAnimationController,
+        builder: (context, child) {
+          return Container(
+            margin: const EdgeInsets.all(8.0),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: const [kSilver, kRed],
+                stops: [_borderAnimationController.value, _borderAnimationController.value + 0.5],
+                transform: const GradientRotation(pi / 4),
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Container(
+              margin: const EdgeInsets.all(2.5),
+              decoration: BoxDecoration(color: kBlack, borderRadius: BorderRadius.circular(6)),
+              child: child,
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              _buildSelectorGrid(),
+              const Divider(color: Colors.white24, height: 24),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildVisualsColumn(results),
+                    _buildDeratingData(results),
+                  ],
+                ),
+              ),
+              _buildWireSteppers(),
+              _buildInfoBar(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSelectorGrid() {
+    const spacing = 4.0;
+    return Column(
+      children: [
+        Row(children: [
+          Expanded(child: _StyledDropdown(
+            value: _activePipe.size,
+            hint: "Pipe Size",
+            items: ConduitDB.emtMaxFill.keys.map((s) => DropdownMenuItem(value: s, child: Text("$s\" EMT"))).toList(),
+            onChanged: (v) => setState(() {
+              _activePipe.size = v;
+              if (!_isInitialSetupComplete) _updateStep(CalculatorStep.box);
+            }),
+            isActive: _currentStep == CalculatorStep.pipe,
+            isEnabled: true,
+          )),
+          const SizedBox(width: spacing),
+          Expanded(child: _StyledDropdown(
+            value: _selectedBoxSize,
+            hint: "Box Size",
+            items: ConduitDB.boxVolumes.keys.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) => setState(() {
+              _selectedBoxSize = v;
+              if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+            }),
+            isActive: _currentStep == CalculatorStep.box,
+            isEnabled: _currentStep != CalculatorStep.pipe || _isInitialSetupComplete,
+          )),
+        ]),
+        const SizedBox(height: spacing),
+        Row(children: [
+          Expanded(child: _StyledDropdown(
+            value: _selectedWireSize,
+            hint: "Wire Size",
+            items: ConduitDB.copperAmpacities.keys.map((s) => DropdownMenuItem(value:s, child: Text(s))).toList(),
+            onChanged: (v) {
+              setState(() {
+                if (_isInitialSetupComplete && v != null) {
+                  final oldSize = _selectedWireSize;
+                  // In free edit mode, update all wires of the old size to the new size
+                  for (var wire in _allWires) {
+                    if (wire.size == oldSize) {
+                      wire.size = v;
+                    }
+                  }
+                }
+                _selectedWireSize = v;
+                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.insulation);
+              });
+            },
+            isActive: _currentStep == CalculatorStep.wire,
+            isEnabled: _currentStep != CalculatorStep.pipe && _currentStep != CalculatorStep.box || _isInitialSetupComplete,
+          )),
+          const SizedBox(width: spacing),
+          Expanded(child: _StyledDropdown(
+            value: _selectedInsulation,
+            hint: "Insulation",
+            items: (_selectedWireSize == null ? <String>[] : ConduitDB.wireAreas[_selectedWireSize]!.keys).map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) {
+              setState(() {
+                if (_isInitialSetupComplete && v != null) {
+                  final oldInsulation = _selectedInsulation;
+                  for (var wire in _allWires) {
+                    if (wire.insulation == oldInsulation) {
+                      wire.insulation = v;
+                    }
+                  }
+                }
+                _selectedInsulation = v;
+                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.ambientTemp);
+              });
+            },
+            isActive: _currentStep == CalculatorStep.insulation,
+            isEnabled: _selectedWireSize != null,
+          )),
+        ]),
+      ],
+    );
+  }
+
+  Widget _buildWireSteppers() {
+    const spacing = 4.0;
+    final hotCount = _activePipe.wires.where((w) => !w.isNeutral && !w.isGround).length;
+    final neutralCount = _activePipe.wires.where((w) => w.isNeutral).length;
+    final groundCount = _activePipe.wires.where((w) => w.isGround).length;
+    final bool canAdd = _selectedWireSize != null && _selectedInsulation != null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          Expanded(child: _WireStepper(label: 'H', count: hotCount, color: kRed, onAdd: canAdd ? () => _addWire('Hot') : null, onRemove: () => _removeLastWireOfType('Hot'))),
+          const SizedBox(width: spacing),
+          Expanded(child: _WireStepper(label: 'N', count: neutralCount, color: Colors.white, onAdd: canAdd ? () => _addWire('Neutral') : null, onRemove: () => _removeLastWireOfType('Neutral'))),
+          const SizedBox(width: spacing),
+          Expanded(child: _WireStepper(label: 'G', count: groundCount, color: Colors.green, onAdd: canAdd ? () => _addWire('Ground') : null, onRemove: () => _removeLastWireOfType('Ground'))),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVisualsColumn(Map<String, dynamic> results) {
+    return Expanded(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildPipeVisual(results),
+          _buildBoxVisual(results),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPipeVisual(Map<String, dynamic> results) {
+    final bool isReady = results['isReady'] ?? false;
+    final double conduitFill = results['conduitFillPercent'] ?? 0.0;
+    final bool isConduitViolation = results['isConduitFillViolation'] ?? false;
+    final int maxWires = results['maxWires'] ?? 0;
+    final conduitStatusColor = !isReady || _activePipe.size == null ? Colors.grey : (isConduitViolation ? kRed : Colors.green);
+
+    return GestureDetector(
+      onTap: _togglePipeUI,
+      child: Hero(
+        tag: 'pipe-hero',
+        child: Material(
+          type: MaterialType.transparency,
+          child: Container(
+            width: 170, height: 170,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[800], border: Border.all(color: conduitStatusColor, width: 8)),
+            child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text("Pipe ${_activePipeIndex + 1}", style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+              const SizedBox(height: 4),
+              Text(
+                !isReady || _activePipe.size == null ? "-- Wires\n--% Fill" : "${_activePipe.wires.length} Wires\n${conduitFill.toStringAsFixed(1)}% Fill",
+                textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: isConduitViolation ? kRed : kLight, fontSize: 18),
+              ),
+              if (isReady && maxWires > 0) ...[
+                const SizedBox(height: 8),
+                Text("Max Wires: $maxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
+              ]
+            ])),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBoxVisual(Map<String, dynamic> results) {
+    final bool isReady = results['isReady'] ?? false;
+    final double boxFill = results['boxFillPercent'] ?? 0.0;
+    final bool isBoxViolation = results['isBoxFillViolation'] ?? false;
+    final int maxBoxWires = results['maxBoxWires'] ?? 0;
+    final isBoxWarning = boxFill > 90.0 && !isBoxViolation;
+    final boxStatusColor = !isReady || _selectedBoxSize == null ? Colors.grey : (isBoxViolation ? kRed : (isBoxWarning ? Colors.yellow : Colors.green));
+    final allWires = _allWires;
+
+    return GestureDetector(
+      onTap: _toggleBox,
+      child: Hero(
+        tag: 'box-hero',
+        child: Container(
+          width: 170, height: 170,
+          decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12.0),
+              color: Colors.grey[800],
+              border: Border.all(color: boxStatusColor, width: 8.0)
+          ),
+          child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            const Text("Box", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 4),
+            Text(
+              !isReady || _selectedBoxSize == null ? "-- Wires\n--% Fill" : "${allWires.length} Wires\n${boxFill.toStringAsFixed(1)}% Fill",
+              textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: isBoxViolation ? kRed : kLight, fontSize: 18),
+            ),
+            if (isReady && maxBoxWires > 0) ...[
+              const SizedBox(height: 8),
+              Text("Max Wires: $maxBoxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
+            ]
+          ])),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoBar() {
+    String text;
+    switch (_currentStep) {
+      case CalculatorStep.pipe: text = "Select Pipe Size"; break;
+      case CalculatorStep.box: text = "Select Box Size"; break;
+      case CalculatorStep.wire: text = "Select Wire Size"; break;
+      case CalculatorStep.insulation: text = "Select Insulation Type"; break;
+      case CalculatorStep.ambientTemp: text = "Select Ambient Temperature"; break;
+      case CalculatorStep.targetAmps: text = "Select Target Breaker Size"; break;
+      case CalculatorStep.free: text = "Add Wires to Calculate Derating"; break;
+    }
+
+    return FadeTransition(
+      opacity: _infoBarAnimation,
+      child: Container(
+        height: 40,
+        width: double.infinity,
+        decoration: BoxDecoration(color: const Color(0xFF2C3030), borderRadius: BorderRadius.circular(6), border: Border.all(color: kSilver.withAlpha(180))),
+        child: Center(child: Text(text, style: const TextStyle(color: kLight, fontSize: 16, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic))),
+      ),
+    );
+  }
+
+  Widget _buildDeratingData(Map<String, dynamic> results) {
+    final bool isReady = results['isReady'] ?? false;
+    final adjustmentFactor = (results['adjustmentFactor'] as double? ?? 1.0);
+    final tempCorrectionFactor = (results['tempCorrectionFactor'] as double? ?? 1.0);
+    final voltageDrop = results['voltageDrop'] as double? ?? 0.0;
+    final voltageDropPercent = results['voltageDropPercent'] as double? ?? 0.0;
+    final bool isVoltageDropViolation = voltageDropPercent > 3.0;
+    final int finalBreakerSize = results['finalBreakerSize'] ?? 0;
+    final bool meetsTarget = _targetBreakerSize != null && finalBreakerSize >= _targetBreakerSize!;
+    final int startingAmpacity = results['startingAmpacity'] ?? 0;
+    final double newAmpacity = results['newAmpacity'] as double? ?? 0.0;
+
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.all(4.0),
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
+        decoration: BoxDecoration(color: const Color.fromRGBO(0, 0, 0, 0.75), borderRadius: BorderRadius.circular(6.0), border: Border.all(color: Colors.white54)),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Derating & VD", style: Theme.of(context).textTheme.titleLarge?.copyWith(color: kLight, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              _StyledDropdown(
+                value: _selectedAmbientTempKey,
+                hint: "Ambient Temp °F",
+                items: ConduitDB.temperatureCorrectionFactors["90C"]!.keys.map((s) {
+                  return DropdownMenuItem(value: s, child: Text(s));
+                }).toList(),
+                onChanged: (v) {
+                  setState(() {
+                    _selectedAmbientTempKey = v;
+                    if (!_isInitialSetupComplete) _updateStep(CalculatorStep.targetAmps);
+                  });
+                },
+                isActive: _currentStep == CalculatorStep.ambientTemp,
+                isEnabled: _currentStep == CalculatorStep.ambientTemp || _currentStep == CalculatorStep.targetAmps || _currentStep == CalculatorStep.free || _isInitialSetupComplete,
+              ),
+              const SizedBox(height: 4),
+              _StyledDropdown(
+                value: _targetBreakerSize?.toString(),
+                hint: "Target Breaker Size",
+                items: ConduitDB.standardBreakerSizes.map((s) => DropdownMenuItem(value: s.toString(), child: Text("${s}A"))).toList(),
+                onChanged: (v) {
+                  setState(() {
+                    _targetBreakerSize = v != null ? int.tryParse(v) : null;
+                    if (!_isInitialSetupComplete) {
+                      _updateStep(CalculatorStep.free);
+                      _isInitialSetupComplete = true;
+                    }
+                  });
+                },
+                isActive: _currentStep == CalculatorStep.targetAmps,
+                isEnabled: _currentStep == CalculatorStep.targetAmps || _currentStep == CalculatorStep.free || _isInitialSetupComplete,
+              ),
+              const SizedBox(height: 8),
+              Text("Starting Ampacity: ${isReady ? startingAmpacity : '--'}A", style: const TextStyle(color: kLight, fontSize: 14)),
+              const SizedBox(height: 2),
+              Text("Temp Factor: ${isReady ? (tempCorrectionFactor * 100).toStringAsFixed(0) : '--'}%", style: const TextStyle(color: kLight, fontSize: 14)),
+              const SizedBox(height: 2),
+              Text("Bundle Factor: ${isReady ? (adjustmentFactor * 100).toStringAsFixed(0) : '--'}%", style: const TextStyle(color: kLight, fontSize: 14)),
+              const SizedBox(height: 2),
+              Text("New Ampacity: ${isReady ? newAmpacity.toStringAsFixed(1) : '--'}A", style: const TextStyle(color: kLight, fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 2),
+              Text(
+                "Final Breaker Size: ${isReady ? finalBreakerSize : '--'}A",
+                style: TextStyle(
+                  color: _targetBreakerSize == null ? Colors.green : (meetsTarget ? Colors.green : kRed),
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const Divider(color: Colors.white24, height: 16),
+              Text(
+                "Voltage Drop: ${voltageDrop.toStringAsFixed(1)}V (${voltageDropPercent.toStringAsFixed(1)}%)",
+                style: TextStyle(color: isVoltageDropViolation ? kRed : kLight, fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              _buildTappableBox("Length (ft)", _length.toStringAsFixed(1), () => _showVoltDropKeypad('Length')),
+              const SizedBox(height: 4),
+              _buildTappableBox("Voltage", _voltage.toStringAsFixed(1), () => _showVoltDropKeypad('Voltage')),
+              const SizedBox(height: 16),
+              Center(child: _StyledButton(onPressed: _reset, label: "Reset Calculator")),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTappableBox(String label, String value, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF4E4E52), Color(0xFF2C3030)],
+          ),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w700)),
+            Text(value, style: const TextStyle(color: kLight, fontSize: 16, fontWeight: FontWeight.w700)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PipeUIDetailView extends StatefulWidget {
+  final List<Pipe> pipes;
+  final int activePipeIndex;
+  final VoidCallback onAddPipe;
+  final ValueChanged<int> onSetActivePipe;
+  final AnimationController animationController;
+  final Map<String, dynamic> results;
+  final String? selectedBoxSize;
+
+  const _PipeUIDetailView({
+    required this.pipes,
+    required this.activePipeIndex,
+    required this.onAddPipe,
+    required this.onSetActivePipe,
+    required this.animationController,
+    required this.results,
+    required this.selectedBoxSize,
+  });
+
+  @override
+  State<_PipeUIDetailView> createState() => _PipeUIDetailViewState();
+}
+
+class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
+  late int _localActivePipeIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _localActivePipeIndex = widget.activePipeIndex;
+  }
+
+  Pipe get _activePipe => widget.pipes[_localActivePipeIndex];
+
+  String _generateWireSummary(Pipe pipe) {
+    if (pipe.wires.isEmpty) {
+      return "Empty";
+    }
+    final summary = <String, int>{};
+    for (final wire in pipe.wires) {
+      final key = "${wire.size} ${wire.insulation}";
+      summary[key] = (summary[key] ?? 0) + 1;
+    }
+    return summary.entries.map((e) => "${e.value}x ${e.key}").join('\n');
+  }
+
+  double _calculatePipeFill(Pipe pipe) {
+    if (pipe.size == null) {
+      return 0.0;
+    }
+    final double maxArea = ConduitDB.emtMaxFill[pipe.size] ?? 1.0;
+    final double totalArea = pipe.wires.fold(0.0, (sum, w) => sum + (ConduitDB.wireAreas[w.size]?[w.insulation] ?? 0.0));
+    return totalArea.isFinite && maxArea > 0 ? (totalArea / maxArea) * 100 : 0.0;
+  }
+
+  String _getAbbreviation(String? fullName) {
+    if (fullName == null) return "N/A";
+    if (fullName.endsWith(" EMT")) return fullName.replaceAll(" EMT", "\"");
+
+    switch (fullName) {
+      case "4x1-1/2 Sq": return "4s";
+      case "4x2-1/8 Sq": return "4s deep";
+      case "4-11/16x2-1/8 Sq": return "5s";
+      case "4x2-1/8 Oct": return "4o";
+      case "4x2-1/8 Deep Oct": return "4o deep";
+      default:
+        if (fullName.contains("x")) {
+          final parts = fullName.split('x');
+          if (parts.length >= 2) return "${parts[0]}x${parts[1]}";
+        }
+        return fullName;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // This constant provides an easy way to adjust the vertical position of the content block.
+    const double kVerticalOffset = 50.0;
+
+    return Scaffold(
+      backgroundColor: Colors.black.withOpacity(0.85),
+      body: Center(
+        child: Hero(
+          tag: 'pipe-hero',
+          child: AnimatedBuilder(
+            animation: widget.animationController,
+            builder: (context, child) {
+              return Container(
+                width: double.infinity,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: kBlack,
+                  gradient: LinearGradient(
+                    colors: const [kSilver, kRed],
+                    stops: [widget.animationController.value, widget.animationController.value + 0.5],
+                    transform: const GradientRotation(pi / 4),
+                  ),
+                ),
+                child: Container(
+                  margin: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(shape: BoxShape.circle, color: kBlack),
+                  child: child,
+                ),
+              );
+            },
+            child: Material(
+              color: Colors.transparent,
+              child: Scaffold(
+                backgroundColor: Colors.transparent,
+                body: Center(
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: MediaQuery.of(context).size.width, // Constrain height to be circular
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: kVerticalOffset),
+                      child: _buildPipeDashboard(),
+                    ),
+                  ),
+                ),
+                persistentFooterButtons: [
+                  SizedBox(
+                    width: 200,
+                    child: _StyledButton(onPressed: () => Navigator.of(context).pop(), label: "Done"),
+                  ),
+                ],
+                persistentFooterAlignment: AlignmentDirectional.center,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPipeDashboard() {
+    final fillPercent = _calculatePipeFill(_activePipe);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          _buildPipeInfoSection(),
+          const SizedBox(height: 24),
+          _buildDivider(),
+          const SizedBox(height: 24),
+          _buildInfoSection("Wire Summary", _generateWireSummary(_activePipe)),
+          const SizedBox(height: 24),
+          _buildDivider(),
+          const SizedBox(height: 24),
+          _buildInfoSection("Conduit Fill", "${fillPercent.toStringAsFixed(1)}%"),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDivider() {
+    return SizedBox(
+      width: MediaQuery.of(context).size.width * 0.6,
+      child: const Divider(color: kSilver, height: 1),
+    );
+  }
+
+  Widget _buildPipeInfoSection() {
+    final pipeSize = _getAbbreviation(_activePipe.size);
+    String infoText = pipeSize;
+
+    if (widget.selectedBoxSize != null) {
+      final boxSize = _getAbbreviation(widget.selectedBoxSize);
+      final boxFill = widget.results['boxFillPercent'] as double? ?? 0.0;
+      infoText += " to $boxSize (${boxFill.toStringAsFixed(1)}% Fill)";
+    }
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            IconButton(icon: const Icon(Icons.add_circle, color: kLight, size: 36), onPressed: widget.onAddPipe),
+            const SizedBox(width: 4),
+            SizedBox(
+                width: 140,
+                child: _buildPipeSelectorDropdown()
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(infoText, style: const TextStyle(color: Colors.white70, fontSize: 18), textAlign: TextAlign.center),
+      ],
+    );
+  }
+
+  Widget _buildPipeSelectorDropdown() {
+    return DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: _localActivePipeIndex.toString(),
+        hint: const Text("Select Pipe"),
+        isExpanded: true,
+        icon: const Icon(Icons.arrow_drop_down, color: kLight, size: 36),
+        style: const TextStyle(color: kLight, fontSize: 30, fontWeight: FontWeight.bold),
+        dropdownColor: const Color(0xFF2C3030),
+        items: List.generate(widget.pipes.length, (index) {
+          return DropdownMenuItem(
+            value: index.toString(),
+            child: Center(child: Text("Pipe ${index + 1}")),
+          );
+        }),
+        onChanged: (v) {
+          if (v != null) {
+            final newIndex = int.parse(v);
+            setState(() => _localActivePipeIndex = newIndex);
+            widget.onSetActivePipe(newIndex);
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _buildInfoSection(String title, String value) {
+    return Column(
+      children: [
+        Text(title, style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 30)),
+        const SizedBox(height: 10),
+        Text(value, style: const TextStyle(color: Colors.white70, fontSize: 18), textAlign: TextAlign.center),
+      ],
+    );
+  }
+}
+
+class _BoxUIDetailView extends StatefulWidget {
+  final Map<String, dynamic> results;
+  final int deviceCount;
+  final int clampCount;
+  final int supportFittingCount;
+  final List<Pipe> pipes;
+  final ValueChanged<int> onDeviceCountChanged;
+  final ValueChanged<int> onClampCountChanged;
+  final ValueChanged<int> onSupportFittingCountChanged;
+  final Function(String pipeId, PullType pullType) onPullTypeChanged;
+
+  const _BoxUIDetailView({
+    required this.results,
+    required this.deviceCount,
+    required this.clampCount,
+    required this.supportFittingCount,
+    required this.pipes,
+    required this.onDeviceCountChanged,
+    required this.onClampCountChanged,
+    required this.onSupportFittingCountChanged,
+    required this.onPullTypeChanged,
+  });
+
+  @override
+  State<_BoxUIDetailView> createState() => _BoxUIDetailViewState();
+}
+
+class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black.withOpacity(0.85),
+      body: Center(
+        child: Hero(
+          tag: 'box-hero',
+          child: Container(
+            width: double.infinity,
+            height: double.infinity,
+            margin: const EdgeInsets.all(24),
+            child: Material(
+              color: Colors.grey[850],
+              borderRadius: BorderRadius.circular(12),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("Box Design", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 24)),
+                      const Divider(color: Colors.white24, height: 20),
+                      _buildAllowanceStepper("Devices (switches/outlets)", widget.deviceCount, widget.onDeviceCountChanged),
+                      _buildAllowanceStepper("Internal Cable Clamps", widget.clampCount, widget.onClampCountChanged, max: 1),
+                      _buildAllowanceStepper("Support Fittings (studs/hickeys)", widget.supportFittingCount, widget.onSupportFittingCountChanged),
+                      const Divider(color: Colors.white24, height: 20),
+                      const Text("Junction Box Sizing (NEC 314.28)", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)),
+                      const SizedBox(height: 8),
+                      Text("Min. Length for Straight Pulls: ${widget.results['minStraight']?.toStringAsFixed(1) ?? '0.0'}\"", style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                      Text("Min. Length for Angle Pulls: ${widget.results['minAngle']?.toStringAsFixed(1) ?? '0.0'}\"", style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: widget.pipes.length,
+                        itemBuilder: (context, index) {
+                          final pipe = widget.pipes[index];
+                          return _buildPullTypeSelector(pipe, index);
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                      Center(child: _StyledButton(onPressed: () => Navigator.of(context).pop(), label: "Done")),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPullTypeSelector(Pipe pipe, int index) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text("Pipe ${index + 1} (${pipe.size ?? 'N/A'})", style: const TextStyle(color: kLight, fontSize: 16)),
+          ToggleButtons(
+            isSelected: [pipe.pullType == PullType.straight, pipe.pullType == PullType.angle],
+            onPressed: (int newIndex) {
+              widget.onPullTypeChanged(pipe.id, newIndex == 0 ? PullType.straight : PullType.angle);
+              setState(() {}); // Rebuild this view
+            },
+            borderRadius: BorderRadius.circular(8),
+            selectedColor: kLight,
+            color: Colors.white70,
+            fillColor: kRed,
+            selectedBorderColor: kRed,
+            borderColor: kSilver,
+            children: const [
+              Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text("Straight")),
+              Padding(padding: EdgeInsets.symmetric(horizontal: 8), child: Text("Angle")),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAllowanceStepper(String title, int count, ValueChanged<int> onChanged, {int max = 100}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(child: Text(title, style: const TextStyle(color: kLight, fontSize: 16))),
+          Container(
+            decoration: BoxDecoration(color: const Color(0xFF2C3030), borderRadius: BorderRadius.circular(6), border: Border.all(color: kSilver.withAlpha(128))),
+            child: Row(
+              children: [
+                IconButton(icon: const Icon(Icons.remove, color: kLight), onPressed: count > 0 ? () => onChanged(count - 1) : null),
+                Text('$count', style: const TextStyle(color: kLight, fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.add, color: kLight), onPressed: count < max ? () => onChanged(count + 1) : null),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _WireStepper extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  final VoidCallback? onAdd;
+  final VoidCallback? onRemove;
+
+  const _WireStepper({ required this.label, required this.count, required this.color, this.onAdd, this.onRemove });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(color: const Color(0xFF2C3030), borderRadius: BorderRadius.circular(6), border: Border.all(color: color)),
+      child: Stack(
+        children: [
+          Positioned(
+            top: 1, left: 4,
+            child: Text(label, style: TextStyle(color: color.withAlpha(128), fontSize: 12, fontWeight: FontWeight.bold)),
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              IconButton(icon: const Icon(Icons.remove, color: kLight), onPressed: count > 0 ? onRemove : null),
+              Text('$count', style: const TextStyle(color: kLight, fontSize: 20, fontWeight: FontWeight.bold)),
+              IconButton(icon: const Icon(Icons.add, color: kLight), onPressed: onAdd),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StyledButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  final String label;
+
+  const _StyledButton({required this.onPressed, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        height: 44,
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [kRed, Color(0xFFD43D37)]),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
+        ),
+        child: Center(
+          child: Text(label, style: const TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.w700)),
+        ),
+      ),
+    );
+  }
+}
+
+class _StyledDropdown extends StatelessWidget {
+  final String? value;
+  final String hint;
+  final List<DropdownMenuItem<String>> items;
+  final ValueChanged<String?> onChanged;
+  final bool isActive;
+  final bool isEnabled;
+
+  const _StyledDropdown({ this.value, required this.hint, required this.items, required this.onChanged, this.isActive = false, this.isEnabled = true });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isEnabled ? (isActive ? [kRed, const Color(0xFFD43D37)] : [const Color(0xFF4E4E52), const Color(0xFF2C3030)]) : [Colors.grey[800]!, Colors.grey[850]!],
+        ),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          hint: Text(hint, style: TextStyle(color: isEnabled ? Colors.white70 : Colors.grey[600])),
+          isExpanded: true,
+          icon: Icon(Icons.arrow_drop_down, color: isEnabled ? kLight : Colors.grey[600]),
+          style: const TextStyle(color: kLight, fontSize: 16, fontWeight: FontWeight.w700),
+          dropdownColor: const Color(0xFF2C3030),
+          items: items,
+          onChanged: isEnabled ? onChanged : null,
+        ),
+      ),
+    );
+  }
+}

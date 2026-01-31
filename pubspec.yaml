@@ -1,0 +1,31 @@
+name: pipe_and_wire_clean
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.6 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.2
+  google_fonts: ^6.1.0
+  shimmer: ^3.0.0
+  fraction: ^5.0.5
+  provider: ^6.1.5+1
+  animated_text_kit: ^4.2.2
+  shared_preferences: ^2.2.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^2.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/sounds/soft_click_22k.wav
+    - assets/conduits/emt/
+    - assets/images/logo/
+
