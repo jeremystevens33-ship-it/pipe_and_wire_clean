@@ -10,7 +10,7 @@ const kLight = Colors.white;
 const kSilver = Color(0xFF9E9E9E);
 
 // --- ENUMS for State Management ---
-enum CalculatorStep { pipe, box, wire, insulation, ambientTemp, targetAmps, free }
+enum CalculatorStep { pipe, box, wire, insulation, ambientTemp, boxSetup, free }
 enum PullType { straight, angle }
 
 // --- DATA MODELS & DATABASE ---
@@ -26,6 +26,10 @@ class ConduitDB {
     "4x1-1/2 Sq": 21.0, "4x2-1/8 Sq": 30.3, "4-11/16x2-1/8 Sq": 42.0,
     "4x2-1/8 Oct": 15.5, "4x2-1/8 Deep Oct": 21.5,
     "6x6x4": 144.0, "8x8x4": 256.0, "10x10x4": 400.0, "12x12x4": 576.0, "12x12x6": 864.0,
+  };
+  
+  static const Map<String, double> mudRingVolumes = {
+    "Flat": 0.0, "1/4\"": 2.5, "1/2\"": 5.0, "5/8\"": 5.5, "3/4\"": 6.0, "1\"": 7.5,
   };
 
   static const Map<String, Map<String, int>> copperAmpacities = {
@@ -69,6 +73,10 @@ class ConduitDB {
   };
 
   static const List<int> standardBreakerSizes = [15, 20, 25, 30, 40, 45, 50, 60, 70, 80, 90, 100, 110, 125, 150, 175, 200];
+
+  static const Map<int, String> groundWireSizes = {
+    15: "14 AWG", 20: "12 AWG", 60: "10 AWG", 100: "8 AWG", 200: "6 AWG",
+  };
 }
 
 class Wire {
@@ -98,22 +106,26 @@ class UnifiedFeederCalculator extends StatefulWidget {
 }
 
 class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with TickerProviderStateMixin {
+  static const String _customBoxKey = "__CUSTOM__";
+
   CalculatorStep _currentStep = CalculatorStep.pipe;
   bool _isInitialSetupComplete = false;
 
   List<Pipe> _pipes = [Pipe()];
   int _activePipeIndex = 0;
 
+  late Map<String, double> _dynamicBoxVolumes;
   String? _selectedBoxSize;
   String? _selectedWireSize;
   String? _selectedInsulation;
+  String? _selectedMudRing;
 
   int _deviceCount = 0;
   int _clampCount = 0;
   int _supportFittingCount = 0;
 
   String? _selectedAmbientTempKey;
-  int? _targetBreakerSize;
+
   double _length = 0.0;
   double _voltage = 0.0;
 
@@ -144,6 +156,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   @override
   void initState() {
     super.initState();
+    _dynamicBoxVolumes = Map.from(ConduitDB.boxVolumes);
     _borderAnimationController = AnimationController(vsync: this, duration: const Duration(seconds: 15))..repeat(reverse: true);
     _infoBarAnimationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
     _infoBarAnimation = CurvedAnimation(parent: _infoBarAnimationController, curve: Curves.easeIn);
@@ -217,6 +230,15 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     );
   }
 
+  String _getGroundWireSize(int breakerSize) {
+    if (breakerSize <= 15) return ConduitDB.groundWireSizes[15]!;
+    if (breakerSize <= 20) return ConduitDB.groundWireSizes[20]!;
+    if (breakerSize <= 60) return ConduitDB.groundWireSizes[60]!;
+    if (breakerSize <= 100) return ConduitDB.groundWireSizes[100]!;
+    if (breakerSize <= 200) return ConduitDB.groundWireSizes[200]!;
+    return "N/A";
+  }
+
   Map<String, dynamic> _calculateResults() {
     final Map<String, dynamic> boxSizing = _calculateBoxSizing();
     final allWires = _allWires;
@@ -227,7 +249,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       "boxFillPercent": 0.0, "isBoxFillViolation": false, "startingAmpacity": 0,
       "newAmpacity": 0.0, "finalBreakerSize": 0, "adjustmentFactor": 1.0,
       "tempCorrectionFactor": 1.0, "voltageDrop": 0.0, "voltageDropPercent": 0.0,
-      "maxWires": 0, "maxBoxWires": 0, ...boxSizing
+      "maxWires": 0, "maxBoxWires": 0, "groundWireSize": "N/A", ...boxSizing
     };
 
     if (_activePipe.size == null && allWires.isEmpty) {
@@ -240,29 +262,83 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     int maxWires = 0;
     // Only calculate max wires if all wires in the pipe are the same type
     final wireTypes = activePipeWires.map((w) => '${w.size}-${w.insulation}').toSet();
-    if (wireTypes.length == 1) {
-        final firstWire = activePipeWires.first;
-        final double? wireArea = ConduitDB.wireAreas[firstWire.size]?[firstWire.insulation];
-        if (wireArea != null && maxArea != null && wireArea > 0) {
-            maxWires = (maxArea / wireArea).floor();
-        }
-    } else if (activePipeWires.isEmpty && _selectedWireSize != null && _selectedInsulation != null) {
-        // Also calculate if the pipe is empty but a wire type is selected
-        final double? wireArea = ConduitDB.wireAreas[_selectedWireSize!]![_selectedInsulation!];
-        if (wireArea != null && maxArea != null && wireArea > 0) {
-            maxWires = (maxArea / wireArea).floor();
-        }
-    }
+    if (wireTypes.length <= 1) { // Changed to <= 1 to handle empty pipe case
+      final wireSize = activePipeWires.isNotEmpty ? activePipeWires.first.size : _selectedWireSize;
+      final insulation = activePipeWires.isNotEmpty ? activePipeWires.first.insulation : _selectedInsulation;
 
-
-    int maxBoxWires = 0;
-    if (_selectedBoxSize != null && _selectedWireSize != null) {
-      final double? boxVolume = ConduitDB.boxVolumes[_selectedBoxSize];
-      final double? wireVolume = ConduitDB.wireVolumes[_selectedWireSize];
-      if (boxVolume != null && wireVolume != null && wireVolume > 0) {
-        maxBoxWires = (boxVolume / wireVolume).floor();
+      if (wireSize != null && insulation != null) {
+        final double? wireArea = ConduitDB.wireAreas[wireSize]?[insulation];
+        if (wireArea != null && maxArea != null && wireArea > 0) {
+          maxWires = (maxArea / wireArea).floor();
+        }
       }
     }
+
+    // --- Box Calculation Variables ---
+    double conductorVolume = allWires.fold(0.0, (sum, w) => sum + (ConduitDB.wireVolumes[w.size] ?? 0.0));
+    double clampVolume = 0;
+    double supportFittingVolume = 0;
+    double deviceVolume = 0;
+    double groundingVolume = 0;
+    int maxBoxWires = 0;
+
+    // Find largest conductors for allowances
+    Wire? largestConductor = allWires.where((w) => !w.isGround).toList().fold(null, (largest, current) {
+      if (largest == null) return current;
+      final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
+      final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
+      return currentSize < largestSize ? current : largest;
+    });
+
+    Wire? largestGround = allWires.where((w) => w.isGround).toList().fold(null, (largest, current) {
+      if (largest == null) return current;
+      final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
+      final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
+      return currentSize < largestSize ? current : largest;
+    });
+
+    // --- NEW LOGIC for calculating allowance volumes ---
+    // Determine the wire size to use for allowances. Fallback to selected size if no wires are in the box yet.
+    String? allowanceWireSize;
+    if (largestConductor != null) {
+      allowanceWireSize = largestConductor.size;
+    } else if (allWires.isEmpty && _selectedWireSize != null) {
+      allowanceWireSize = _selectedWireSize;
+    }
+
+    // Calculate allowance volumes based on the determined size.
+    if (allowanceWireSize != null) {
+      final double? allowance = ConduitDB.wireVolumes[allowanceWireSize];
+      if (allowance != null) {
+        clampVolume = _clampCount * allowance;
+        supportFittingVolume = _supportFittingCount * allowance;
+        deviceVolume = _deviceCount * 2 * allowance;
+      }
+    }
+
+    if (largestGround != null) {
+      groundingVolume = ConduitDB.wireVolumes[largestGround.size]!;
+    }
+
+    // Calculate Max Box Wires
+    if (_selectedBoxSize != null && _selectedWireSize != null) {
+      final double? boxVolume = _dynamicBoxVolumes[_selectedBoxSize];
+      final double? wireVolume = ConduitDB.wireVolumes[_selectedWireSize];
+
+      if (boxVolume != null && wireVolume != null && wireVolume > 0) {
+        double totalAvailableVolume = boxVolume;
+        if (_selectedMudRing != null) {
+          totalAvailableVolume += ConduitDB.mudRingVolumes[_selectedMudRing!] ?? 0.0;
+        }
+        final double availableBoxVolumeForWires = totalAvailableVolume - (clampVolume + supportFittingVolume + deviceVolume + groundingVolume);
+        if (availableBoxVolumeForWires > 0) {
+          maxBoxWires = (availableBoxVolumeForWires / wireVolume).floor();
+        } else {
+          maxBoxWires = 0;
+        }
+      }
+    }
+
 
     if (activePipeWires.isEmpty && allWires.isEmpty) {
       return {
@@ -276,43 +352,14 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
 
     double boxFillPercent = 0.0;
     bool isBoxFillViolation = false;
-    double conductorVolume = 0;
-    double clampVolume = 0;
-    double supportFittingVolume = 0;
-    double deviceVolume = 0;
-    double groundingVolume = 0;
     double totalBoxVolume = 0;
     double maxBoxVolume = 0;
 
     if (_selectedBoxSize != null) {
-      maxBoxVolume = ConduitDB.boxVolumes[_selectedBoxSize]!;
-      conductorVolume = allWires.fold(0.0, (sum, w) => sum + (ConduitDB.wireVolumes[w.size] ?? 0.0));
-
-      Wire? largestConductor = allWires.where((w) => !w.isGround).toList().fold(null, (largest, current) {
-        if (largest == null) return current;
-        final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
-        final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
-        return currentSize < largestSize ? current : largest;
-      });
-
-      Wire? largestGround = allWires.where((w) => w.isGround).toList().fold(null, (largest, current) {
-        if (largest == null) return current;
-        final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
-        final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
-        return currentSize < largestSize ? current : largest;
-      });
-
-      if (largestConductor != null) {
-        final double allowance = ConduitDB.wireVolumes[largestConductor.size]!;
-        clampVolume = _clampCount * allowance;
-        supportFittingVolume = _supportFittingCount * allowance;
-        deviceVolume = _deviceCount * 2 * allowance;
+      maxBoxVolume = _dynamicBoxVolumes[_selectedBoxSize]!;
+      if (_selectedMudRing != null) {
+        maxBoxVolume += ConduitDB.mudRingVolumes[_selectedMudRing!] ?? 0.0;
       }
-
-      if (largestGround != null) {
-        groundingVolume = ConduitDB.wireVolumes[largestGround.size]!;
-      }
-
       totalBoxVolume = conductorVolume + clampVolume + supportFittingVolume + deviceVolume + groundingVolume;
       boxFillPercent = totalBoxVolume.isFinite && maxBoxVolume > 0 ? (totalBoxVolume / maxBoxVolume) * 100 : 0.0;
       isBoxFillViolation = totalBoxVolume > maxBoxVolume;
@@ -376,13 +423,16 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       voltageDropPercent = (voltageDrop / _voltage) * 100;
     }
 
+    final String groundWireSize = _getGroundWireSize(finalBreakerSize);
+
     return {
       "isReady": true, "conduitFillPercent": conduitFillPercent, "isConduitFillViolation": isConduitFillViolation,
       "boxFillPercent": boxFillPercent, "isBoxFillViolation": isBoxFillViolation,
       "startingAmpacity": startingAmpacity, "newAmpacity": newAmpacity,
       "finalBreakerSize": finalBreakerSize, "adjustmentFactor": adjustmentFactor,
       "tempCorrectionFactor": tempCorrectionFactor, "voltageDrop": voltageDrop,
-      "voltageDropPercent": voltageDropPercent, "maxWires": maxWires, "maxBoxWires": maxBoxWires, ...boxSizing,
+      "voltageDropPercent": voltageDropPercent, "maxWires": maxWires, "maxBoxWires": maxBoxWires,
+      "groundWireSize": groundWireSize, ...boxSizing,
       "conductorVolume": conductorVolume, "clampVolume": clampVolume, "supportFittingVolume": supportFittingVolume,
       "deviceVolume": deviceVolume, "groundingVolume": groundingVolume, "totalBoxVolume": totalBoxVolume, "maxBoxVolume": maxBoxVolume,
     };
@@ -407,8 +457,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   }
 
   void _updateStep(CalculatorStep newStep) {
-    if (_isInitialSetupComplete) {
-      setState(() { _currentStep = CalculatorStep.free; });
+    if (_isInitialSetupComplete && newStep != CalculatorStep.free) {
+      // Don't revert to a previous step if setup is complete, unless specifically going to free
       return;
     }
     setState(() {
@@ -430,8 +480,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     setState(() => _activePipeIndex = index);
   }
 
-  void _toggleBox() {
-    Navigator.of(context).push(
+  void _toggleBox() async {
+    await Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 700),
         pageBuilder: (context, animation, secondaryAnimation) => _BoxUIDetailView(
@@ -439,12 +489,14 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
           deviceCount: _deviceCount,
           clampCount: _clampCount,
           supportFittingCount: _supportFittingCount,
+          selectedMudRing: _selectedMudRing,
           pipes: _pipes,
           selectedBoxSize: _selectedBoxSize,
           allWires: _allWires,
           onDeviceCountChanged: (c) => setState(() => _deviceCount = c),
           onClampCountChanged: (c) => setState(() => _clampCount = c),
           onSupportFittingCountChanged: (c) => setState(() => _supportFittingCount = c),
+          onMudRingChanged: (s) => setState(() => _selectedMudRing = s),
           onPullTypeChanged: (pipeId, pullType) {
             setState(() {
               final pipeToUpdate = _pipes.firstWhere((p) => p.id == pipeId);
@@ -457,6 +509,15 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         },
       ),
     );
+
+    // After the box detail screen is closed, move to the final step.
+    if (_currentStep == CalculatorStep.boxSetup) {
+      setState(() {
+        _currentStep = CalculatorStep.free;
+        _infoBarAnimationController.reset();
+        _infoBarAnimationController.forward();
+      });
+    }
   }
 
   void _togglePipeUI() {
@@ -505,16 +566,18 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     setState(() {
       _pipes = [Pipe()];
       _activePipeIndex = 0;
+      _dynamicBoxVolumes = Map.from(ConduitDB.boxVolumes);
       _selectedBoxSize = null;
       _selectedWireSize = null;
       _selectedInsulation = null;
+      _selectedMudRing = null;
       _currentStep = CalculatorStep.pipe;
       _isInitialSetupComplete = false;
       _deviceCount = 0;
       _clampCount = 0;
       _supportFittingCount = 0;
       _selectedAmbientTempKey = null;
-      _targetBreakerSize = null;
+
       _length = 0.0;
       _voltage = 0.0;
     });
@@ -543,6 +606,32 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       ),
     );
   }
+
+  void _showCustomBoxDialog() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: VoltDropKeypad(
+          initialValue: "0.0",
+          onConfirm: (value) {
+            if (value > 0) {
+              setState(() {
+                final customKey = "Custom (${value.toStringAsFixed(1)} in³)";
+                _dynamicBoxVolumes[customKey] = value;
+                _selectedBoxSize = customKey;
+                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+              });
+            }
+            Navigator.pop(context);
+          },
+        ),
+      ),
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -592,6 +681,20 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
 
   Widget _buildSelectorGrid() {
     const spacing = 4.0;
+
+    // Create the list of dropdown items dynamically
+    List<DropdownMenuItem<String>> boxItems = _dynamicBoxVolumes.keys.map((s) {
+      return DropdownMenuItem(value: s, child: Text(s));
+    }).toList();
+
+    // Add the special "Enter Custom" item
+    boxItems.add(
+      const DropdownMenuItem(
+        value: _customBoxKey,
+        child: Text("Enter Custom Size...", style: TextStyle(fontStyle: FontStyle.italic, color: kSilver)),
+      ),
+    );
+
     return Column(
       children: [
         Row(children: [
@@ -610,11 +713,17 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
           Expanded(child: _StyledDropdown(
             value: _selectedBoxSize,
             hint: "Box Size",
-            items: ConduitDB.boxVolumes.keys.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
-            onChanged: (v) => setState(() {
-              _selectedBoxSize = v;
-              if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
-            }),
+            items: boxItems,
+            onChanged: (v) {
+              if (v == _customBoxKey) {
+                _showCustomBoxDialog();
+              } else {
+                setState(() {
+                  _selectedBoxSize = v;
+                  if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+                });
+              }
+            },
             isActive: _currentStep == CalculatorStep.box,
             isEnabled: _currentStep != CalculatorStep.pipe || _isInitialSetupComplete,
           )),
@@ -652,6 +761,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       ],
     );
   }
+
 
   Widget _buildWireSteppers() {
     const spacing = 4.0;
@@ -710,18 +820,18 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[800], border: Border.all(color: conduitStatusColor, width: 8)),
               child: Center(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Text("Pipe ${_activePipeIndex + 1}", style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
-                const SizedBox(height: 4),
-                Text(
-                  !isReady || _activePipe.size == null ? "-- Wires\n--% Fill" : "${_activePipe.wires.length} Wires\n${conduitFill.toStringAsFixed(1)}% Fill",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontWeight: FontWeight.w700, color: isConduitViolation ? kRed : kLight, fontSize: 18),
-                ),
-                if (isReady && maxWires > 0 && showMaxWires) ...[
-                  const SizedBox(height: 8),
-                  Text("Max Wires: $maxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
-                ]
-              ])),
+                    Text("Pipe ${_activePipeIndex + 1}", style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+                    const SizedBox(height: 4),
+                    Text(
+                      !isReady || _activePipe.size == null ? "-- Wires\n--% Fill" : "${_activePipe.wires.length} Wires\n${conduitFill.toStringAsFixed(1)}% Fill",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontWeight: FontWeight.w700, color: isConduitViolation ? kRed : kLight, fontSize: 18),
+                    ),
+                    if (isReady && maxWires > 0 && showMaxWires) ...[
+                      const SizedBox(height: 8),
+                      Text("Max Wires: $maxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
+                    ]
+                  ])),
             ),
           ),
         ),
@@ -735,10 +845,12 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final bool isBoxViolation = results['isBoxFillViolation'] ?? false;
     final int maxBoxWires = results['maxBoxWires'] ?? 0;
     final isBoxWarning = boxFill > 90.0 && !isBoxViolation;
-    final boxStatusColor = !isReady || _selectedBoxSize == null ? Colors.grey : (isBoxViolation ? kRed : (isBoxWarning ? Colors.yellow : Colors.green));
+    final boxStatusColor = _currentStep == CalculatorStep.boxSetup
+        ? kRed
+        : (!isReady || _selectedBoxSize == null ? Colors.grey : (isBoxViolation ? kRed : (isBoxWarning ? Colors.yellow : Colors.green)));
     final allWires = _allWires;
     final wireTypes = allWires.map((w) => '${w.size}-${w.insulation}').toSet();
-    final bool showMaxBoxWires = wireTypes.length <= 1;
+    final bool showMaxBoxWires = wireTypes.length <= 1 || allWires.isEmpty;
 
 
     return GestureDetector(
@@ -777,7 +889,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       case CalculatorStep.wire: text = "Select Wire Size"; break;
       case CalculatorStep.insulation: text = "Select Insulation Type"; break;
       case CalculatorStep.ambientTemp: text = "Select Ambient Temperature"; break;
-      case CalculatorStep.targetAmps: text = "Select Target Breaker Size"; break;
+      case CalculatorStep.boxSetup: text = "Next: Tap the Box to add devices or fittings."; break;
       case CalculatorStep.free: text = "Add Wires to Calculate Derating"; break;
     }
 
@@ -800,7 +912,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final voltageDropPercent = results['voltageDropPercent'] as double? ?? 0.0;
     final bool isVoltageDropViolation = voltageDropPercent > 3.0;
     final int finalBreakerSize = results['finalBreakerSize'] ?? 0;
-    final bool meetsTarget = _targetBreakerSize != null && finalBreakerSize >= _targetBreakerSize!;
+    final String groundWireSize = results['groundWireSize'] ?? "N/A";
     final int startingAmpacity = results['startingAmpacity'] ?? 0;
     final double newAmpacity = results['newAmpacity'] as double? ?? 0.0;
 
@@ -829,28 +941,14 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                     onChanged: (v) {
                       setState(() {
                         _selectedAmbientTempKey = v;
-                        if (!_isInitialSetupComplete) _updateStep(CalculatorStep.targetAmps);
-                      });
-                    },
-                    isActive: _currentStep == CalculatorStep.ambientTemp,
-                    isEnabled: _currentStep == CalculatorStep.ambientTemp || _currentStep == CalculatorStep.targetAmps || _currentStep == CalculatorStep.free || _isInitialSetupComplete,
-                  ),
-                  const SizedBox(height: 4),
-                  _StyledDropdown(
-                    value: _targetBreakerSize?.toString(),
-                    hint: "Target Breaker Size",
-                    items: ConduitDB.standardBreakerSizes.map((s) => DropdownMenuItem(value: s.toString(), child: Text("${s}A"))).toList(),
-                    onChanged: (v) {
-                      setState(() {
-                        _targetBreakerSize = v != null ? int.tryParse(v) : null;
                         if (!_isInitialSetupComplete) {
-                          _updateStep(CalculatorStep.free);
+                          _updateStep(CalculatorStep.boxSetup);
                           _isInitialSetupComplete = true;
                         }
                       });
                     },
-                    isActive: _currentStep == CalculatorStep.targetAmps,
-                    isEnabled: _currentStep == CalculatorStep.targetAmps || _currentStep == CalculatorStep.free || _isInitialSetupComplete,
+                    isActive: _currentStep == CalculatorStep.ambientTemp,
+                    isEnabled: _currentStep == CalculatorStep.ambientTemp || _currentStep == CalculatorStep.free || _isInitialSetupComplete,
                   ),
                   const SizedBox(height: 16),
                   Text("Starting Ampacity: ${isReady ? startingAmpacity : '--'}A", style: const TextStyle(color: kLight, fontSize: 14)),
@@ -859,12 +957,30 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                   const SizedBox(height: 8),
                   Text("Bundle Factor: ${isReady ? (adjustmentFactor * 100).toStringAsFixed(0) : '--'}%", style: const TextStyle(color: kLight, fontSize: 14)),
                   const SizedBox(height: 8),
-                  Text("New Ampacity: ${isReady ? newAmpacity.toStringAsFixed(1) : '--'}A", style: const TextStyle(color: kLight, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(
+                    "New Ampacity: ${isReady ? newAmpacity.toStringAsFixed(1) : '--'}A",
+                    style: TextStyle(
+                      color: isReady && newAmpacity < 15.0 ? kRed : kLight,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   Text(
-                    "Final Breaker Size: ${isReady ? finalBreakerSize : '--'}A",
+                    "Final Breaker Size:\n${isReady ? finalBreakerSize : '--'}A",
+                    textAlign: TextAlign.left,
                     style: TextStyle(
-                      color: _targetBreakerSize == null ? Colors.green : (meetsTarget ? Colors.green : kRed),
+                      color: isReady && finalBreakerSize == 0 ? kRed : Colors.green,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Required Ground:\n${isReady ? groundWireSize : 'N/A'}",
+                    textAlign: TextAlign.left,
+                    style: const TextStyle(
+                      color: Colors.green,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1013,12 +1129,19 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
 
     final int cccCount = pipe.wires.where((w) => w.isCurrentCarrying).length;
     double adjustmentFactor = 1.0;
-    if (cccCount >= 4 && cccCount <= 6) adjustmentFactor = 0.80;
-    else if (cccCount >= 7 && cccCount <= 9) adjustmentFactor = 0.70;
-    else if (cccCount >= 10 && cccCount <= 20) adjustmentFactor = 0.50;
-    else if (cccCount >= 21 && cccCount <= 30) adjustmentFactor = 0.45;
-    else if (cccCount >= 31 && cccCount <= 40) adjustmentFactor = 0.40;
-    else if (cccCount >= 41) adjustmentFactor = 0.35;
+    if (cccCount >= 4 && cccCount <= 6) {
+      adjustmentFactor = 0.80;
+    } else if (cccCount >= 7 && cccCount <= 9) {
+      adjustmentFactor = 0.70;
+    } else if (cccCount >= 10 && cccCount <= 20) {
+      adjustmentFactor = 0.50;
+    } else if (cccCount >= 21 && cccCount <= 30) {
+      adjustmentFactor = 0.45;
+    } else if (cccCount >= 31 && cccCount <= 40) {
+      adjustmentFactor = 0.40;
+    } else if (cccCount >= 41) {
+      adjustmentFactor = 0.35;
+    }
 
     final tempCorrectionFactor = widget.results['tempCorrectionFactor'] as double? ?? 1.0;
     final deratingSummary = <String, Map<String, dynamic>>{};
@@ -1036,9 +1159,13 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
         final capAmps75 = ConduitDB.copperAmpacities[firstWire.size]?["75C"] ?? 0;
         final finalAmps = min(newAmpacity, capAmps75.toDouble());
         int overcurrentLimit = 1000;
-        if (firstWire.size == "14 AWG") overcurrentLimit = 15;
-        else if (firstWire.size == "12 AWG") overcurrentLimit = 20;
-        else if (firstWire.size == "10 AWG") overcurrentLimit = 30;
+        if (firstWire.size == "14 AWG") {
+          overcurrentLimit = 15;
+        } else if (firstWire.size == "12 AWG") {
+          overcurrentLimit = 20;
+        } else if (firstWire.size == "10 AWG") {
+          overcurrentLimit = 30;
+        }
         finalBreakerSize = ConduitDB.standardBreakerSizes.lastWhere((s) => s <= finalAmps, orElse: () => 0);
         finalBreakerSize = min(overcurrentLimit, finalBreakerSize);
       }
@@ -1064,6 +1191,8 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
   String _getAbbreviation(String? fullName) {
     if (fullName == null) return "N/A";
     if (fullName.endsWith(" EMT")) return fullName.replaceAll(" EMT", "\"");
+    if (fullName.startsWith("Custom")) return "Custom";
+
 
     switch (fullName) {
       case "4x1-1/2 Sq": return "4s";
@@ -1186,7 +1315,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
                 final breaker = summaryData['finalBreakerSize'];
                 final shortInsulation = wire.insulation.length > 4 ? wire.insulation.substring(0, 4) : wire.insulation;
                 String summaryText = "($count) #${wire.size.replaceAll(" AWG", "")} $shortInsulation";
-                 if (breaker > 0) {
+                if (breaker > 0) {
                   summaryText += " -> ${breaker}A Breaker";
                 }
                 return DropdownMenuItem(
@@ -1289,12 +1418,14 @@ class _BoxUIDetailView extends StatefulWidget {
   final int deviceCount;
   final int clampCount;
   final int supportFittingCount;
+  final String? selectedMudRing;
   final List<Pipe> pipes;
   final String? selectedBoxSize;
   final List<Wire> allWires;
   final ValueChanged<int> onDeviceCountChanged;
   final ValueChanged<int> onClampCountChanged;
   final ValueChanged<int> onSupportFittingCountChanged;
+  final ValueChanged<String?> onMudRingChanged;
   final Function(String pipeId, PullType pullType) onPullTypeChanged;
 
   const _BoxUIDetailView({
@@ -1302,12 +1433,14 @@ class _BoxUIDetailView extends StatefulWidget {
     required this.deviceCount,
     required this.clampCount,
     required this.supportFittingCount,
+    required this.selectedMudRing,
     required this.pipes,
     this.selectedBoxSize,
     required this.allWires,
     required this.onDeviceCountChanged,
     required this.onClampCountChanged,
     required this.onSupportFittingCountChanged,
+    required this.onMudRingChanged,
     required this.onPullTypeChanged,
   });
 
@@ -1319,6 +1452,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
   late int _deviceCount;
   late int _clampCount;
   late int _supportFittingCount;
+  String? _selectedMudRing;
 
   @override
   void initState() {
@@ -1326,6 +1460,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
     _deviceCount = widget.deviceCount;
     _clampCount = widget.clampCount;
     _supportFittingCount = widget.supportFittingCount;
+    _selectedMudRing = widget.selectedMudRing;
   }
 
   @override
@@ -1334,7 +1469,11 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
     final localResults = Map<String, dynamic>.from(widget.results);
     final conductorVolume = localResults['conductorVolume'] ?? 0.0;
     final groundingVolume = localResults['groundingVolume'] ?? 0.0;
-    final maxBoxVolume = localResults['maxBoxVolume'] ?? 0.0;
+    
+    double maxBoxVolume = localResults['maxBoxVolume'] ?? 0.0;
+    if (_selectedMudRing != null) {
+      maxBoxVolume += ConduitDB.mudRingVolumes[_selectedMudRing!] ?? 0.0;
+    }
 
     Wire? largestConductor = widget.allWires.where((w) => !w.isGround).toList().fold(null, (largest, current) {
       if (largest == null) return current;
@@ -1401,6 +1540,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
                         setState(() => _supportFittingCount = c);
                         widget.onSupportFittingCountChanged(c);
                       }),
+                      _buildMudRingSelector(),
                       const Divider(color: Colors.white24, height: 20),
                       const Text("Junction Box Sizing (NEC 314.28)", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)),
                       const SizedBox(height: 8),
@@ -1474,6 +1614,34 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
                 Text('$count', style: const TextStyle(color: kLight, fontSize: 20, fontWeight: FontWeight.bold)),
                 IconButton(icon: const Icon(Icons.add, color: kLight), onPressed: count < max ? () => onChanged(count + 1) : null),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMudRingSelector() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Expanded(
+            child: Text("Mud Ring / Plaster Ring", style: TextStyle(color: kLight, fontSize: 16)),
+          ),
+          SizedBox(
+            width: 150,
+            child: _StyledDropdown(
+              value: _selectedMudRing,
+              hint: "Select Ring",
+              items: ConduitDB.mudRingVolumes.keys.map((s) {
+                return DropdownMenuItem(value: s, child: Text(s));
+              }).toList(),
+              onChanged: (v) {
+                setState(() => _selectedMudRing = v);
+                widget.onMudRingChanged(v);
+              },
             ),
           ),
         ],
