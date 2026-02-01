@@ -21,12 +21,24 @@ class ConduitDB {
     "4 AWG": 5.00, "3 AWG": 5.00, "2 AWG": 5.00, "1 AWG": 5.00,
   };
 
-  // Standard box volumes in cubic inches
+  // Standard box volumes in cubic inches from NEC Table 314.16(A)
   static const Map<String, double> boxVolumes = {
-    "4x1-1/2 Sq": 21.0, "4x2-1/8 Sq": 30.3, "4-11/16x2-1/8 Sq": 42.0,
-    "4x2-1/8 Oct": 15.5, "4x2-1/8 Deep Oct": 21.5,
+    "4o Shallow": 12.5, "4o": 15.5, "4o Deep": 21.5,
+    "4s Shallow": 18.0, "4s": 21.0, "4s Deep": 30.3,
+    "5s Shallow": 25.5, "5s": 29.5, "5s Deep": 42.0,
+    "Device 3x2x1.5": 7.5, "Device 3x2x2": 10.0, "Device 3x2x2.25": 10.5,
+    "Device 3x2x2.5": 12.5, "Device 3x2x2.75": 14.0, "Device 3x2x3.5": 18.0,
+    "Device 4x2.125x1.5": 10.3, "Device 4x2.125x1.875": 13.0, "Device 4x2.125x2.125": 14.5,
+    "Masonry 3.75x2x2.5": 14.0, "Masonry 3.75x2x3.5": 21.0,
+    "FS Single Gang": 13.5, "FD Single Gang": 18.0,
+    "FS Multi Gang": 18.0, "FD Multi Gang": 24.0,
     "6x6x4": 144.0, "8x8x4": 256.0, "10x10x4": 400.0, "12x12x4": 576.0, "12x12x6": 864.0,
   };
+
+  static const List<String> popularBoxSizes = [
+    "4s", "4s Deep", "5s", "5s Deep", "4o", "4o Deep",
+    "6x6x4", "8x8x4", "10x10x4", "12x12x4",
+  ];
   
   static const Map<String, double> mudRingVolumes = {
     "Flat": 0.0, "1/4\"": 2.5, "1/2\"": 5.0, "5/8\"": 5.5, "3/4\"": 6.0, "1\"": 7.5,
@@ -107,6 +119,7 @@ class UnifiedFeederCalculator extends StatefulWidget {
 
 class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with TickerProviderStateMixin {
   static const String _customBoxKey = "__CUSTOM__";
+  static const String _moreBoxKey = "__MORE__";
 
   CalculatorStep _currentStep = CalculatorStep.pipe;
   bool _isInitialSetupComplete = false;
@@ -341,8 +354,12 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
 
 
     if (activePipeWires.isEmpty && allWires.isEmpty) {
+       int startingAmpacity = 0;
+       if (_selectedWireSize != null) {
+         startingAmpacity = ConduitDB.copperAmpacities[_selectedWireSize!]?["90C"] ?? 0;
+       }
       return {
-        ...defaultResults, "isReady": true, "maxWires": maxWires, "maxBoxWires": maxBoxWires, ...boxSizing
+        ...defaultResults, "isReady": true, "maxWires": maxWires, "maxBoxWires": maxBoxWires, "startingAmpacity": startingAmpacity, ...boxSizing
       };
     }
 
@@ -390,15 +407,22 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       return currentSize > smallestSize ? current : smallest;
     });
 
+    int startingAmpacity = 0;
+    if (smallestCCCWire != null) {
+      startingAmpacity = ConduitDB.copperAmpacities[smallestCCCWire.size]?["90C"] ?? 0;
+    } else if (_selectedWireSize != null) {
+      startingAmpacity = ConduitDB.copperAmpacities[_selectedWireSize!]?["90C"] ?? 0;
+    }
+
     if (smallestCCCWire == null) {
       return {
         ...defaultResults, "isReady": true, "conduitFillPercent": conduitFillPercent,
         "isConduitFillViolation": isConduitFillViolation, "boxFillPercent": boxFillPercent,
-        "isBoxFillViolation": isBoxFillViolation, "maxWires": maxWires, "maxBoxWires": maxBoxWires, ...boxSizing,
+        "isBoxFillViolation": isBoxFillViolation, "maxWires": maxWires, "maxBoxWires": maxBoxWires,
+        "startingAmpacity": startingAmpacity, ...boxSizing,
       };
     }
-
-    final int startingAmpacity = ConduitDB.copperAmpacities[smallestCCCWire.size]?["90C"] ?? 0;
+    
     final double newAmpacity = startingAmpacity * adjustmentFactor * tempCorrectionFactor;
     final int capAmps75 = ConduitDB.copperAmpacities[smallestCCCWire.size]?["75C"] ?? 0;
     final double finalAmps = min(newAmpacity, capAmps75.toDouble());
@@ -632,6 +656,45 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     );
   }
 
+  void _showMoreBoxesDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final otherBoxes = ConduitDB.boxVolumes.keys.where((s) => !ConduitDB.popularBoxSizes.contains(s)).toList();
+        return AlertDialog(
+          backgroundColor: const Color(0xFF2C3030),
+          title: const Text("Select a Box", style: TextStyle(color: kLight)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: otherBoxes.length,
+              itemBuilder: (context, index) {
+                final boxName = otherBoxes[index];
+                return ListTile(
+                  title: Text(boxName, style: const TextStyle(color: kLight)),
+                  onTap: () {
+                    setState(() {
+                      _selectedBoxSize = boxName;
+                      if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+                    });
+                    Navigator.of(context).pop();
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: const Text("Cancel", style: TextStyle(color: kLight)),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -683,7 +746,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     const spacing = 4.0;
 
     // Create the list of dropdown items dynamically
-    List<DropdownMenuItem<String>> boxItems = _dynamicBoxVolumes.keys.map((s) {
+    List<DropdownMenuItem<String>> boxItems = ConduitDB.popularBoxSizes.map((s) {
       return DropdownMenuItem(value: s, child: Text(s));
     }).toList();
 
@@ -692,6 +755,13 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       const DropdownMenuItem(
         value: _customBoxKey,
         child: Text("Enter Custom Size...", style: TextStyle(fontStyle: FontStyle.italic, color: kSilver)),
+      ),
+    );
+
+    boxItems.add(
+      const DropdownMenuItem(
+        value: _moreBoxKey,
+        child: Text("More Boxes...", style: TextStyle(fontStyle: FontStyle.italic, color: kSilver)),
       ),
     );
 
@@ -717,7 +787,10 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
             onChanged: (v) {
               if (v == _customBoxKey) {
                 _showCustomBoxDialog();
-              } else {
+              } else if (v == _moreBoxKey) {
+                _showMoreBoxesDialog();
+              }
+              else {
                 setState(() {
                   _selectedBoxSize = v;
                   if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
@@ -915,6 +988,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final String groundWireSize = results['groundWireSize'] ?? "N/A";
     final int startingAmpacity = results['startingAmpacity'] ?? 0;
     final double newAmpacity = results['newAmpacity'] as double? ?? 0.0;
+    final bool hasCalculationRun = _allWires.where((w) => w.isCurrentCarrying).isNotEmpty;
 
     return Expanded(
       child: Column(
@@ -960,7 +1034,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                   Text(
                     "New Ampacity: ${isReady ? newAmpacity.toStringAsFixed(1) : '--'}A",
                     style: TextStyle(
-                      color: isReady && newAmpacity < 15.0 ? kRed : kLight,
+                      color: hasCalculationRun && newAmpacity < 15.0 ? kRed : kLight,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                     ),
@@ -970,7 +1044,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                     "Final Breaker Size:\n${isReady ? finalBreakerSize : '--'}A",
                     textAlign: TextAlign.left,
                     style: TextStyle(
-                      color: isReady && finalBreakerSize == 0 ? kRed : Colors.green,
+                      color: hasCalculationRun ? (finalBreakerSize == 0 ? kRed : Colors.green) : kLight,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -979,8 +1053,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                   Text(
                     "Required Ground:\n${isReady ? groundWireSize : 'N/A'}",
                     textAlign: TextAlign.left,
-                    style: const TextStyle(
-                      color: Colors.green,
+                    style: TextStyle(
+                      color: hasCalculationRun ? Colors.green : kLight,
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1188,27 +1262,6 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     return totalArea.isFinite && maxArea > 0 ? (totalArea / maxArea) * 100 : 0.0;
   }
 
-  String _getAbbreviation(String? fullName) {
-    if (fullName == null) return "N/A";
-    if (fullName.endsWith(" EMT")) return fullName.replaceAll(" EMT", "\"");
-    if (fullName.startsWith("Custom")) return "Custom";
-
-
-    switch (fullName) {
-      case "4x1-1/2 Sq": return "4s";
-      case "4x2-1/8 Sq": return "4s deep";
-      case "4-11/16x2-1/8 Sq": return "5s";
-      case "4x2-1/8 Oct": return "4o";
-      case "4x2-1/8 Deep Oct": return "4o deep";
-      default:
-        if (fullName.contains("x")) {
-          final parts = fullName.split('x');
-          if (parts.length >= 2) return "${parts[0]}x${parts[1]}";
-        }
-        return fullName;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -1347,7 +1400,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     String infoText = pipeSize;
 
     if (widget.selectedBoxSize != null) {
-      final boxSize = _getAbbreviation(widget.selectedBoxSize!);
+      final boxSize = widget.selectedBoxSize!;
       final boxFill = widget.results['boxFillPercent'] as double? ?? 0.0;
       infoText += " to $boxSize (${boxFill.toStringAsFixed(1)}% Fill)";
     }
