@@ -7,6 +7,7 @@ class BoxSizingCodeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const BackButton(),
         title: const Text('Box Sizing & Spacing'),
       ),
       body: const Center(

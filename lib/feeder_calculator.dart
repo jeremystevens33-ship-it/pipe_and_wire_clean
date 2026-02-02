@@ -1,7 +1,14 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
 
+import 'package:pipe_and_wire_clean/junction_box_sizing_code_screen.dart';
 import 'package:pipe_and_wire_clean/keypad_volt_drop.dart';
+import 'package:pipe_and_wire_clean/neutral_ccc_code_screen.dart';
+import 'ampacity_derating_code_screen.dart';
+import 'box_sizing_code_screen.dart';
+import 'conduit_fill_code_screen.dart';
+import 'voltage_drop_code_screen.dart';
+
 
 // --- STYLE CONSTANTS ---
 const kRed = Color(0xFFE53935);
@@ -59,9 +66,10 @@ class ConduitDB {
     "3 AWG": {"THHN": 0.0973, "XHHW": 0.1112, "THWN-2": 0.0973}, "2 AWG": {"THHN": 0.1158, "XHHW": 0.1332, "THWN-2": 0.1158},
     "1 AWG": {"THHN": 0.1562, "XHHW": 0.1771, "THWN-2": 0.1562},
   };
-
-  static const Map<String, double> emtMaxFill = {
-    "1/2": 0.122, "3/4": 0.213, "1": 0.346, "1-1/4": 0.598, "1-1/2": 0.814, "2": 1.342,
+  
+  // Total Internal Area of Conduit (100% Fill)
+  static const Map<String, double> emtTotalArea = {
+    "1/2": 0.304, "3/4": 0.533, "1": 0.864, "1-1/4": 1.496, "1-1/2": 2.036, "2": 3.356,
   };
 
   static const Map<String, double> tradeSizesInches = {
@@ -138,6 +146,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   int _supportFittingCount = 0;
 
   String? _selectedAmbientTempKey;
+  bool _hasShownNeutralDialog = false;
+  bool _isNeutralCCC = false;
 
   double _length = 0.0;
   double _voltage = 0.0;
@@ -191,7 +201,11 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       if (type == 'Hot') {
         _activePipe.wires.add(Wire(size: size, insulation: insulation, isCurrentCarrying: true));
       } else if (type == 'Neutral') {
-        _showNeutralDialog(size, insulation);
+        if (!_hasShownNeutralDialog) {
+          _showOneTimeNeutralDialog(size, insulation);
+        } else {
+          _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: _isNeutralCCC));
+        }
       } else if (type == 'Ground') {
         _activePipe.wires.add(Wire(size: size, insulation: insulation, isGround: true, isCurrentCarrying: false));
       }
@@ -215,30 +229,61 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     });
   }
 
-  void _showNeutralDialog(String size, String insulation) {
+  void _toggleNeutralCCC() {
+    setState(() {
+      _isNeutralCCC = !_isNeutralCCC;
+    });
+  }
+
+  void _showOneTimeNeutralDialog(String size, String insulation) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF2C3030),
-        title: const Text("Neutral Type?", style: TextStyle(color: kLight)),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          ListTile(
-            title: const Text("Shared Neutral (MWBC)", style: TextStyle(color: kLight)),
-            subtitle: const Text("Does NOT count for heat.", style: TextStyle(color: Colors.white70)),
-            onTap: () {
-              setState(() => _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: false)));
+        title: const Text("Select Neutral Type", style: TextStyle(color: kLight)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text("Shared Neutral (MWBC)", style: TextStyle(color: kLight)),
+              subtitle: const Text("Does NOT count toward derating.", style: TextStyle(color: Colors.white70)),
+              onTap: () {
+                setState(() {
+                  _isNeutralCCC = false;
+                  _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: false));
+                  _hasShownNeutralDialog = true;
+                });
+                Navigator.pop(ctx);
+              },
+            ),
+            ListTile(
+              title: const Text("Dedicated Neutral (2-Wire)", style: TextStyle(color: kLight)),
+              subtitle: const Text("ADDS to derating calculation.", style: TextStyle(color: Colors.white70)),
+              onTap: () {
+                setState(() {
+                  _isNeutralCCC = true;
+                  _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: true));
+                  _hasShownNeutralDialog = true;
+                });
+                Navigator.pop(ctx);
+              },
+            ),
+            const Divider(color: Colors.white24),
+            const Text(
+              "After this, use the 'CC' toggle on the stepper to change the neutral type.",
+              style: TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            child: const Text("NEC: Learn More", style: TextStyle(color: kRed)),
+            onPressed: () {
               Navigator.pop(ctx);
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const NeutralCccCodeScreen()));
             },
           ),
-          ListTile(
-            title: const Text("Dedicated Neutral (2-Wire)", style: TextStyle(color: kLight)),
-            subtitle: const Text("ADDS to heat calculation.", style: TextStyle(color: Colors.white70)),
-            onTap: () {
-              setState(() => _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: true)));
-              Navigator.pop(ctx);
-            },
-          ),
-        ]),
+        ],
       ),
     );
   }
@@ -269,23 +314,40 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       return {...defaultResults, ...boxSizing};
     }
 
-    final double? maxArea = _activePipe.size != null ? ConduitDB.emtMaxFill[_activePipe.size!] : null;
+    // --- NEW DYNAMIC CONDUIT FILL LOGIC ---
+    double? maxArea;
+    if (_activePipe.size != null) {
+      final double totalArea = ConduitDB.emtTotalArea[_activePipe.size!]!;
+      final int wireCount = activePipeWires.length;
+      double fillFactor;
+      if (wireCount == 1) {
+        fillFactor = 0.53; // 53% for 1 wire
+      } else if (wireCount == 2) {
+        fillFactor = 0.31; // 31% for 2 wires
+      } else {
+        fillFactor = 0.40; // 40% for over 2 wires
+      }
+      maxArea = totalArea * fillFactor;
+    }
 
-    // --- Max Wires Calculation ---
+    // --- Max Wires Calculation (Stays based on 40% fill as requested) ---
     int maxWires = 0;
-    // Only calculate max wires if all wires in the pipe are the same type
-    final wireTypes = activePipeWires.map((w) => '${w.size}-${w.insulation}').toSet();
-    if (wireTypes.length <= 1) { // Changed to <= 1 to handle empty pipe case
-      final wireSize = activePipeWires.isNotEmpty ? activePipeWires.first.size : _selectedWireSize;
-      final insulation = activePipeWires.isNotEmpty ? activePipeWires.first.insulation : _selectedInsulation;
+    if (_activePipe.size != null) {
+      final double maxAreaForMaxWires = ConduitDB.emtTotalArea[_activePipe.size!]! * 0.40;
+      final wireTypes = activePipeWires.map((w) => '${w.size}-${w.insulation}').toSet();
+      if (wireTypes.length <= 1) {
+        final wireSize = activePipeWires.isNotEmpty ? activePipeWires.first.size : _selectedWireSize;
+        final insulation = activePipeWires.isNotEmpty ? activePipeWires.first.insulation : _selectedInsulation;
 
-      if (wireSize != null && insulation != null) {
-        final double? wireArea = ConduitDB.wireAreas[wireSize]?[insulation];
-        if (wireArea != null && maxArea != null && wireArea > 0) {
-          maxWires = (maxArea / wireArea).floor();
+        if (wireSize != null && insulation != null) {
+          final double? wireArea = ConduitDB.wireAreas[wireSize]?[insulation];
+          if (wireArea != null && wireArea > 0) {
+            maxWires = (maxAreaForMaxWires / wireArea).floor();
+          }
         }
       }
     }
+
 
     // --- Box Calculation Variables ---
     double conductorVolume = allWires.fold(0.0, (sum, w) => sum + (ConduitDB.wireVolumes[w.size] ?? 0.0));
@@ -601,7 +663,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       _clampCount = 0;
       _supportFittingCount = 0;
       _selectedAmbientTempKey = null;
-
+      _hasShownNeutralDialog = false;
+      _isNeutralCCC = false;
       _length = 0.0;
       _voltage = 0.0;
     });
@@ -694,6 +757,128 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       },
     );
   }
+  
+  void _showInfoDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        title: const Text('Pipe and Box Fill Help', style: TextStyle(color: kLight)),
+        content: const SingleChildScrollView(
+          child: ListBody(
+            children: <Widget>[
+              Text(
+                'Calculator Workflow:',
+                style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              SizedBox(height: 10),
+              Text(
+                '1. Selections: Follow the highlighted dropdowns to select Pipe Size, Box Size, Wire Size, and Insulation type. The calculator will guide you step-by-step.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 10),
+              Text(
+                '2. Add Wires: Use the H (Hot), N (Neutral), and G (Ground) steppers at the bottom to add or remove conductors from your active pipe.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 10),
+              Text(
+                '3. Derating: As you add wires, the derating calculations will update automatically based on conductor count and ambient temperature.',
+                style: TextStyle(color: Colors.white70),
+              ),
+               SizedBox(height: 10),
+              Text(
+                '4. Voltage Drop: The voltage drop input fields are optional, but will update with the wires that are added.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 15),
+              Text(
+                'Interactive Visuals:',
+                style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              SizedBox(height: 10),
+              Text(
+                '• Tap the Pipe: Press the circular pipe visual to open the Pipe Dashboard. Here you can add more pipes to your calculation or switch between them. Each subsequent pipe will be added to the current box calculation.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 10),
+              Text(
+                '• Tap the Box: Press the square box visual to open the Box Design screen. Here you can add devices, clamps, and fittings to your box fill calculation and set pull types for junction box sizing.',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close', style: TextStyle(color: kRed)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showNecCodeDialog(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF212121),
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.flash_on, color: kLight),
+              title: const Text('When is conductor ampacity adjustment required?', style: TextStyle(color: kLight, fontSize: 16)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const AmpacityDeratingCodeScreen()));
+              },
+            ),
+             ListTile(
+              leading: const Icon(Icons.help_outline, color: kLight),
+              title: const Text('When is the neutral a current-carrying conductor?', style: TextStyle(color: kLight, fontSize: 16)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const NeutralCccCodeScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.power_input, color: kLight),
+              title: const Text('What are the recommended voltage drop limits?', style: TextStyle(color: kLight, fontSize: 16)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const VoltageDropCodeScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.linear_scale, color: kLight),
+              title: const Text('How is conduit fill calculated and applied?', style: TextStyle(color: kLight, fontSize: 16)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const ConduitFillCodeScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.check_box_outline_blank, color: kLight),
+              title: const Text('Which components count towards box fill volume?', style: TextStyle(color: kLight, fontSize: 16)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const BoxSizingCodeScreen()));
+              },
+            ),
+             ListTile(
+              leading: const Icon(Icons.fullscreen, color: kLight),
+              title: const Text('How do I size pull boxes for #4 AWG and larger?', style: TextStyle(color: kLight, fontSize: 16)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context, MaterialPageRoute(builder: (context) => const JunctionBoxSizingCodeScreen()));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
 
   @override
@@ -708,6 +893,21 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         title: const Text('Pipe and Box Fill', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
         centerTitle: true,
         elevation: 0.5,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _showInfoDialog(context),
+          ),
+          GestureDetector(
+            onTap: () => _showNecCodeDialog(context),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8.0),
+              child: Center(
+                child: Text('NEC', style: TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ),
+        ],
       ),
       body: PulsingGlowBorder(
         animationController: _borderAnimationController,
@@ -771,7 +971,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
           Expanded(child: _StyledDropdown(
             value: _activePipe.size,
             hint: "Pipe Size",
-            items: ConduitDB.emtMaxFill.keys.map((s) => DropdownMenuItem(value: s, child: Text("$s\" EMT"))).toList(),
+            items: ConduitDB.emtTotalArea.keys.map((s) => DropdownMenuItem(value: s, child: Text("$s\" EMT"))).toList(),
             onChanged: (v) => setState(() {
               _activePipe.size = v;
               if (!_isInitialSetupComplete) _updateStep(CalculatorStep.box);
@@ -849,7 +1049,18 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         children: [
           Expanded(child: _WireStepper(label: 'H', count: hotCount, color: kRed, onAdd: canAdd ? () => _addWire('Hot', _selectedWireSize!, _selectedInsulation!) : null, onRemove: () => _removeLastWireOfType('Hot'))),
           const SizedBox(width: spacing),
-          Expanded(child: _WireStepper(label: 'N', count: neutralCount, color: Colors.white, onAdd: canAdd ? () => _addWire('Neutral', _selectedWireSize!, _selectedInsulation!) : null, onRemove: () => _removeLastWireOfType('Neutral'))),
+          Expanded(
+            child: _WireStepper(
+              label: 'N',
+              count: neutralCount,
+              color: Colors.white,
+              onAdd: canAdd ? () => _addWire('Neutral', _selectedWireSize!, _selectedInsulation!) : null,
+              onRemove: () => _removeLastWireOfType('Neutral'),
+              isToggleable: _hasShownNeutralDialog,
+              isToggled: _isNeutralCCC,
+              onToggle: _toggleNeutralCCC,
+            ),
+          ),
           const SizedBox(width: spacing),
           Expanded(child: _WireStepper(label: 'G', count: groundCount, color: Colors.green, onAdd: canAdd ? () => _addWire('Ground', _selectedWireSize!, _selectedInsulation!) : null, onRemove: () => _removeLastWireOfType('Ground'))),
         ],
@@ -1257,9 +1468,19 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     if (pipe.size == null) {
       return 0.0;
     }
-    final double maxArea = ConduitDB.emtMaxFill[pipe.size!] ?? 1.0;
-    final double totalArea = pipe.wires.fold(0.0, (sum, w) => sum + (ConduitDB.wireAreas[w.size]?[w.insulation] ?? 0.0));
-    return totalArea.isFinite && maxArea > 0 ? (totalArea / maxArea) * 100 : 0.0;
+    final double totalArea = ConduitDB.emtTotalArea[pipe.size!]!;
+    final int wireCount = pipe.wires.length;
+    double fillFactor;
+    if (wireCount == 1) {
+      fillFactor = 0.53;
+    } else if (wireCount == 2) {
+      fillFactor = 0.31;
+    } else {
+      fillFactor = 0.40;
+    }
+    final double maxArea = totalArea * fillFactor;
+    final double totalWireArea = pipe.wires.fold(0.0, (sum, w) => sum + (ConduitDB.wireAreas[w.size]?[w.insulation] ?? 0.0));
+    return totalWireArea.isFinite && maxArea > 0 ? (totalWireArea / maxArea) * 100 : 0.0;
   }
 
   @override
@@ -1522,7 +1743,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
     final localResults = Map<String, dynamic>.from(widget.results);
     final conductorVolume = localResults['conductorVolume'] ?? 0.0;
     final groundingVolume = localResults['groundingVolume'] ?? 0.0;
-    
+
     double maxBoxVolume = localResults['maxBoxVolume'] ?? 0.0;
     if (_selectedMudRing != null) {
       maxBoxVolume += ConduitDB.mudRingVolumes[_selectedMudRing!] ?? 0.0;
@@ -1807,20 +2028,33 @@ class _WireStepper extends StatelessWidget {
   final Color color;
   final VoidCallback? onAdd;
   final VoidCallback? onRemove;
+  final bool isToggleable;
+  final bool isToggled;
+  final VoidCallback? onToggle;
 
-  const _WireStepper({ required this.label, required this.count, required this.color, this.onAdd, this.onRemove });
+  const _WireStepper({
+    required this.label,
+    required this.count,
+    required this.color,
+    this.onAdd,
+    this.onRemove,
+    this.isToggleable = false,
+    this.isToggled = false,
+    this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 44,
-      decoration: BoxDecoration(color: const Color(0xFF2C3030), borderRadius: BorderRadius.circular(6), border: Border.all(color: color)),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C3030),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color),
+      ),
       child: Stack(
+        alignment: Alignment.center,
         children: [
-          Positioned(
-            top: 1, left: 4,
-            child: Text(label, style: TextStyle(color: color.withAlpha(128), fontSize: 12, fontWeight: FontWeight.bold)),
-          ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1829,6 +2063,37 @@ class _WireStepper extends StatelessWidget {
               IconButton(icon: const Icon(Icons.add, color: kLight), onPressed: onAdd),
             ],
           ),
+          if (isToggleable)
+            Positioned(
+              top: 1,
+              child: GestureDetector(
+                onTap: onToggle,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: isToggled ? kRed : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    "CC",
+                    style: TextStyle(
+                      color: isToggled ? kLight : color.withAlpha(128),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            )
+          else
+            Positioned(
+              top: 1,
+              left: 4,
+              child: Text(
+                label,
+                style: TextStyle(color: color.withAlpha(128), fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
         ],
       ),
     );

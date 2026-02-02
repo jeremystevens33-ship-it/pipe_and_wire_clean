@@ -7,6 +7,7 @@ class ConduitFillCodeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const BackButton(),
         title: const Text('Conduit & Tubing Fill'),
       ),
       body: const Center(

@@ -11,6 +11,7 @@ class CodeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
+        leading: const BackButton(),
         title: const Text('NEC Code Reference'),
         backgroundColor: const Color(0xFF1F1F1F),
       ),

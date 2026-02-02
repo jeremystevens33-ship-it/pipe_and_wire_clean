@@ -7,6 +7,7 @@ class AmpacityDeratingCodeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: const BackButton(),
         title: const Text('Ampacity Derating'),
       ),
       body: const Center(
