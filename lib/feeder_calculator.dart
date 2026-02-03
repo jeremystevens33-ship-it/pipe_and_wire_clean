@@ -19,6 +19,7 @@ const kSilver = Color(0xFF9E9E9E);
 // --- ENUMS for State Management ---
 enum CalculatorStep { pipe, box, wire, insulation, ambientTemp, boxSetup, free }
 enum PullType { straight, angle }
+enum PipeType { emt, rmc }
 
 // --- DATA MODELS & DATABASE ---
 class ConduitDB {
@@ -69,6 +70,10 @@ class ConduitDB {
   
   // Total Internal Area of Conduit (100% Fill)
   static const Map<String, double> emtTotalArea = {
+    "1/2": 0.304, "3/4": 0.533, "1": 0.864, "1-1/4": 1.496, "1-1/2": 2.036, "2": 3.356,
+  };
+
+  static const Map<String, double> rmcTotalArea = {
     "1/2": 0.304, "3/4": 0.533, "1": 0.864, "1-1/4": 1.496, "1-1/2": 2.036, "2": 3.356,
   };
 
@@ -148,6 +153,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   String? _selectedAmbientTempKey;
   bool _hasShownNeutralDialog = false;
   bool _isNeutralCCC = false;
+  PipeType _selectedPipeType = PipeType.emt;
 
   double _length = 0.0;
   double _voltage = 0.0;
@@ -301,6 +307,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final Map<String, dynamic> boxSizing = _calculateBoxSizing();
     final allWires = _allWires;
     final activePipeWires = _activePipe.wires;
+    int maxWires = 0;
+    int maxBoxWires = 0;
 
     final defaultResults = {
       "isReady": false, "conduitFillPercent": 0.0, "isConduitFillViolation": false,
@@ -317,7 +325,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     // --- NEW DYNAMIC CONDUIT FILL LOGIC ---
     double? maxArea;
     if (_activePipe.size != null) {
-      final double totalArea = ConduitDB.emtTotalArea[_activePipe.size!]!;
+      final totalAreaMap = _selectedPipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea;
+      final double totalArea = totalAreaMap[_activePipe.size!]!;
       final int wireCount = activePipeWires.length;
       double fillFactor;
       if (wireCount == 1) {
@@ -331,9 +340,9 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     }
 
     // --- Max Wires Calculation (Stays based on 40% fill as requested) ---
-    int maxWires = 0;
     if (_activePipe.size != null) {
-      final double maxAreaForMaxWires = ConduitDB.emtTotalArea[_activePipe.size!]! * 0.40;
+      final totalAreaMap = _selectedPipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea;
+      final double maxAreaForMaxWires = totalAreaMap[_activePipe.size!]! * 0.40;
       final wireTypes = activePipeWires.map((w) => '${w.size}-${w.insulation}').toSet();
       if (wireTypes.length <= 1) {
         final wireSize = activePipeWires.isNotEmpty ? activePipeWires.first.size : _selectedWireSize;
@@ -355,7 +364,6 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     double supportFittingVolume = 0;
     double deviceVolume = 0;
     double groundingVolume = 0;
-    int maxBoxWires = 0;
 
     // Find largest conductors for allowances
     Wire? largestConductor = allWires.where((w) => !w.isGround).toList().fold(null, (largest, current) {
@@ -481,10 +489,10 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         ...defaultResults, "isReady": true, "conduitFillPercent": conduitFillPercent,
         "isConduitFillViolation": isConduitFillViolation, "boxFillPercent": boxFillPercent,
         "isBoxFillViolation": isBoxFillViolation, "maxWires": maxWires, "maxBoxWires": maxBoxWires,
-        "startingAmpacity": startingAmpacity, ...boxSizing,
+        "startingAmpacity": startingAmpacity, "finalBreakerSize": 0, "groundWireSize": "N/A", ...boxSizing,
       };
     }
-    
+
     final double newAmpacity = startingAmpacity * adjustmentFactor * tempCorrectionFactor;
     final int capAmps75 = ConduitDB.copperAmpacities[smallestCCCWire.size]?["75C"] ?? 0;
     final double finalAmps = min(newAmpacity, capAmps75.toDouble());
@@ -757,7 +765,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       },
     );
   }
-  
+
   void _showInfoDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -932,7 +940,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                     ],
                   ),
                 ),
-                _buildWireSteppers(),
+                _buildResetAndSteppersWithCcOverlay(),
                 _buildInfoBar(),
               ],
             ),
@@ -1010,6 +1018,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
             onChanged: (v) {
               setState(() {
                 _selectedWireSize = v;
+                _selectedInsulation = null; // Reset insulation when wire size changes
                 if (!_isInitialSetupComplete) _updateStep(CalculatorStep.insulation);
               });
             },
@@ -1035,7 +1044,14 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     );
   }
 
+  Widget _buildResetButton() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4.0,bottom: 1.0),
+      child: _StyledButton(onPressed: _reset, label: "Reset Calculator"),
+    );
+  }
 
+  // 1) Wire steppers row (NO CC overlay inside here)
   Widget _buildWireSteppers() {
     const spacing = 4.0;
     final hotCount = _activePipe.wires.where((w) => !w.isNeutral && !w.isGround).length;
@@ -1047,8 +1063,17 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
         children: [
-          Expanded(child: _WireStepper(label: 'H', count: hotCount, color: kRed, onAdd: canAdd ? () => _addWire('Hot', _selectedWireSize!, _selectedInsulation!) : null, onRemove: () => _removeLastWireOfType('Hot'))),
+          Expanded(
+            child: _WireStepper(
+              label: 'H',
+              count: hotCount,
+              color: kRed,
+              onAdd: canAdd ? () => _addWire('Hot', _selectedWireSize!, _selectedInsulation!) : null,
+              onRemove: () => _removeLastWireOfType('Hot'),
+            ),
+          ),
           const SizedBox(width: spacing),
+
           Expanded(
             child: _WireStepper(
               label: 'N',
@@ -1056,15 +1081,94 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               color: Colors.white,
               onAdd: canAdd ? () => _addWire('Neutral', _selectedWireSize!, _selectedInsulation!) : null,
               onRemove: () => _removeLastWireOfType('Neutral'),
-              isToggleable: _hasShownNeutralDialog,
-              isToggled: _isNeutralCCC,
-              onToggle: _toggleNeutralCCC,
             ),
           ),
           const SizedBox(width: spacing),
-          Expanded(child: _WireStepper(label: 'G', count: groundCount, color: Colors.green, onAdd: canAdd ? () => _addWire('Ground', _selectedWireSize!, _selectedInsulation!) : null, onRemove: () => _removeLastWireOfType('Ground'))),
+
+          Expanded(
+            child: _WireStepper(
+              label: 'G',
+              count: groundCount,
+              color: Colors.green,
+              onAdd: canAdd ? () => _addWire('Ground', _selectedWireSize!, _selectedInsulation!) : null,
+              onRemove: () => _removeLastWireOfType('Ground'),
+            ),
+          ),
         ],
       ),
+    );
+  }
+
+  // 2) CC toggle widget (big hit target, always tappable when visible)
+  Widget _buildCcToggle() {
+    if (!_hasShownNeutralDialog) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: _toggleNeutralCCC,
+      behavior: HitTestBehavior.translucent,
+      child: Padding(
+        padding: const EdgeInsets.all(12), // big invisible hit target
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.0),
+          decoration: BoxDecoration(
+            color: _isNeutralCCC ? kRed : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: _isNeutralCCC ? kRed : Colors.white.withAlpha(128),
+            ),
+          ),
+          child: Text(
+            "CC",
+            style: TextStyle(
+              color: _isNeutralCCC ? kLight : Colors.white.withAlpha(128),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // 3) Wrapper that pins CC in the "pocket" between Reset and the steppers.
+  // IMPORTANT: This Stack wraps BOTH reset and steppers so the CC is inside hit-test bounds.
+  Widget _buildResetAndSteppersWithCcOverlay() {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Keep reset from becoming full-width
+            Align(
+              alignment: Alignment(.89, 0.0), // adjust if you want it elsewhere
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 178), // tune 160–220
+                child: _buildResetButton(),
+              ),
+            ),
+
+            _buildWireSteppers(),
+          ],
+        ),
+
+        // CC overlay: anchor to the CENTER of the steppers area, then nudge left
+        Positioned(
+          bottom: 48, // up/down
+          left: 48,
+          right: 0,
+          child: IgnorePointer(
+            ignoring: !_hasShownNeutralDialog,
+            child: Opacity(
+              opacity: _hasShownNeutralDialog ? 1.0 : 0.0,
+              child: Transform.translate(
+                offset: const Offset(-70, 0), // <-- move left (try -50 to -90)
+                child: Center(child: _buildCcToggle()),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -1085,6 +1189,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final double conduitFill = results['conduitFillPercent'] ?? 0.0;
     final bool isConduitViolation = results['isConduitFillViolation'] ?? false;
     final int maxWires = results['maxWires'] ?? 0;
+
     final conduitStatusColor = !isReady || _activePipe.size == null ? Colors.grey : (isConduitViolation ? kRed : Colors.green);
     final wireTypes = _activePipe.wires.map((w) => '${w.size}-${w.insulation}').toSet();
     final bool showMaxWires = wireTypes.length <= 1;
@@ -1111,7 +1216,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                       textAlign: TextAlign.center,
                       style: TextStyle(fontWeight: FontWeight.w700, color: isConduitViolation ? kRed : kLight, fontSize: 18),
                     ),
-                    if (isReady && maxWires > 0 && showMaxWires) ...[
+                    if (isReady && showMaxWires && maxWires > 0) ...[
                       const SizedBox(height: 8),
                       Text("Max Wires: $maxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
                     ]
@@ -1155,7 +1260,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               !isReady || _selectedBoxSize == null ? "-- Wires\n--% Fill" : "${allWires.length} Wires\n${boxFill.toStringAsFixed(1)}% Fill",
               textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: isBoxViolation ? kRed : kLight, fontSize: 18),
             ),
-            if (isReady && maxBoxWires > 0 && showMaxBoxWires) ...[
+            if (isReady && showMaxBoxWires && maxBoxWires > 0) ...[
               const SizedBox(height: 8),
               Text("Max Wires: $maxBoxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
             ]
@@ -1289,8 +1394,6 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               ),
             ),
           ),
-          const SizedBox(height: 8),
-          _StyledButton(onPressed: _reset, label: "Reset Calculator"),
         ],
       ),
     );
@@ -1925,7 +2028,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
 
   Widget _buildBoxFillDetails(Map<String, dynamic> results) {
     final totalVolume = results['totalBoxVolume'] as double? ?? 0.0;
-    final maxVolume = results['maxBoxVolume'] as double? ?? 0.0;
+    final maxBoxVolume = results['maxBoxVolume'] as double? ?? 0.0;
     final isViolation = results['isBoxFillViolation'] as bool? ?? false;
     final conductorVolume = results['conductorVolume'] as double? ?? 0.0;
 
@@ -1937,7 +2040,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
           children: [
             Text("Box Fill: ${widget.selectedBoxSize}", style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)),
             Text(
-              "${totalVolume.toStringAsFixed(2)} / ${maxVolume.toStringAsFixed(2)} in³",
+              "${totalVolume.toStringAsFixed(2)} / ${maxBoxVolume.toStringAsFixed(2)} in³",
               style: TextStyle(color: isViolation ? kRed : Colors.green, fontWeight: FontWeight.bold, fontSize: 18),
             ),
           ],
@@ -2028,9 +2131,6 @@ class _WireStepper extends StatelessWidget {
   final Color color;
   final VoidCallback? onAdd;
   final VoidCallback? onRemove;
-  final bool isToggleable;
-  final bool isToggled;
-  final VoidCallback? onToggle;
 
   const _WireStepper({
     required this.label,
@@ -2038,9 +2138,6 @@ class _WireStepper extends StatelessWidget {
     required this.color,
     this.onAdd,
     this.onRemove,
-    this.isToggleable = false,
-    this.isToggled = false,
-    this.onToggle,
   });
 
   @override
@@ -2063,37 +2160,14 @@ class _WireStepper extends StatelessWidget {
               IconButton(icon: const Icon(Icons.add, color: kLight), onPressed: onAdd),
             ],
           ),
-          if (isToggleable)
-            Positioned(
-              top: 1,
-              child: GestureDetector(
-                onTap: onToggle,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: isToggled ? kRed : Colors.transparent,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    "CC",
-                    style: TextStyle(
-                      color: isToggled ? kLight : color.withAlpha(128),
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-            )
-          else
-            Positioned(
-              top: 1,
-              left: 4,
-              child: Text(
-                label,
-                style: TextStyle(color: color.withAlpha(128), fontSize: 12, fontWeight: FontWeight.bold),
-              ),
+          Positioned(
+            top: 1,
+            left: 4,
+            child: Text(
+              label,
+              style: TextStyle(color: color.withAlpha(128), fontSize: 12, fontWeight: FontWeight.bold),
             ),
+          ),
         ],
       ),
     );
