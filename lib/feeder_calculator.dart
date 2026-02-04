@@ -68,17 +68,20 @@ class ConduitDB {
     "1 AWG": {"THHN": 0.1562, "XHHW": 0.1771, "THWN-2": 0.1562},
   };
   
-  // Total Internal Area of Conduit (100% Fill)
+  // Total Internal Area of Conduit (100% Fill) from NEC Chapter 9, Table 4
   static const Map<String, double> emtTotalArea = {
     "1/2": 0.304, "3/4": 0.533, "1": 0.864, "1-1/4": 1.496, "1-1/2": 2.036, "2": 3.356,
+    "2-1/2": 4.788, "3": 7.313, "3-1/2": 9.728, "4": 12.513,
   };
 
   static const Map<String, double> rmcTotalArea = {
-    "1/2": 0.304, "3/4": 0.533, "1": 0.864, "1-1/4": 1.496, "1-1/2": 2.036, "2": 3.356,
+    "1/2": 0.314, "3/4": 0.556, "1": 0.897, "1-1/4": 1.557, "1-1/2": 2.114, "2": 3.459,
+    "2-1/2": 4.953, "3": 7.601, "3-1/2": 10.08, "4": 12.93,
   };
 
   static const Map<String, double> tradeSizesInches = {
     "1/2": 0.5, "3/4": 0.75, "1": 1.0, "1-1/4": 1.25, "1-1/2": 1.5, "2": 2.0,
+    "2-1/2": 2.5, "3": 3.0, "3-1/2": 3.5, "4": 4.0,
   };
 
   static const Map<String, Map<String, double>> temperatureCorrectionFactors = {
@@ -120,8 +123,9 @@ class Pipe {
   String? size;
   PullType pullType;
   List<Wire> wires = [];
+  PipeType pipeType;
 
-  Pipe({this.size, this.pullType = PullType.straight});
+  Pipe({this.size, this.pullType = PullType.straight, this.pipeType = PipeType.emt});
 }
 
 class UnifiedFeederCalculator extends StatefulWidget {
@@ -153,7 +157,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   String? _selectedAmbientTempKey;
   bool _hasShownNeutralDialog = false;
   bool _isNeutralCCC = false;
-  PipeType _selectedPipeType = PipeType.emt;
+  // PipeType _selectedPipeType = PipeType.emt; // This will be managed per pipe
 
   double _length = 0.0;
   double _voltage = 0.0;
@@ -325,7 +329,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     // --- NEW DYNAMIC CONDUIT FILL LOGIC ---
     double? maxArea;
     if (_activePipe.size != null) {
-      final totalAreaMap = _selectedPipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea;
+      final totalAreaMap = _activePipe.pipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea;
       final double totalArea = totalAreaMap[_activePipe.size!]!;
       final int wireCount = activePipeWires.length;
       double fillFactor;
@@ -341,7 +345,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
 
     // --- Max Wires Calculation (Stays based on 40% fill as requested) ---
     if (_activePipe.size != null) {
-      final totalAreaMap = _selectedPipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea;
+      final totalAreaMap = _activePipe.pipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea;
       final double maxAreaForMaxWires = totalAreaMap[_activePipe.size!]! * 0.40;
       final wireTypes = activePipeWires.map((w) => '${w.size}-${w.insulation}').toSet();
       if (wireTypes.length <= 1) {
@@ -888,6 +892,21 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     );
   }
 
+  void _showPipeSelectionGrid() {
+    showDialog(
+      context: context,
+      builder: (context) => _PipeSelectionGrid(
+        onSelect: (String size, PipeType type) {
+          setState(() {
+            _activePipe.size = size;
+            _activePipe.pipeType = type;
+            if (!_isInitialSetupComplete) _updateStep(CalculatorStep.box);
+          });
+          Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -921,7 +940,6 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         animationController: _borderAnimationController,
         shape: BoxShape.rectangle,
         borderRadius: BorderRadius.circular(8),
-        endColor: kSilver,
         child: Container(
           margin: const EdgeInsets.all(2.5),
           decoration: BoxDecoration(color: kBlack, borderRadius: BorderRadius.circular(6)),
@@ -976,16 +994,12 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     return Column(
       children: [
         Row(children: [
-          Expanded(child: _StyledDropdown(
-            value: _activePipe.size,
-            hint: "Pipe Size",
-            items: ConduitDB.emtTotalArea.keys.map((s) => DropdownMenuItem(value: s, child: Text("$s\" EMT"))).toList(),
-            onChanged: (v) => setState(() {
-              _activePipe.size = v;
-              if (!_isInitialSetupComplete) _updateStep(CalculatorStep.box);
-            }),
+          Expanded(child: _StyledButton(
+            onPressed: _showPipeSelectionGrid,
+            label: _activePipe.size != null
+                ? '${_activePipe.size}" ${_activePipe.pipeType.toString().split('.').last.toUpperCase()}'
+                : "Pipe Size",
             isActive: _currentStep == CalculatorStep.pipe,
-            isEnabled: true,
           )),
           const SizedBox(width: spacing),
           Expanded(child: _StyledDropdown(
@@ -1018,7 +1032,14 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
             onChanged: (v) {
               setState(() {
                 _selectedWireSize = v;
-                _selectedInsulation = null; // Reset insulation when wire size changes
+                if (v != null) {
+                  final availableInsulations = ConduitDB.wireAreas[v]?.keys ?? [];
+                  if (_selectedInsulation != null && !availableInsulations.contains(_selectedInsulation)) {
+                    _selectedInsulation = null;
+                  }
+                } else {
+                  _selectedInsulation = null;
+                }
                 if (!_isInitialSetupComplete) _updateStep(CalculatorStep.insulation);
               });
             },
@@ -1571,7 +1592,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     if (pipe.size == null) {
       return 0.0;
     }
-    final double totalArea = ConduitDB.emtTotalArea[pipe.size!]!;
+    final double totalArea = (pipe.pipeType == PipeType.emt ? ConduitDB.emtTotalArea : ConduitDB.rmcTotalArea)[pipe.size!]!;
     final int wireCount = pipe.wires.length;
     double fillFactor;
     if (wireCount == 1) {
@@ -1905,6 +1926,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
                         _buildBoxFillDetails(localResults),
                         const Divider(color: Colors.white24, height: 20),
                       ],
+                      _buildMudRingSelector(),
                       _buildAllowanceStepper("Devices (switches/outlets)", _deviceCount, (c) {
                         setState(() => _deviceCount = c);
                         widget.onDeviceCountChanged(c);
@@ -1917,7 +1939,6 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
                         setState(() => _supportFittingCount = c);
                         widget.onSupportFittingCountChanged(c);
                       }),
-                      _buildMudRingSelector(),
                       const Divider(color: Colors.white24, height: 20),
                       const Text("Junction Box Sizing (NEC 314.28)", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)),
                       const SizedBox(height: 8),
@@ -2047,12 +2068,37 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
         ),
         const SizedBox(height: 8),
         _buildDetailRow("Conductors", conductorVolume),
+        ..._buildConductorDetails(widget.allWires),
         if (_clampCount > 0) _buildDetailRow("Clamps ($_clampCount)", results['clampVolume']),
         if (_supportFittingCount > 0) _buildDetailRow("Support Fittings ($_supportFittingCount)", results['supportFittingCount']),
         if (_deviceCount > 0) _buildDetailRow("Devices ($_deviceCount)", results['deviceVolume']),
         if ((results['groundingVolume'] as double? ?? 0.0) > 0) _buildDetailRow("Grounding", results['groundingVolume']),
       ],
     );
+  }
+
+  List<Widget> _buildConductorDetails(List<Wire> allWires) {
+    if (allWires.isEmpty) return [];
+
+    final wireGroups = <String, int>{};
+    for (final wire in allWires) {
+      final key = "${wire.size} ${wire.insulation}";
+      wireGroups[key] = (wireGroups[key] ?? 0) + 1;
+    }
+
+    return wireGroups.entries.map((entry) {
+      final count = entry.value;
+      final description = entry.key;
+      return Padding(
+        padding: const EdgeInsets.only(left: 16.0, top: 2, bottom: 2),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text("  - ($count) $description", style: const TextStyle(color: Colors.white70, fontSize: 14)),
+          ],
+        ),
+      );
+    }).toList();
   }
 
   Widget _buildDetailRow(String label, double? value) {
@@ -2177,8 +2223,9 @@ class _WireStepper extends StatelessWidget {
 class _StyledButton extends StatelessWidget {
   final VoidCallback onPressed;
   final String label;
+  final bool isActive;
 
-  const _StyledButton({required this.onPressed, required this.label});
+  const _StyledButton({required this.onPressed, required this.label, this.isActive = false});
 
   @override
   Widget build(BuildContext context) {
@@ -2186,13 +2233,18 @@ class _StyledButton extends StatelessWidget {
       onTap: onPressed,
       child: Container(
         height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-          gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [kRed, Color(0xFFD43D37)]),
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isActive ? [kRed, const Color(0xFFD43D37)] : [const Color(0xFF4E4E52), const Color(0xFF2C3030)],
         ),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
+      ),
         child: Center(
-          child: Text(label, style: const TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.w700)),
+          child: Text(label, style: const TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.w700), textAlign: TextAlign.center,),
         ),
       ),
     );
@@ -2235,6 +2287,72 @@ class _StyledDropdown extends StatelessWidget {
           onChanged: isEnabled ? onChanged : null,
         ),
       ),
+    );
+  }
+}
+
+class _PipeSelectionGrid extends StatelessWidget {
+  final Function(String, PipeType) onSelect;
+  const _PipeSelectionGrid({required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = ConduitDB.tradeSizesInches.keys.toList();
+    
+    return AlertDialog(
+      backgroundColor: const Color(0xFF2C3030),
+      title: Center(child: const Text("Select Pipe Size & Type", style: TextStyle(color: kLight))),
+      content: Container(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Row(
+                children: [
+                  Expanded(child: Center(child: Text("Size", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)))),
+                  Expanded(child: Center(child: Text("EMT", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)))),
+                  Expanded(child: Center(child: Text("RMC", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)))),
+                ],
+              ),
+              const Divider(color: kSilver),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: sizes.length,
+                itemBuilder: (context, index) {
+                  final size = sizes[index];
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${size}"',
+                          style: const TextStyle(color: kLight, fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      Expanded(child: Center(child: IconButton(
+                        icon: const Icon(Icons.circle_outlined, color: Colors.green),
+                        onPressed: ConduitDB.emtTotalArea.containsKey(size) ? () => onSelect(size, PipeType.emt) : null,
+                      ))),
+                      Expanded(child: Center(child: IconButton(
+                        icon: const Icon(Icons.circle_outlined, color: Colors.green),
+                        onPressed: ConduitDB.rmcTotalArea.containsKey(size) ? () => onSelect(size, PipeType.rmc) : null,
+                      ))),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          child: const Text("Cancel", style: TextStyle(color: kLight)),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
     );
   }
 }

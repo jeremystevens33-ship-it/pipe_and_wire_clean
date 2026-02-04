@@ -582,17 +582,18 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
             items: ConduitDB.copperAmpacities.keys.map((s) => DropdownMenuItem(value:s, child: Text(s))).toList(),
             onChanged: (v) {
               setState(() {
-                if (_isInitialSetupComplete && v != null) {
-                  final oldSize = _selectedWireSize;
-                  // In free edit mode, update all wires of the old size to the new size
-                  for (var wire in _allWires) {
-                    if (wire.size == oldSize) {
-                      wire.size = v;
-                    }
+                _selectedWireSize = v;
+                // If the selected insulation is no longer valid for the new wire size, reset it.
+                // This prevents a crash and keeps the stepper buttons enabled.
+                if (v != null && _selectedInsulation != null) {
+                  final validInsulations = ConduitDB.wireAreas[v]?.keys ?? [];
+                  if (!validInsulations.contains(_selectedInsulation)) {
+                    _selectedInsulation = null;
                   }
                 }
-                _selectedWireSize = v;
-                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.insulation);
+                if (!_isInitialSetupComplete) {
+                  _updateStep(CalculatorStep.insulation);
+                }
               });
             },
             isActive: _currentStep == CalculatorStep.wire,
@@ -605,14 +606,6 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
             items: (_selectedWireSize == null ? <String>[] : ConduitDB.wireAreas[_selectedWireSize]!.keys).map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
             onChanged: (v) {
               setState(() {
-                if (_isInitialSetupComplete && v != null) {
-                  final oldInsulation = _selectedInsulation;
-                  for (var wire in _allWires) {
-                    if (wire.insulation == oldInsulation) {
-                      wire.insulation = v;
-                    }
-                  }
-                }
                 _selectedInsulation = v;
                 if (!_isInitialSetupComplete) _updateStep(CalculatorStep.ambientTemp);
               });
