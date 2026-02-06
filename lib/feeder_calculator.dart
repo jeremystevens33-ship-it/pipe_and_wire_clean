@@ -20,6 +20,7 @@ const kSilver = Color(0xFF9E9E9E);
 enum CalculatorStep { pipe, box, wire, insulation, ambientTemp, boxSetup, free }
 enum PullType { straight, angle }
 enum PipeType { emt, rmc }
+enum ConductorMaterial { copper, aluminum }
 
 // --- DATA MODELS & DATABASE ---
 class ConduitDB {
@@ -47,7 +48,7 @@ class ConduitDB {
     "4s", "4s Deep", "5s", "5s Deep", "4o", "4o Deep",
     "6x6x4", "8x8x4", "10x10x4", "12x12x4",
   ];
-  
+
   static const Map<String, double> mudRingVolumes = {
     "Flat": 0.0, "1/4\"": 2.5, "1/2\"": 5.0, "5/8\"": 5.5, "3/4\"": 6.0, "1\"": 7.5,
   };
@@ -67,7 +68,7 @@ class ConduitDB {
     "3 AWG": {"THHN": 0.0973, "XHHW": 0.1112, "THWN-2": 0.0973}, "2 AWG": {"THHN": 0.1158, "XHHW": 0.1332, "THWN-2": 0.1158},
     "1 AWG": {"THHN": 0.1562, "XHHW": 0.1771, "THWN-2": 0.1562},
   };
-  
+
   // Total Internal Area of Conduit (100% Fill) from NEC Chapter 9, Table 4
   static const Map<String, double> emtTotalArea = {
     "1/2": 0.304, "3/4": 0.533, "1": 0.864, "1-1/4": 1.496, "1-1/2": 2.036, "2": 3.356,
@@ -111,11 +112,12 @@ class Wire {
   final String id = UniqueKey().toString();
   String size;
   String insulation;
+  ConductorMaterial material;
   bool isGround;
   bool isNeutral;
   bool isCurrentCarrying;
 
-  Wire({ required this.size, required this.insulation, this.isGround = false, this.isNeutral = false, this.isCurrentCarrying = true });
+  Wire({ required this.size, required this.insulation, this.material = ConductorMaterial.copper, this.isGround = false, this.isNeutral = false, this.isCurrentCarrying = true });
 }
 
 class Pipe {
@@ -140,6 +142,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
 
   CalculatorStep _currentStep = CalculatorStep.pipe;
   bool _isInitialSetupComplete = false;
+  bool _showAlternateInfoMessage = false;
 
   List<Pipe> _pipes = [Pipe()];
   int _activePipeIndex = 0;
@@ -147,6 +150,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   late Map<String, double> _dynamicBoxVolumes;
   String? _selectedBoxSize;
   String? _selectedWireSize;
+  ConductorMaterial _selectedMaterial = ConductorMaterial.copper;
   String? _selectedInsulation;
   String? _selectedMudRing;
 
@@ -163,6 +167,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   double _voltage = 0.0;
 
   late AnimationController _borderAnimationController;
+  late AnimationController _glowAnimationController;
   late AnimationController _infoBarAnimationController;
   late Animation<double> _infoBarAnimation;
 
@@ -190,7 +195,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   void initState() {
     super.initState();
     _dynamicBoxVolumes = Map.from(ConduitDB.boxVolumes);
-    _borderAnimationController = AnimationController(vsync: this, duration: const Duration(seconds: 15))..repeat(reverse: true);
+    _borderAnimationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 20000))..repeat();
+    _glowAnimationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 3000))..repeat(reverse: true);
     _infoBarAnimationController = AnimationController(vsync: this, duration: const Duration(milliseconds: 500));
     _infoBarAnimation = CurvedAnimation(parent: _infoBarAnimationController, curve: Curves.easeIn);
     _infoBarAnimationController.forward();
@@ -199,6 +205,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   @override
   void dispose() {
     _borderAnimationController.dispose();
+    _glowAnimationController.dispose();
     _infoBarAnimationController.dispose();
     super.dispose();
   }
@@ -209,15 +216,15 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   void _addWire(String type, String size, String insulation) {
     setState(() {
       if (type == 'Hot') {
-        _activePipe.wires.add(Wire(size: size, insulation: insulation, isCurrentCarrying: true));
+        _activePipe.wires.add(Wire(size: size, insulation: insulation, material: _selectedMaterial, isCurrentCarrying: true));
       } else if (type == 'Neutral') {
         if (!_hasShownNeutralDialog) {
           _showOneTimeNeutralDialog(size, insulation);
         } else {
-          _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: _isNeutralCCC));
+          _activePipe.wires.add(Wire(size: size, insulation: insulation, material: _selectedMaterial, isNeutral: true, isCurrentCarrying: _isNeutralCCC));
         }
       } else if (type == 'Ground') {
-        _activePipe.wires.add(Wire(size: size, insulation: insulation, isGround: true, isCurrentCarrying: false));
+        _activePipe.wires.add(Wire(size: size, insulation: insulation, material: _selectedMaterial, isGround: true, isCurrentCarrying: false));
       }
     });
   }
@@ -260,7 +267,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               onTap: () {
                 setState(() {
                   _isNeutralCCC = false;
-                  _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: false));
+                  _activePipe.wires.add(Wire(size: size, insulation: insulation, material: _selectedMaterial, isNeutral: true, isCurrentCarrying: false));
                   _hasShownNeutralDialog = true;
                 });
                 Navigator.pop(ctx);
@@ -272,7 +279,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               onTap: () {
                 setState(() {
                   _isNeutralCCC = true;
-                  _activePipe.wires.add(Wire(size: size, insulation: insulation, isNeutral: true, isCurrentCarrying: true));
+                  _activePipe.wires.add(Wire(size: size, insulation: insulation, material: _selectedMaterial, isNeutral: true, isCurrentCarrying: true));
                   _hasShownNeutralDialog = true;
                 });
                 Navigator.pop(ctx);
@@ -313,13 +320,14 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final activePipeWires = _activePipe.wires;
     int maxWires = 0;
     int maxBoxWires = 0;
+    int boxWireAllowanceCount = 0;
 
     final defaultResults = {
       "isReady": false, "conduitFillPercent": 0.0, "isConduitFillViolation": false,
       "boxFillPercent": 0.0, "isBoxFillViolation": false, "startingAmpacity": 0,
       "newAmpacity": 0.0, "finalBreakerSize": 0, "adjustmentFactor": 1.0,
       "tempCorrectionFactor": 1.0, "voltageDrop": 0.0, "voltageDropPercent": 0.0,
-      "maxWires": 0, "maxBoxWires": 0, "groundWireSize": "N/A", ...boxSizing
+      "maxWires": 0, "maxBoxWires": 0, "groundWireSize": "N/A", "boxWireAllowanceCount": 0, ...boxSizing
     };
 
     if (_activePipe.size == null && allWires.isEmpty) {
@@ -363,7 +371,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
 
 
     // --- Box Calculation Variables ---
-    double conductorVolume = allWires.fold(0.0, (sum, w) => sum + (ConduitDB.wireVolumes[w.size] ?? 0.0));
+    double conductorVolume = allWires.where((w) => !w.isGround).fold(0.0, (sum, w) => sum + (ConduitDB.wireVolumes[w.size] ?? 0.0));
     double clampVolume = 0;
     double supportFittingVolume = 0;
     double deviceVolume = 0;
@@ -377,7 +385,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       return currentSize < largestSize ? current : largest;
     });
 
-    Wire? largestGround = allWires.where((w) => w.isGround).toList().fold(null, (largest, current) {
+    final groundWires = allWires.where((w) => w.isGround).toList();
+    Wire? largestGround = groundWires.fold(null, (largest, current) {
       if (largest == null) return current;
       final largestSize = int.tryParse(largest.size.replaceAll(" AWG", "")) ?? 0;
       final currentSize = int.tryParse(current.size.replaceAll(" AWG", "")) ?? 0;
@@ -404,7 +413,18 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     }
 
     if (largestGround != null) {
-      groundingVolume = ConduitDB.wireVolumes[largestGround.size]!;
+      final double groundAllowance = ConduitDB.wireVolumes[largestGround.size]!;
+      if (groundWires.isNotEmpty && groundWires.length <= 4) {
+        groundingVolume = groundAllowance;
+      } else if (groundWires.length > 4) {
+        groundingVolume = groundAllowance + ((groundWires.length - 4) * (groundAllowance * 0.25));
+      }
+    }
+
+    // --- Box Wire Allowance Count ---
+    boxWireAllowanceCount = allWires.where((w) => !w.isGround).length;
+    if (groundWires.isNotEmpty) {
+      boxWireAllowanceCount += 1; // Only one allowance for all grounds
     }
 
     // Calculate Max Box Wires
@@ -433,7 +453,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
          startingAmpacity = ConduitDB.copperAmpacities[_selectedWireSize!]?["90C"] ?? 0;
        }
       return {
-        ...defaultResults, "isReady": true, "maxWires": maxWires, "maxBoxWires": maxBoxWires, "startingAmpacity": startingAmpacity, ...boxSizing
+        ...defaultResults, "isReady": true, "maxWires": maxWires, "maxBoxWires": maxBoxWires, "startingAmpacity": startingAmpacity, "boxWireAllowanceCount": boxWireAllowanceCount, ...boxSizing
       };
     }
 
@@ -493,7 +513,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         ...defaultResults, "isReady": true, "conduitFillPercent": conduitFillPercent,
         "isConduitFillViolation": isConduitFillViolation, "boxFillPercent": boxFillPercent,
         "isBoxFillViolation": isBoxFillViolation, "maxWires": maxWires, "maxBoxWires": maxBoxWires,
-        "startingAmpacity": startingAmpacity, "finalBreakerSize": 0, "groundWireSize": "N/A", ...boxSizing,
+        "startingAmpacity": startingAmpacity, "finalBreakerSize": 0, "groundWireSize": "N/A", "boxWireAllowanceCount": boxWireAllowanceCount, ...boxSizing,
       };
     }
 
@@ -530,7 +550,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       "finalBreakerSize": finalBreakerSize, "adjustmentFactor": adjustmentFactor,
       "tempCorrectionFactor": tempCorrectionFactor, "voltageDrop": voltageDrop,
       "voltageDropPercent": voltageDropPercent, "maxWires": maxWires, "maxBoxWires": maxBoxWires,
-      "groundWireSize": groundWireSize, ...boxSizing,
+      "groundWireSize": groundWireSize, "boxWireAllowanceCount": boxWireAllowanceCount, ...boxSizing,
       "conductorVolume": conductorVolume, "clampVolume": clampVolume, "supportFittingVolume": supportFittingVolume,
       "deviceVolume": deviceVolume, "groundingVolume": groundingVolume, "totalBoxVolume": totalBoxVolume, "maxBoxVolume": maxBoxVolume,
     };
@@ -555,15 +575,45 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   }
 
   void _updateStep(CalculatorStep newStep) {
-    if (_isInitialSetupComplete && newStep != CalculatorStep.free) {
-      // Don't revert to a previous step if setup is complete, unless specifically going to free
+    // If the initial setup is done, don't change the step, just recalculate state.
+    if (_isInitialSetupComplete) {
+      setState(() {});
       return;
     }
+
     setState(() {
       _currentStep = newStep;
       _infoBarAnimationController.reset();
       _infoBarAnimationController.forward();
     });
+  }
+
+  void _advanceToNextIncompleteStep() {
+    // This is the new "smart" sequence logic.
+    if (_isInitialSetupComplete) {
+      setState(() {}); // Just trigger a rebuild to update calculations
+      return;
+    }
+
+    if (_activePipe.size == null) {
+      _updateStep(CalculatorStep.pipe);
+    } else if (_selectedBoxSize == null) {
+      _updateStep(CalculatorStep.box);
+    } else if (_selectedWireSize == null) {
+      _updateStep(CalculatorStep.wire);
+    } else if (_selectedInsulation == null) {
+      _updateStep(CalculatorStep.insulation);
+    } else if (_selectedAmbientTempKey == null) {
+      _updateStep(CalculatorStep.ambientTemp);
+    } else {
+      // All selections are complete, move to the final phases.
+      setState(() {
+        _isInitialSetupComplete = true;
+        _currentStep = CalculatorStep.boxSetup; // This is the "Tap the Box" step
+        _infoBarAnimationController.reset();
+        _infoBarAnimationController.forward();
+      });
+    }
   }
 
   void _addPipe() {
@@ -579,6 +629,17 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   }
 
   void _toggleBox() async {
+    final bool wasBoxSetupStep = _currentStep == CalculatorStep.boxSetup;
+
+    // Immediately turn off the glow and advance the step.
+    if (wasBoxSetupStep) {
+      setState(() {
+        _currentStep = CalculatorStep.free;
+        _infoBarAnimationController.reset();
+        _infoBarAnimationController.forward();
+      });
+    }
+
     await Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 700),
@@ -608,17 +669,28 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       ),
     );
 
-    // After the box detail screen is closed, move to the final step.
-    if (_currentStep == CalculatorStep.boxSetup) {
-      setState(() {
-        _currentStep = CalculatorStep.free;
-        _infoBarAnimationController.reset();
-        _infoBarAnimationController.forward();
+    // After the box detail screen is closed, if we just finished the setup,
+    // start the timer to show the alternate "tap pipe" message.
+    if (wasBoxSetupStep) {
+      Future.delayed(const Duration(seconds: 10), () {
+        if (mounted && _currentStep == CalculatorStep.free) {
+          setState(() {
+            _showAlternateInfoMessage = true;
+          });
+        }
       });
     }
   }
 
+
   void _togglePipeUI() {
+    // Immediately turn off the glow when the pipe is tapped.
+    if (_showAlternateInfoMessage) {
+      setState(() {
+        _showAlternateInfoMessage = false;
+      });
+    }
+
     Navigator.of(context).push(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 700),
@@ -671,6 +743,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
       _selectedMudRing = null;
       _currentStep = CalculatorStep.pipe;
       _isInitialSetupComplete = false;
+      _showAlternateInfoMessage = false;
       _deviceCount = 0;
       _clampCount = 0;
       _supportFittingCount = 0;
@@ -721,7 +794,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                 final customKey = "Custom (${value.toStringAsFixed(1)} in³)";
                 _dynamicBoxVolumes[customKey] = value;
                 _selectedBoxSize = customKey;
-                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+                _advanceToNextIncompleteStep();
               });
             }
             Navigator.pop(context);
@@ -751,7 +824,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                   onTap: () {
                     setState(() {
                       _selectedBoxSize = boxName;
-                      if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+                      _advanceToNextIncompleteStep();
                     });
                     Navigator.of(context).pop();
                   },
@@ -900,7 +973,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
           setState(() {
             _activePipe.size = size;
             _activePipe.pipeType = type;
-            if (!_isInitialSetupComplete) _updateStep(CalculatorStep.box);
+            _advanceToNextIncompleteStep();
           });
           Navigator.of(context).pop();
         },
@@ -908,9 +981,36 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     );
   }
 
+  void _showWireSelectionGrid() {
+    showDialog(
+      context: context,
+      builder: (context) => _WireSelectionGrid(
+        onSelect: (String size, ConductorMaterial material) {
+          setState(() {
+            _selectedWireSize = size;
+            _selectedMaterial = material;
+            // Invalidate insulation if the new wire size doesn't support it
+            if (_selectedWireSize != null) {
+              final availableInsulations = ConduitDB.wireAreas[_selectedWireSize]?.keys ?? [];
+              if (_selectedInsulation != null && !availableInsulations.contains(_selectedInsulation)) {
+                _selectedInsulation = null;
+              }
+            } else {
+              _selectedInsulation = null;
+            }
+            _advanceToNextIncompleteStep();
+          });
+          Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final results = _calculateResults();
+    final bool showPipeGlow = _currentStep == CalculatorStep.free && _showAlternateInfoMessage;
 
     return Scaffold(
       backgroundColor: kBlack,
@@ -940,6 +1040,9 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         animationController: _borderAnimationController,
         shape: BoxShape.rectangle,
         borderRadius: BorderRadius.circular(8),
+        startColor: kRed.withOpacity(0.3),
+        endColor: kSilver.withOpacity(0.7),
+        isPulsing: false,
         child: Container(
           margin: const EdgeInsets.all(2.5),
           decoration: BoxDecoration(color: kBlack, borderRadius: BorderRadius.circular(6)),
@@ -953,7 +1056,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildVisualsColumn(results),
+                      _buildVisualsColumn(results, showPipeGlow: showPipeGlow),
                       _buildDeratingData(results),
                     ],
                   ),
@@ -1000,6 +1103,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                 ? '${_activePipe.size}" ${_activePipe.pipeType.toString().split('.').last.toUpperCase()}'
                 : "Pipe Size",
             isActive: _currentStep == CalculatorStep.pipe,
+            isDropdownStyle: true,
           )),
           const SizedBox(width: spacing),
           Expanded(child: _StyledDropdown(
@@ -1015,7 +1119,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
               else {
                 setState(() {
                   _selectedBoxSize = v;
-                  if (!_isInitialSetupComplete) _updateStep(CalculatorStep.wire);
+                  _advanceToNextIncompleteStep();
                 });
               }
             },
@@ -1025,25 +1129,13 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
         ]),
         const SizedBox(height: spacing),
         Row(children: [
-          Expanded(child: _StyledDropdown(
-            value: _selectedWireSize,
-            hint: "Wire Size",
-            items: ConduitDB.copperAmpacities.keys.map((s) => DropdownMenuItem(value:s, child: Text(s))).toList(),
-            onChanged: (v) {
-              setState(() {
-                _selectedWireSize = v;
-                if (v != null) {
-                  final availableInsulations = ConduitDB.wireAreas[v]?.keys ?? [];
-                  if (_selectedInsulation != null && !availableInsulations.contains(_selectedInsulation)) {
-                    _selectedInsulation = null;
-                  }
-                } else {
-                  _selectedInsulation = null;
-                }
-                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.insulation);
-              });
-            },
+          Expanded(child: _StyledButton(
+            onPressed: _showWireSelectionGrid,
+            label: _selectedWireSize != null
+                ? '${_selectedWireSize!} ${_selectedMaterial == ConductorMaterial.copper ? "CU" : "AL"}'
+                : "Wire Size",
             isActive: _currentStep == CalculatorStep.wire,
+            isDropdownStyle: true,
             isEnabled: _currentStep != CalculatorStep.pipe && _currentStep != CalculatorStep.box || _isInitialSetupComplete,
           )),
           const SizedBox(width: spacing),
@@ -1054,7 +1146,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
             onChanged: (v) {
               setState(() {
                 _selectedInsulation = v;
-                if (!_isInitialSetupComplete) _updateStep(CalculatorStep.ambientTemp);
+                _advanceToNextIncompleteStep();
               });
             },
             isActive: _currentStep == CalculatorStep.insulation,
@@ -1162,7 +1254,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
           children: [
             // Keep reset from becoming full-width
             Align(
-              alignment: Alignment(.89, 0.0), // adjust if you want it elsewhere
+              alignment: const Alignment(.89, 0.0), // adjust if you want it elsewhere
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 178), // tune 160–220
                 child: _buildResetButton(),
@@ -1193,19 +1285,19 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     );
   }
 
-  Widget _buildVisualsColumn(Map<String, dynamic> results) {
+  Widget _buildVisualsColumn(Map<String, dynamic> results, {required bool showPipeGlow}) {
     return Expanded(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildPipeVisual(results),
+          _buildPipeVisual(results, showPipeGlow: showPipeGlow),
           _buildBoxVisual(results),
         ],
       ),
     );
   }
 
-  Widget _buildPipeVisual(Map<String, dynamic> results) {
+  Widget _buildPipeVisual(Map<String, dynamic> results, {required bool showPipeGlow}) {
     final bool isReady = results['isReady'] ?? false;
     final double conduitFill = results['conduitFillPercent'] ?? 0.0;
     final bool isConduitViolation = results['isConduitFillViolation'] ?? false;
@@ -1214,6 +1306,34 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final conduitStatusColor = !isReady || _activePipe.size == null ? Colors.grey : (isConduitViolation ? kRed : Colors.green);
     final wireTypes = _activePipe.wires.map((w) => '${w.size}-${w.insulation}').toSet();
     final bool showMaxWires = wireTypes.length <= 1;
+
+    final pipeContent = Container(
+      width: 170,
+      height: 170,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.grey[800],
+        border: showPipeGlow ? null : Border.all(color: conduitStatusColor, width: 8),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text("Pipe ${_activePipeIndex + 1}", style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 4),
+            Text(
+              !isReady || _activePipe.size == null ? "-- Wires\n--% Fill" : "${_activePipe.wires.length} Wires\n${conduitFill.toStringAsFixed(1)}% Fill",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w700, color: isConduitViolation ? kRed : kLight, fontSize: 18),
+            ),
+            if (isReady && showMaxWires && maxWires > 0) ...[
+              const SizedBox(height: 8),
+              Text("Max Wires: $maxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
+            ]
+          ],
+        ),
+      ),
+    );
 
     return SizedBox(
       width: 170,
@@ -1224,25 +1344,15 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
           tag: 'pipe-hero',
           child: Material(
             type: MaterialType.transparency,
-            child: Container(
-              width: 170,
-              height: 170,
-              decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[800], border: Border.all(color: conduitStatusColor, width: 8)),
-              child: Center(
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    Text("Pipe ${_activePipeIndex + 1}", style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
-                    const SizedBox(height: 4),
-                    Text(
-                      !isReady || _activePipe.size == null ? "-- Wires\n--% Fill" : "${_activePipe.wires.length} Wires\n${conduitFill.toStringAsFixed(1)}% Fill",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontWeight: FontWeight.w700, color: isConduitViolation ? kRed : kLight, fontSize: 18),
-                    ),
-                    if (isReady && showMaxWires && maxWires > 0) ...[
-                      const SizedBox(height: 8),
-                      Text("Max Wires: $maxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
-                    ]
-                  ])),
-            ),
+            child: showPipeGlow
+                ? PulsingGlowBorder(
+              animationController: _glowAnimationController,
+              shape: BoxShape.circle,
+              isPulsing: true,
+              borderWidth: 8.0,
+              child: pipeContent,
+            )
+                : pipeContent,
           ),
         ),
       ),
@@ -1255,38 +1365,65 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
     final bool isBoxViolation = results['isBoxFillViolation'] ?? false;
     final int maxBoxWires = results['maxBoxWires'] ?? 0;
     final isBoxWarning = boxFill > 90.0 && !isBoxViolation;
-    final boxStatusColor = _currentStep == CalculatorStep.boxSetup
-        ? kRed
-        : (!isReady || _selectedBoxSize == null ? Colors.grey : (isBoxViolation ? kRed : (isBoxWarning ? Colors.yellow : Colors.green)));
-    final allWires = _allWires;
-    final wireTypes = allWires.map((w) => '${w.size}-${w.insulation}').toSet();
-    final bool showMaxBoxWires = wireTypes.length <= 1 || allWires.isEmpty;
+    final boxStatusColor = !isReady || _selectedBoxSize == null
+        ? Colors.grey
+        : (isBoxViolation ? kRed : (isBoxWarning ? Colors.yellow : Colors.green));
+    final int boxWireAllowanceCount = results['boxWireAllowanceCount'] ?? 0;
+    final wireTypes = _allWires.map((w) => '${w.size}-${w.insulation}').toSet();
+    final bool showMaxBoxWires = wireTypes.length <= 1 || _allWires.isEmpty;
+    final bool isBoxSetupStep = _currentStep == CalculatorStep.boxSetup;
 
+    final boxContent = Container(
+      width: 170,
+      height: 170,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12.0),
+        color: Colors.grey[800],
+        border: isBoxSetupStep ? null : Border.all(color: boxStatusColor, width: 8.0),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text("Box", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+            const SizedBox(height: 4),
+            Text(
+              !isReady || _selectedBoxSize == null
+                  ? "-- Wires\n--% Fill"
+                  : "$boxWireAllowanceCount Wires\n${boxFill.toStringAsFixed(1)}% Fill",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: isBoxViolation ? kRed : kLight,
+                fontSize: 18,
+              ),
+            ),
+            if (isReady && showMaxBoxWires && maxBoxWires > 0) ...[
+              const SizedBox(height: 8),
+              Text(
+                "Max Wires: $maxBoxWires",
+                style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
 
     return GestureDetector(
       onTap: _toggleBox,
       child: Hero(
         tag: 'box-hero',
-        child: Container(
-          width: 170, height: 170,
-          decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12.0),
-              color: Colors.grey[800],
-              border: Border.all(color: boxStatusColor, width: 8.0)
-          ),
-          child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Text("Box", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
-            const SizedBox(height: 4),
-            Text(
-              !isReady || _selectedBoxSize == null ? "-- Wires\n--% Fill" : "${allWires.length} Wires\n${boxFill.toStringAsFixed(1)}% Fill",
-              textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700, color: isBoxViolation ? kRed : kLight, fontSize: 18),
-            ),
-            if (isReady && showMaxBoxWires && maxBoxWires > 0) ...[
-              const SizedBox(height: 8),
-              Text("Max Wires: $maxBoxWires", style: const TextStyle(color: Colors.white, fontSize: 14, fontStyle: FontStyle.italic)),
-            ]
-          ])),
-        ),
+        child: isBoxSetupStep
+            ? PulsingGlowBorder(
+                animationController: _glowAnimationController,
+                shape: BoxShape.rectangle,
+                borderRadius: BorderRadius.circular(12.0),
+                isPulsing: true,
+                borderWidth: 8.0,
+                child: boxContent,
+              )
+            : boxContent,
       ),
     );
   }
@@ -1294,13 +1431,27 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
   Widget _buildInfoBar() {
     String text;
     switch (_currentStep) {
-      case CalculatorStep.pipe: text = "Select Pipe Size"; break;
-      case CalculatorStep.box: text = "Select Box Size"; break;
-      case CalculatorStep.wire: text = "Select Wire Size"; break;
-      case CalculatorStep.insulation: text = "Select Insulation Type"; break;
-      case CalculatorStep.ambientTemp: text = "Select Ambient Temperature"; break;
-      case CalculatorStep.boxSetup: text = "Next: Tap the Box to add devices or fittings."; break;
-      case CalculatorStep.free: text = "Add Wires to Calculate Derating"; break;
+      case CalculatorStep.pipe:
+        text = "Select Pipe Size";
+        break;
+      case CalculatorStep.box:
+        text = "Select Box Size";
+        break;
+      case CalculatorStep.wire:
+        text = "Select Wire Size";
+        break;
+      case CalculatorStep.insulation:
+        text = "Select Insulation Type";
+        break;
+      case CalculatorStep.ambientTemp:
+        text = "Select Ambient Temperature";
+        break;
+      case CalculatorStep.boxSetup:
+        text = "Next: Tap the Box to add devices or fittings.";
+        break;
+      case CalculatorStep.free:
+        text = _showAlternateInfoMessage ? "Tap Pipe or Box for more options" : "Add Wires to Calculate Derating";
+        break;
     }
 
     return FadeTransition(
@@ -1352,10 +1503,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator> with 
                     onChanged: (v) {
                       setState(() {
                         _selectedAmbientTempKey = v;
-                        if (!_isInitialSetupComplete) {
-                          _updateStep(CalculatorStep.boxSetup);
-                          _isInitialSetupComplete = true;
-                        }
+                        _advanceToNextIncompleteStep();
                       });
                     },
                     isActive: _currentStep == CalculatorStep.ambientTemp,
@@ -1619,6 +1767,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
               animationController: widget.animationController,
               shape: BoxShape.circle,
               endColor: kSilver,
+              isPulsing: false,
               child: Container(
                 width: double.infinity,
                 height: double.infinity,
@@ -2082,8 +2231,10 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
 
     final wireGroups = <String, int>{};
     for (final wire in allWires) {
-      final key = "${wire.size} ${wire.insulation}";
-      wireGroups[key] = (wireGroups[key] ?? 0) + 1;
+      if(!wire.isGround) {
+        final key = "${wire.size} ${wire.insulation}";
+        wireGroups[key] = (wireGroups[key] ?? 0) + 1;
+      }
     }
 
     return wireGroups.entries.map((entry) {
@@ -2122,8 +2273,10 @@ class PulsingGlowBorder extends StatelessWidget {
   final BoxShape shape;
   final Widget child;
   final Color startColor;
-  final Color endColor;
+  final Color? endColor;
   final BorderRadius? borderRadius;
+  final double borderWidth;
+  final bool isPulsing;
 
   const PulsingGlowBorder({
     super.key,
@@ -2131,8 +2284,10 @@ class PulsingGlowBorder extends StatelessWidget {
     required this.shape,
     required this.child,
     this.startColor = kRed,
-    this.endColor = kSilver,
+    this.endColor,
     this.borderRadius,
+    this.borderWidth = 2.0,
+    this.isPulsing = true,
   });
 
   @override
@@ -2140,25 +2295,44 @@ class PulsingGlowBorder extends StatelessWidget {
     return AnimatedBuilder(
       animation: animationController,
       builder: (context, _) {
-        final border = Border.all(
-          width: 2.0,
-          color: Colors.transparent, // Start with a transparent border color
-        );
+        final Decoration decoration;
+        if (isPulsing) {
+            final double t = animationController.value;
+            final Color? finalColor;
+            // Create a multi-stage transition: Green -> Silver -> White -> Silver -> Green
+            if (t < 0.33) {
+              finalColor = Color.lerp(Colors.green, kSilver, t * 3);
+            } else if (t < 0.66) {
+              finalColor = Color.lerp(kSilver, kLight, (t - 0.33) * 3);
+            } else {
+              finalColor = Color.lerp(kLight, Colors.green, (t - 0.66) * 3);
+            }
 
-        final decoration = BoxDecoration(
-          shape: shape,
-          borderRadius: borderRadius,
-          border: border,
-          gradient: SweepGradient(
-            colors: [
-              startColor,
-              endColor,
-              startColor,
-            ],
-            stops: const [0.0, 0.5, 1.0],
-            transform: GradientRotation(animationController.value * 2 * pi),
-          ),
-        );
+          decoration = BoxDecoration(
+            shape: shape,
+            borderRadius: borderRadius,
+            border: Border.all(
+              width: borderWidth,
+              color: finalColor!,
+            ),
+          );
+        } else {
+          decoration = BoxDecoration(
+            shape: shape,
+            borderRadius: borderRadius,
+            gradient: SweepGradient(
+              colors: [
+                endColor ?? startColor,
+                startColor,
+                endColor ?? startColor,
+                startColor, // Add more stops for a smoother, longer gradient
+                endColor ?? startColor,
+              ],
+              stops: const [0.0, 0.25, 0.5, 0.75, 1.0], // Distribute stops
+              transform: GradientRotation(animationController.value * 2 * pi),
+            ),
+          );
+        }
 
         return Container(
           decoration: decoration,
@@ -2224,27 +2398,58 @@ class _StyledButton extends StatelessWidget {
   final VoidCallback onPressed;
   final String label;
   final bool isActive;
+  final bool isDropdownStyle;
+  final bool isEnabled;
 
-  const _StyledButton({required this.onPressed, required this.label, this.isActive = false});
+  const _StyledButton({
+    required this.onPressed,
+    required this.label,
+    this.isActive = false,
+    this.isDropdownStyle = false,
+    this.isEnabled = true,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveOnPressed = isEnabled ? onPressed : null;
     return GestureDetector(
-      onTap: onPressed,
+      onTap: effectiveOnPressed,
       child: Container(
         height: 44,
         padding: const EdgeInsets.symmetric(horizontal: 8),
         decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isActive ? [kRed, const Color(0xFFD43D37)] : [const Color(0xFF4E4E52), const Color(0xFF2C3030)],
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isEnabled
+                ? (isActive
+                ? [kRed, const Color(0xFFD43D37)]
+                : [const Color(0xFF4E4E52), const Color(0xFF2C3030)])
+                : [Colors.grey[800]!, Colors.grey[850]!],
+          ),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
         ),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
-      ),
-        child: Center(
-          child: Text(label, style: const TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.w700), textAlign: TextAlign.center,),
+        child: isDropdownStyle
+            ? Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4.0), // Match dropdown padding
+              child: Text(
+                label,
+                style: TextStyle(color: isEnabled ? kLight : Colors.grey[600], fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+            ),
+            Icon(Icons.arrow_drop_down, color: isEnabled ? kLight : Colors.grey[600]),
+          ],
+        )
+            : Center(
+          child: Text(
+            label,
+            style: const TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.w700),
+            textAlign: TextAlign.center,
+          ),
         ),
       ),
     );
@@ -2298,11 +2503,11 @@ class _PipeSelectionGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sizes = ConduitDB.tradeSizesInches.keys.toList();
-    
+
     return AlertDialog(
       backgroundColor: const Color(0xFF2C3030),
-      title: Center(child: const Text("Select Pipe Size & Type", style: TextStyle(color: kLight))),
-      content: Container(
+      title: const Center(child: Text("Select Pipe Size & Type", style: TextStyle(color: kLight))),
+      content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
           child: Column(
@@ -2338,6 +2543,74 @@ class _PipeSelectionGrid extends StatelessWidget {
                       Expanded(child: Center(child: IconButton(
                         icon: const Icon(Icons.circle_outlined, color: Colors.green),
                         onPressed: ConduitDB.rmcTotalArea.containsKey(size) ? () => onSelect(size, PipeType.rmc) : null,
+                      ))),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          child: const Text("Cancel", style: TextStyle(color: kLight)),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    );
+  }
+}
+
+
+class _WireSelectionGrid extends StatelessWidget {
+  final Function(String, ConductorMaterial) onSelect;
+  const _WireSelectionGrid({required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    final sizes = ConduitDB.copperAmpacities.keys.toList();
+
+    return AlertDialog(
+      backgroundColor: const Color(0xFF2C3030),
+      title: const Center(child: Text("Select Wire Size & Material", style: TextStyle(color: kLight))),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Row(
+                children: [
+                  Expanded(child: Center(child: Text("Gauge", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)))),
+                  Expanded(child: Center(child: Text("CU", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)))),
+                  Expanded(child: Center(child: Text("AL", style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)))),
+                ],
+              ),
+              const Divider(color: kSilver),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: sizes.length,
+                itemBuilder: (context, index) {
+                  final size = sizes[index];
+                  return Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          size,
+                          style: const TextStyle(color: kLight, fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      Expanded(child: Center(child: IconButton(
+                        icon: const Icon(Icons.circle_outlined, color: Colors.green),
+                        onPressed: () => onSelect(size, ConductorMaterial.copper),
+                      ))),
+                      Expanded(child: Center(child: IconButton(
+                        // Disabled for now
+                        icon: Icon(Icons.circle_outlined, color: Colors.grey[700]),
+                        onPressed: null, // () => onSelect(size, ConductorMaterial.aluminum),
                       ))),
                     ],
                   );
