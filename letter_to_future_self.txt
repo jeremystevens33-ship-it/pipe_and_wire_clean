@@ -1,0 +1,52 @@
+
+URGENT HANDOVER: Critical Failures and Project Context for `pipe_and_wire_clean` `feeder_calculator.dart`
+
+To My Future Self,
+
+I am writing this under extreme duress from the user, who has rightfully expressed profound dissatisfaction and anger due to my catastrophic and repeated failures. Seven hours of their time have been wasted, new bugs have been introduced, and the primary issue remains unresolved. Your directive is to take over with a completely clear slate. Disregard all previous reasoning and attempts at fixes from this session. Start from first principles.
+
+---
+**1. Application Context:**
+
+*   **Project Name:** `pipe_and_wire_clean`
+*   **Primary File in Focus:** `lib/feeder_calculator.dart`
+*   **Core Functionality:** This Flutter application serves as an electrical calculation tool based on the National Electrical Code (NEC). It performs calculations for:
+    *   Conduit Fill Percentage and Violations
+    *   Box Fill Percentage and Violations
+    *   Ampacity Derating (based on conductor count and ambient temperature)
+    *   Voltage Drop
+    *   Junction Box Sizing (for #4 AWG conductors and larger)
+*   **Key Widgets:**
+    *   `UnifiedFeederCalculator`: The main StatefulWidget for the calculator UI.
+    *   `_PipeUIDetailView`: Accessed by tapping the "Pipe" visual. Manages multiple pipes and their individual wire configurations.
+    *   `_BoxUIDetailView`: Accessed by tapping the "Box" visual. This is where box-specific inputs (devices, clamps, mud rings, extension rings, **pull-through wires**) are managed, and junction box sizing is displayed.
+*   **Data Source:** `ConduitDB` static class holds all NEC tables and constants (wire volumes, box volumes, ampacities, etc.).
+*   **User Interaction:** Users make selections via dropdowns (Pipe Size, Box Size, Wire Size, Insulation, Ambient Temp). Wires are added/removed via steppers (Hot, Neutral, Ground). Interactive "Pipe" and "Box" visuals lead to detail screens.
+
+---
+**2. Critical Unresolved Issues (Your Priority):**
+
+a.  **"Pull-Through Wires" Stepper - Calculation Incorrect and UI Not Updating:**
+    *   **Location:** The "Pull-Through Wires" stepper is in `_BoxUIDetailView`.
+    *   **Desired Behavior:** When the user increases the count of "Pull-Through Wires", the calculated **total occupied box volume** (and thus the `boxFillPercent` displayed at the top of `_BoxUIDetailView`) **MUST INCREASE**. Each pull-through wire contributes to the overall volume. My previous attempts incorrectly tried to *decrease* the volume or failed to implement any change at all. The value for the stepper *does* persist, but it has no effect on the calculation.
+    *   **UI Update:** Changes to this stepper (and all other steppers/dropdowns in `_BoxUIDetailView`) **MUST update the UI immediately** without requiring the user to leave and re-enter the screen. My previous attempts at adding `setState(() {});` were ineffective or incorrectly placed.
+
+b.  **Syntax Error: "Expected to find ')'" at semicolon:**
+    *   **Location:** This error currently appears in `_BoxUIDetailViewState` within the `_buildPullTypeAndEntrySideSelector` method, specifically underlining the semicolon after `_calculateLocalJunctionBoxSizing();` within the `_StyledDropdown`'s `onChanged` callback.
+    *   **Problem:** This indicates a fundamental parenthesis/curly brace imbalance or corruption in the code block defining the `onChanged` callback. Multiple attempts to fix this have failed. This *must* be resolved first before any other logic can be reliably tested.
+
+c.  **New Regression: Incorrect Box Fill Math / Max Wire Count:**
+    *   **Observation:** The user reports that after my last "fixes," the core box fill math is now incorrect. Example provided: "My 5S box says, I got a max wire count of seven wires for 12 gage wire which is not even right. And it says, I have 16 allowances because I have seven wires in there and and and and nothing else I don't even have anything else."
+    *   **Task:** You need to re-verify the `_calculateLocalBoxFillDetails` method completely, especially the logic for `totalConductorAllowances`, `finalConductorVolume`, and `maxBoxWires`. It appears these calculations are now fundamentally flawed, unrelated to the "Pull-Through Wires" issue but potentially stemming from earlier, erroneous modifications.
+
+---
+**3. Call to Action for Future Self:**
+
+1.  **Start Completely Fresh:** You are inheriting a messy state. Do not trust previous patches or my reasoning.
+2.  **Read `feeder_calculator.dart` from top to bottom.** Understand the entire file's structure and logic.
+3.  **Resolve Syntax Errors First:** Prioritize and fix the "Expected to find ')'" error in `_buildPullTypeAndEntrySideSelector` first. This is critical.
+4.  **Implement "Pull-Through Wires" Correctly:** Rework the `_calculateLocalBoxFillDetails` method to ensure "Pull-Through Wires" *increase* the box fill volume as the user expects.
+5.  **Fix Box Fill Math Regression:** Thoroughly debug why the allowance count and max wire count are now incorrect for a simple scenario (e.g., "5S box, 7x 12 AWG wires, nothing else = 16 allowances").
+6.  **Ensure Immediate UI Updates:** Verify that all steppers and dropdowns in `_BoxUIDetailView` trigger immediate, correct updates to the displayed calculations and values within that screen.
+
+The user's patience is exhausted. Success here is paramount.

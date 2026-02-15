@@ -11,11 +11,13 @@ const kSilver = Color(0xFF9E9E9E);
 class VoltDropKeypad extends StatefulWidget {
   final String initialValue;
   final Function(double) onConfirm;
+  final String? title; // ADDED: Allows a title to be passed
 
   const VoltDropKeypad({
     super.key,
     required this.initialValue,
     required this.onConfirm,
+    this.title, // ADDED: Accepts the optional title
   });
 
   @override
@@ -45,7 +47,8 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
 
       switch (value) {
         case '⌫':
-          _displayValue = _displayValue.isNotEmpty ? _displayValue.substring(0, _displayValue.length - 1) : "";
+          _displayValue = _displayValue.isNotEmpty ? _displayValue.substring(
+              0, _displayValue.length - 1) : "";
           if (_displayValue.isEmpty) _displayValue = "0";
           break;
         case '.':
@@ -77,12 +80,28 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery.of(context).size.height * 0.4, // Set height to 40% of screen height
+      height: MediaQuery
+          .of(context)
+          .size
+          .height * 0.4, // Set height to 40% of screen height
       color: kBlack.withOpacity(0.9),
       padding: const EdgeInsets.fromLTRB(4.0, 8.0, 4.0, 4.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ADDED: Display the title if provided
+          if (widget.title != null) ...[
+            Text(
+              widget.title!,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: kLight,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+          ],
           _buildDisplay(),
           const SizedBox(height: 8),
           Flexible(
@@ -142,7 +161,9 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
     return Flexible(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: values.map((value) => Expanded(child: Padding(padding: const EdgeInsets.all(2.0), child: _buildButton(value)))).toList(),
+        children: values.map((value) =>
+            Expanded(child: Padding(padding: const EdgeInsets.all(2.0),
+                child: _buildButton(value)))).toList(),
       ),
     );
   }
@@ -151,14 +172,18 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
     final bool isIcon = value == '⌫';
     final bool isConfirm = value == '✔';
     final Color buttonColor = isConfirm ? kGreen : const Color(0xFF4E4E52);
-    final Color splashColor = isConfirm ? Colors.lightGreen : const Color(0xFF616161);
+    final Color splashColor = isConfirm ? Colors.lightGreen : const Color(
+        0xFF616161);
     final Widget child = isIcon
         ? const Icon(Icons.backspace_outlined, color: kLight, size: 24)
-        : Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: kLight));
+        : Text(value, style: const TextStyle(
+        fontSize: 20, fontWeight: FontWeight.w600, color: kLight));
 
     return Container(
       decoration: BoxDecoration(
-        border: Border.all(color: (isConfirm ? kGreen : Colors.white24).withAlpha(150), width: isConfirm ? 1.5 : 1.0),
+        border: Border.all(
+            color: (isConfirm ? kGreen : Colors.white24).withAlpha(150),
+            width: isConfirm ? 1.5 : 1.0),
         borderRadius: BorderRadius.circular(6),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -176,7 +201,8 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
           onLongPressUp: value == '⌫' ? _stopBackspace : null,
           child: Center(
             child: isConfirm
-                ? const Icon(Icons.check_circle_outline, color: kLight, size: 28)
+                ? const Icon(
+                Icons.check_circle_outline, color: kLight, size: 28)
                 : child,
           ),
         ),
