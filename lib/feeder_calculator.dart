@@ -8,6 +8,7 @@ import 'ampacity_derating_code_screen.dart';
 import 'box_sizing_code_screen.dart';
 import 'conduit_fill_code_screen.dart';
 import 'voltage_drop_code_screen.dart';
+import 'package:flutter/services.dart';
 
 // Extension to capitalize the first letter of a string for dropdown display
 extension StringExtension on String {
@@ -1223,18 +1224,61 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
                 _setActivePipe(index);
                 setState(() {});
               }
+              void removePipeAndRefresh() {
+                if (_pipes.length <= 1) return;
+
+                _pipes.removeAt(_activePipeIndex);
+
+                if (_activePipeIndex >= _pipes.length) {
+                  _activePipeIndex = _pipes.length - 1;
+                }
+
+                setState(() {});
+              }
+
+              void addWireAndRefresh(Wire wire) {
+                _pipes[_activePipeIndex].wires.add(wire);
+                setState(() {});
+              }
+
+              void removeWireAndRefresh(Wire wire) {
+                final wires = _pipes[_activePipeIndex].wires;
+
+                final index = wires.indexWhere((w) =>
+                w.size == wire.size &&
+                    w.insulation == wire.insulation &&
+                    w.material == wire.material &&
+                    w.isGround == wire.isGround &&
+                    w.isNeutral == wire.isNeutral &&
+                    w.isCurrentCarrying == wire.isCurrentCarrying);
+
+                if (index != -1) {
+                  wires.removeAt(index);
+                }
+
+                setState(() {});
+              }
 
               return _PipeUIDetailView(
                 // Pass the current state from the main screen.
                 pipes: _pipes,
                 activePipeIndex: _activePipeIndex,
-                // Pass the new refresh function.
+
+                // Pipe controls
                 onAddPipe: addPipeAndRefresh,
+                onRemovePipe: removePipeAndRefresh, // ✅ ADD (you need to create/point to this)
+
                 onSetActivePipe: setActivePipeAndRefresh,
-                animationController: _borderAnimationController,
+
+                // Wire controls
+                onAddWire: addWireAndRefresh,       // ✅ ADD (you need to create/point to this)
+                onRemoveWire: removeWireAndRefresh, // ✅ ADD (you need to create/point to this)
+
+
                 results: _calculateResults(),
                 selectedBoxSize: _selectedBoxSize,
               );
+
             },
           );
         },
@@ -2436,9 +2480,18 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
 class _PipeUIDetailView extends StatefulWidget {
   final List<Pipe> pipes;
   final int activePipeIndex;
+
+  // Pipe controls
   final VoidCallback onAddPipe;
+  final VoidCallback onRemovePipe; // NEW
+
   final ValueChanged<int> onSetActivePipe;
-  final AnimationController animationController;
+
+  // Wire controls
+  final ValueChanged<Wire> onAddWire;    // NEW
+  final ValueChanged<Wire> onRemoveWire; // NEW
+
+
   final Map<String, dynamic> results;
   final String? selectedBoxSize;
 
@@ -2446,8 +2499,11 @@ class _PipeUIDetailView extends StatefulWidget {
     required this.pipes,
     required this.activePipeIndex,
     required this.onAddPipe,
+    required this.onRemovePipe, // NEW
     required this.onSetActivePipe,
-    required this.animationController,
+    required this.onAddWire, // NEW
+    required this.onRemoveWire, // NEW
+
     required this.results,
     required this.selectedBoxSize,
   });
@@ -2456,13 +2512,28 @@ class _PipeUIDetailView extends StatefulWidget {
   State<_PipeUIDetailView> createState() => _PipeUIDetailViewState();
 }
 
-class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
+class _PipeUIDetailViewState extends State<_PipeUIDetailView>
+    with SingleTickerProviderStateMixin {
+
   late int _localActivePipeIndex;
   String? _selectedWireSummaryKey;
+
+  late final AnimationController _pipeBorderController;
 
   @override
   void initState() {
     super.initState();
+    _pipeBorderController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    )..repeat();
+
+    @override
+    void dispose() {
+      _pipeBorderController.dispose();
+      super.dispose();
+    }
+
     _localActivePipeIndex = widget.activePipeIndex;
     _updateSelectedWireSummary();
   }
@@ -2470,19 +2541,28 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
   @override
   void didUpdateWidget(covariant _PipeUIDetailView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    bool wiresChanged = widget.pipes.length > _localActivePipeIndex &&
-        oldWidget.pipes.length > _localActivePipeIndex &&
-        widget.pipes[_localActivePipeIndex].wires.length !=
-            oldWidget.pipes[_localActivePipeIndex].wires.length;
-    bool pipeIndexChanged = widget.activePipeIndex != _localActivePipeIndex;
-    bool pipeCountChanged = widget.pipes.length != oldWidget.pipes.length;
+
+    final bool pipeIndexChanged = widget.activePipeIndex != _localActivePipeIndex;
+    final bool pipeCountChanged = widget.pipes.length != oldWidget.pipes.length;
+
+    bool wiresChanged = false;
+    if (widget.pipes.isNotEmpty &&
+        oldWidget.pipes.isNotEmpty &&
+        _localActivePipeIndex < widget.pipes.length &&
+        _localActivePipeIndex < oldWidget.pipes.length) {
+      wiresChanged = widget.pipes[_localActivePipeIndex].wires.length !=
+          oldWidget.pipes[_localActivePipeIndex].wires.length;
+    }
 
     if (pipeIndexChanged || pipeCountChanged) {
       setState(() {
         _localActivePipeIndex = widget.activePipeIndex;
+
+        // If a new pipe was added and parent moved index, snap to last pipe safely
         if (pipeCountChanged && widget.pipes.length > oldWidget.pipes.length) {
           _localActivePipeIndex = widget.pipes.length - 1;
         }
+
         _updateSelectedWireSummary();
       });
     } else if (wiresChanged) {
@@ -2492,35 +2572,31 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     }
   }
 
+  Pipe get _activePipe => widget.pipes[_localActivePipeIndex];
+
   void _updateSelectedWireSummary() {
     final summaryMap = _getDeratingSummaryForPipe(_activePipe);
-    if (summaryMap.isNotEmpty) {
-      final sortedKeys = summaryMap.keys.toList();
-      // Sort to have the smallest wire gauge (largest AWG number) first as the default.
-      sortedKeys.sort((a, b) {
-        final sizeA = int.tryParse(
-            a.split(" ")[0].replaceAll("AWG", "").trim()) ?? 0;
-        final sizeB = int.tryParse(
-            b.split(" ")[0].replaceAll("AWG", "").trim()) ?? 0;
-        return sizeB.compareTo(sizeA);
-      });
-      final defaultKey = sortedKeys.first;
-      if (_selectedWireSummaryKey == null ||
-          !summaryMap.containsKey(_selectedWireSummaryKey)) {
-        _selectedWireSummaryKey = defaultKey;
-      }
-    } else {
+    if (summaryMap.isEmpty) {
       _selectedWireSummaryKey = null;
+      return;
+    }
+
+    final sortedKeys = summaryMap.keys.toList();
+    // Default to smallest conductor (largest AWG number) first.
+    sortedKeys.sort((a, b) {
+      final sizeA = int.tryParse(a.split(" ")[0].replaceAll("AWG", "").trim()) ?? 0;
+      final sizeB = int.tryParse(b.split(" ")[0].replaceAll("AWG", "").trim()) ?? 0;
+      return sizeB.compareTo(sizeA);
+    });
+
+    final defaultKey = sortedKeys.first;
+    if (_selectedWireSummaryKey == null || !summaryMap.containsKey(_selectedWireSummaryKey)) {
+      _selectedWireSummaryKey = defaultKey;
     }
   }
 
-
-  Pipe get _activePipe => widget.pipes[_localActivePipeIndex];
-
   Map<String, Map<String, dynamic>> _getDeratingSummaryForPipe(Pipe pipe) {
-    if (pipe.wires.isEmpty) {
-      return {};
-    }
+    if (pipe.wires.isEmpty) return {};
 
     final wireGroups = <String, List<Wire>>{};
     for (final wire in pipe.wires) {
@@ -2528,9 +2604,8 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
       wireGroups.putIfAbsent(key, () => []).add(wire);
     }
 
-    final int cccCount = pipe.wires
-        .where((w) => w.isCurrentCarrying)
-        .length;
+    final int cccCount = pipe.wires.where((w) => w.isCurrentCarrying).length;
+
     double adjustmentFactor = 1.0;
     if (cccCount >= 4 && cccCount <= 6) {
       adjustmentFactor = 0.80;
@@ -2546,28 +2621,30 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
       adjustmentFactor = 0.35;
     }
 
-    final tempCorrectionFactor = widget
-        .results['tempCorrectionFactor'] as double? ?? 1.0;
-    final deratingSummary = <String, Map<String, dynamic>>{};
+    final tempCorrectionFactor = widget.results['tempCorrectionFactor'] as double? ?? 1.0;
 
+    final deratingSummary = <String, Map<String, dynamic>>{};
     for (final entry in wireGroups.entries) {
       final key = entry.key;
       final wireGroup = entry.value;
       final firstWire = wireGroup.first;
       final count = wireGroup.length;
+
       int finalBreakerSize = 0;
 
       if (firstWire.isCurrentCarrying) {
         final ampacitiesMap = firstWire.material == ConductorMaterial.copper
             ? ConduitDB.copperAmpacities
             : ConduitDB.aluminumAmpacities;
+
         final startingAmpacity = ampacitiesMap[firstWire.size]?["90C"] ?? 0;
-        final newAmpacity = startingAmpacity * adjustmentFactor *
-            tempCorrectionFactor;
+        final newAmpacity = startingAmpacity * adjustmentFactor * tempCorrectionFactor;
+
         final capAmps75 = ampacitiesMap[firstWire.size]?["75C"] ?? 0;
         final finalAmps = min(newAmpacity, capAmps75.toDouble());
+
         int overcurrentLimit = 1000;
-        if (firstWire.size == "18 AWG") { // Added 18 AWG
+        if (firstWire.size == "18 AWG") {
           overcurrentLimit = 10;
         } else if (firstWire.size == "14 AWG") {
           overcurrentLimit = 15;
@@ -2576,28 +2653,34 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
         } else if (firstWire.size == "10 AWG") {
           overcurrentLimit = 30;
         }
-        finalBreakerSize =
-            ConduitDB.standardBreakerSizes.lastWhere((s) => s <= finalAmps,
-                orElse: () => 0);
+
+        finalBreakerSize = ConduitDB.standardBreakerSizes.lastWhere(
+              (s) => s <= finalAmps,
+          orElse: () => 0,
+        );
+
         finalBreakerSize = min(overcurrentLimit, finalBreakerSize);
       }
+
       deratingSummary[key] = {
         'count': count,
         'wire': firstWire,
         'finalBreakerSize': finalBreakerSize,
       };
     }
+
     return deratingSummary;
   }
 
-
   double _calculatePipeFill(Pipe pipe) {
-    if (pipe.size == null) {
-      return 0.0;
-    }
-    final double totalArea = (pipe.pipeType == PipeType.emt ? ConduitDB
-        .emtTotalArea : ConduitDB.rmcTotalArea)[pipe.size!]!;
+    if (pipe.size == null) return 0.0;
+
+    final double totalArea = (pipe.pipeType == PipeType.emt
+        ? ConduitDB.emtTotalArea
+        : ConduitDB.rmcTotalArea)[pipe.size!]!;
+
     final int wireCount = pipe.wires.length;
+
     double fillFactor;
     if (wireCount == 1) {
       fillFactor = 0.53;
@@ -2606,11 +2689,15 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     } else {
       fillFactor = 0.40;
     }
+
     final double maxArea = totalArea * fillFactor;
-    final double totalWireArea = pipe.wires.fold(0.0, (sum, w) =>
-    sum + (ConduitDB.wireAreas[w.size]?[w.insulation] ?? 0.0));
-    return totalWireArea.isFinite && maxArea > 0 ? (totalWireArea / maxArea) *
-        100 : 0.0;
+
+    final double totalWireArea = pipe.wires.fold(
+      0.0,
+          (sum, w) => sum + (ConduitDB.wireAreas[w.size]?[w.insulation] ?? 0.0),
+    );
+
+    return totalWireArea.isFinite && maxArea > 0 ? (totalWireArea / maxArea) * 100 : 0.0;
   }
 
   @override
@@ -2621,20 +2708,32 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
         child: Material(
           color: kBlack,
           child: Center(
-            child: PulsingGlowBorder(
-              animationController: widget.animationController,
+            child:PulsingGlowBorder(
+              animationController: _pipeBorderController,
               shape: BoxShape.circle,
               endColor: kSilver,
               isPulsing: false,
+              clockwise: true,
+
+              sweepColors: [
+                kSilver.withOpacity(0.80),
+                kRed.withOpacity(0.80),
+                const Color(0xFFFFD54F).withOpacity(0.95),
+                kLight.withOpacity(0.95),
+                kSilver.withOpacity(0.80),
+              ],
+              sweepStops: const [0.0, 0.45, 0.65, 0.78, 1.0],
+
               child: Container(
                 width: double.infinity,
                 height: double.infinity,
                 margin: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(
-                    shape: BoxShape.circle, color: kBlack),
+                decoration: const BoxDecoration(shape: BoxShape.circle, color: kBlack),
                 child: _buildPipeDashboard(),
               ),
             ),
+
+
           ),
         ),
       ),
@@ -2643,6 +2742,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
 
   Widget _buildPipeDashboard() {
     final fillPercent = _calculatePipeFill(_activePipe);
+
     return Column(
       children: [
         Expanded(
@@ -2653,16 +2753,24 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const SizedBox(height: 300),
+
                   _buildPipeInfoSection(),
+
                   const SizedBox(height: 16),
                   _buildDivider(),
                   const SizedBox(height: 16),
-                  _buildWireSummarySection(),
+
+                  // Keyed so it can't reuse weird state when switching pipes
+                  KeyedSubtree(
+                    key: ValueKey('wireSummary_${widget.activePipeIndex}'),
+                    child: _buildWireSummarySection(),
+                  ),
+
                   const SizedBox(height: 16),
                   _buildDivider(),
                   const SizedBox(height: 16),
-                  _buildInfoSection(
-                      "Conduit Fill", "${fillPercent.toStringAsFixed(1)}%"),
+
+                  _buildInfoSection("Conduit Fill", "${fillPercent.toStringAsFixed(1)}%"),
                 ],
               ),
             ),
@@ -2673,77 +2781,8 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
           child: SizedBox(
             width: 200,
             child: _StyledButton(
-                onPressed: () => Navigator.of(context).pop(), label: "Done"),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildWireSummarySection() {
-    if (_activePipe.wires.isEmpty) {
-      return _buildInfoSection("Wire Summary", "Empty");
-    }
-    final summaryMap = _getDeratingSummaryForPipe(_activePipe);
-
-    // If only one type of wire, show the simple text summary.
-    if (summaryMap.length <= 1) {
-      final summaryData = summaryMap.values.firstOrNull;
-      if (summaryData == null)
-        return _buildInfoSection("Wire Summary", "Empty");
-      final count = summaryData['count'];
-      final wire = summaryData['wire'] as Wire;
-      String summaryText = "($count) #${wire.size.replaceAll(" AWG", "")} ${wire
-          .insulation}";
-      return _buildInfoSection("Wire Summary", summaryText);
-    }
-
-    // If multiple wire types, build the dropdown.
-    return Column(
-      children: [
-        const Text("Wire Summary", style: TextStyle(
-            color: kLight, fontWeight: FontWeight.bold, fontSize: 30)),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-              color: const Color(0xFF2C3030),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: kSilver.withAlpha(128))
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: _selectedWireSummaryKey,
-              isExpanded: true,
-              icon: const Icon(Icons.arrow_drop_down, color: kLight, size: 36),
-              style: const TextStyle(color: Colors.white70,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold),
-              dropdownColor: const Color(0xFF2C3030),
-              items: summaryMap.entries.map((entry) {
-                final key = entry.key;
-                final summaryData = entry.value;
-                final count = summaryData['count'];
-                final wire = summaryData['wire'] as Wire;
-                final breaker = summaryData['finalBreakerSize'];
-                final shortInsulation = wire.insulation.length > 4 ? wire
-                    .insulation.substring(0, 4) : wire.insulation;
-                String summaryText = "($count) #${wire.size.replaceAll(
-                    " AWG", "")} $shortInsulation";
-                if (breaker > 0) {
-                  summaryText += " -> ${breaker}A Breaker";
-                }
-                return DropdownMenuItem(
-                  value: key,
-                  child: Center(
-                      child: Text(summaryText, textAlign: TextAlign.center,)),
-                );
-              }).toList(),
-              onChanged: (v) {
-                if (v != null) {
-                  setState(() => _selectedWireSummaryKey = v);
-                }
-              },
+              onPressed: () => Navigator.of(context).pop(),
+              label: "Done",
             ),
           ),
         ),
@@ -2751,24 +2790,12 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     );
   }
 
-  Widget _buildDivider() {
-    return SizedBox(
-      width: MediaQuery
-          .of(context)
-          .size
-          .width * 0.6,
-      child: const Divider(color: kSilver, height: 1),
-    );
-  }
-
   Widget _buildPipeInfoSection() {
-    final String pipeSize = _activePipe.size != null
-        ? '${_activePipe.size}"'
-        : "N/A";
+    final String pipeSize = _activePipe.size != null ? '${_activePipe.size}"' : "N/A";
     String infoText = pipeSize;
 
     if (widget.selectedBoxSize != null) {
-      final boxSize = widget.selectedBoxSize!;
+      final boxSize = widget.selectedBoxSize!; // FIXED (removed stray \)
       final boxFill = widget.results['boxFillPercent'] as double? ?? 0.0;
       infoText += " to $boxSize (${boxFill.toStringAsFixed(1)}% Fill)";
     }
@@ -2781,18 +2808,185 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              // PIPE - button
               IconButton(
-                  icon: const Icon(Icons.add_circle, color: kLight, size: 36),
-                  onPressed: widget.onAddPipe),
-              const SizedBox(width: 4),
+                icon: const Icon(Icons.remove_circle, color: kLight, size: 36),
+                onPressed: widget.pipes.length > 1 ? widget.onRemovePipe : null,
+              ),
+
+              const SizedBox(width: 6),
+
+              // PIPE + button
+              IconButton(
+                icon: const Icon(Icons.add_circle, color: kLight, size: 36),
+                onPressed: widget.onAddPipe,
+              ),
+
+              const SizedBox(width: 6),
+
               SizedBox(width: 140, child: _buildPipeSelectorDropdown()),
             ],
           ),
         ),
         const SizedBox(height: 6),
-        Text(infoText,
-            style: const TextStyle(color: Colors.white70, fontSize: 18),
-            textAlign: TextAlign.center),
+        Text(
+          infoText,
+          style: const TextStyle(color: Colors.white70, fontSize: 18),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWireSummarySection() {
+    if (_activePipe.wires.isEmpty) {
+      return _buildInfoSection("Wire Summary", "Empty");
+    }
+
+    final summaryMap = _getDeratingSummaryForPipe(_activePipe);
+    if (summaryMap.isEmpty) {
+      return _buildInfoSection("Wire Summary", "Empty");
+    }
+
+    // If only one wire type, show text + add/remove buttons for that single wire.
+    if (summaryMap.length == 1) {
+      final onlyEntry = summaryMap.entries.first;
+      final data = onlyEntry.value;
+      final count = data['count'];
+      final wire = data['wire'] as Wire;
+      final breaker = data['finalBreakerSize'];
+
+      String summaryText = "($count) #${wire.size.replaceAll(" AWG", "")} ${wire.insulation}";
+      if (breaker > 0) summaryText += " -> ${breaker}A Breaker";
+
+      return Column(
+        children: [
+          const Text(
+            "Wire Summary",
+            style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 30),
+          ),
+          const SizedBox(height: 10),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline, color: kLight, size: 30),
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  widget.onAddWire(wire);
+                },
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  summaryText,
+                  style: const TextStyle(color: Colors.white70, fontSize: 18),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.remove_circle_outline, color: kLight, size: 30),
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  widget.onRemoveWire(wire);
+                },
+              ),
+            ],
+          ),
+        ],
+      );
+    }
+
+    // Multiple wire types: dropdown + add/remove for selected type
+    final selectedKey = _selectedWireSummaryKey;
+    final selectedData = selectedKey != null ? summaryMap[selectedKey] : null;
+    final selectedWire = selectedData?['wire'] as Wire?;
+
+    return Column(
+      children: [
+        const Text(
+          "Wire Summary",
+          style: TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 30),
+        ),
+        const SizedBox(height: 10),
+
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline, color: kLight, size: 30),
+              onPressed: selectedWire == null
+                  ? null
+                  : () {
+                HapticFeedback.lightImpact();
+                widget.onAddWire(selectedWire);
+              },
+            ),
+
+            const SizedBox(width: 6),
+
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C3030),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: kSilver.withAlpha(128)),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _selectedWireSummaryKey,
+                    isExpanded: true,
+                    icon: const Icon(Icons.arrow_drop_down, color: kLight, size: 36),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    dropdownColor: const Color(0xFF2C3030),
+                    items: summaryMap.entries.map((entry) {
+                      final key = entry.key;
+                      final summaryData = entry.value;
+                      final count = summaryData['count'];
+                      final wire = summaryData['wire'] as Wire;
+                      final breaker = summaryData['finalBreakerSize'];
+
+                      final shortInsulation =
+                      wire.insulation.length > 4 ? wire.insulation.substring(0, 4) : wire.insulation;
+
+                      String summaryText = "($count) #${wire.size.replaceAll(" AWG", "")} $shortInsulation";
+                      if (breaker > 0) summaryText += " -> ${breaker}A Breaker";
+
+                      return DropdownMenuItem(
+                        value: key,
+                        child: Center(child: Text(summaryText, textAlign: TextAlign.center)),
+                      );
+                    }).toList(),
+                    onChanged: (v) {
+                      if (v != null) {
+                        setState(() => _selectedWireSummaryKey = v);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(width: 6),
+
+            IconButton(
+              icon: const Icon(Icons.remove_circle_outline, color: kLight, size: 30),
+              onPressed: selectedWire == null
+                  ? null
+                  : () {
+                HapticFeedback.lightImpact();
+                widget.onRemoveWire(selectedWire);
+              },
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -2804,8 +2998,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
         hint: const Text("Select Pipe"),
         isExpanded: true,
         icon: const Icon(Icons.arrow_drop_down, color: kLight, size: 36),
-        style: const TextStyle(
-            color: kLight, fontSize: 30, fontWeight: FontWeight.bold),
+        style: const TextStyle(color: kLight, fontSize: 30, fontWeight: FontWeight.bold),
         dropdownColor: const Color(0xFF2C3030),
         items: List.generate(widget.pipes.length, (index) {
           return DropdownMenuItem(
@@ -2824,18 +3017,31 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView> {
     );
   }
 
+  Widget _buildDivider() {
+    return SizedBox(
+      width: MediaQuery.of(context).size.width * 0.6,
+      child: const Divider(color: kSilver, height: 1),
+    );
+  }
+
   Widget _buildInfoSection(String title, String value) {
     return Column(
       children: [
-        Text(title, style: const TextStyle(
-            color: kLight, fontWeight: FontWeight.bold, fontSize: 30)),
+        Text(
+          title,
+          style: const TextStyle(color: kLight, fontWeight: FontWeight.bold, fontSize: 30),
+        ),
         const SizedBox(height: 10),
-        Text(value, style: const TextStyle(color: Colors.white70, fontSize: 18),
-            textAlign: TextAlign.center),
+        Text(
+          value,
+          style: const TextStyle(color: Colors.white70, fontSize: 18),
+          textAlign: TextAlign.center,
+        ),
       ],
     );
   }
 }
+
 
 class _BoxUIDetailView extends StatefulWidget {
   final Map<String, dynamic> results;
@@ -4011,16 +4217,24 @@ These calculations ensure adequate space for bending and conductor manipulation,
   }
 }
 
-
 class PulsingGlowBorder extends StatelessWidget {
   final AnimationController animationController;
   final BoxShape shape;
   final Widget child;
+
+  // Existing params
   final Color startColor;
   final Color? endColor;
   final BorderRadius? borderRadius;
   final double borderWidth;
   final bool isPulsing;
+
+  // Optional per-call sweep override (pipe detail)
+  final List<Color>? sweepColors;
+  final List<double>? sweepStops;
+
+  // NEW: rotation direction control (pipe detail can be clockwise)
+  final bool clockwise;
 
   const PulsingGlowBorder({
     super.key,
@@ -4032,60 +4246,68 @@ class PulsingGlowBorder extends StatelessWidget {
     this.borderRadius,
     this.borderWidth = 2.0,
     this.isPulsing = true,
+    this.sweepColors,
+    this.sweepStops,
+    this.clockwise = false, // keep old behavior by default
   });
 
   @override
   Widget build(BuildContext context) {
+    final effectiveEnd = endColor ?? startColor;
+
     return AnimatedBuilder(
       animation: animationController,
       builder: (context, _) {
-        final Decoration decoration;
-        if (isPulsing) {
-          final double t = animationController.value;
-          final Color? finalColor;
-          // Create a multi-stage transition: Green -> Silver -> White -> Silver -> Green
-          if (t < 0.33) {
-            finalColor = Color.lerp(Colors.green, kSilver, t * 3);
-          } else if (t < 0.66) {
-            finalColor = Color.lerp(kSilver, kLight, (t - 0.33) * 3);
-          } else {
-            finalColor = Color.lerp(kLight, Colors.green, (t - 0.66) * 3);
-          }
+        final rotation = (clockwise ? 1.0 : -1.0) * animationController.value * 2 * pi;
 
-          decoration = BoxDecoration(
-            shape: shape,
-            borderRadius: borderRadius,
-            border: Border.all(
-              width: borderWidth,
-              color: finalColor!,
-            ),
-          );
-        } else {
-          decoration = BoxDecoration(
-            shape: shape,
-            borderRadius: borderRadius,
-            gradient: SweepGradient(
-              colors: [
-                endColor ?? startColor,
-                startColor,
-                endColor ?? startColor,
-                startColor, // Add more stops for a smoother, longer gradient
-                endColor ?? startColor,
-              ],
-              stops: const [0.0, 0.25, 0.5, 0.75, 1.0], // Distribute stops
-              transform: GradientRotation(animationController.value * 2 * pi),
-            ),
-          );
-        }
+        // ✅ DEFAULT is back to simple start/end/start (NO yellow unless you pass it)
+        final List<Color> colors = sweepColors ??
+            <Color>[
+              startColor,
+              effectiveEnd,
+              startColor,
+            ];
+
+        final List<double> stops = sweepStops ?? const <double>[0.0, 0.7, 1.0];
+        final bool validStops = stops.length == colors.length;
+
+        final double pulse = isPulsing
+            ? (0.55 + 0.45 * (0.5 + 0.5 * sin(animationController.value * 2 * pi)))
+            : 0.65;
 
         return Container(
-          decoration: decoration,
-          child: child,
+          decoration: BoxDecoration(
+            shape: shape,
+            borderRadius: shape == BoxShape.circle ? null : borderRadius,
+            gradient: SweepGradient(
+              colors: validStops ? colors : <Color>[startColor, effectiveEnd, startColor],
+              stops: validStops ? stops : const <double>[0.0, 0.7, 1.0],
+              transform: GradientRotation(rotation),
+            ),
+          ),
+          child: Container(
+            margin: EdgeInsets.all(borderWidth),
+            decoration: BoxDecoration(
+              shape: shape,
+              borderRadius: shape == BoxShape.circle ? null : borderRadius,
+              color: Colors.transparent,
+              boxShadow: [
+                BoxShadow(
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                  color: effectiveEnd.withOpacity(0.35 * pulse),
+                ),
+              ],
+            ),
+            child: child,
+          ),
         );
       },
     );
   }
 }
+
+
 
 
 class _WireStepper extends StatelessWidget {
