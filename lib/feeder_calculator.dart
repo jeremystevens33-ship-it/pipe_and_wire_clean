@@ -41,7 +41,8 @@ enum EntrySide {
 class ConduitDB {
   // Conductor volumes from NEC Table 314.16(B) in cubic inches
   static const Map<String, double> wireVolumes = {
-    "18 AWG": 1.75, // Added 18 AWG
+    "18 AWG": 1.50, // Added 18 AWG
+    "16 AWG": 1.75,
     "14 AWG": 2.00,
     "12 AWG": 2.25,
     "10 AWG": 2.50,
@@ -124,7 +125,8 @@ class ConduitDB {
   };
 
   static const Map<String, Map<String, int>> copperAmpacities = {
-    "18 AWG": {"60C": 10, "75C": 14, "90C": 18}, // Added 18 AWG
+    "18 AWG": { "90C": 14}, // Added 18 AWG
+    "16 AWG": { "90C": 18},
     "14 AWG": {"60C": 15, "75C": 20, "90C": 25},
     "12 AWG": {"60C": 20, "75C": 25, "90C": 30},
     "10 AWG": {"60C": 30, "75C": 35, "90C": 40},
@@ -558,29 +560,51 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
   void _addWire(String type, String size, String insulation) {
     setState(() {
       if (type == 'Hot') {
-        _activePipe.wires.add(Wire(size: size,
-            insulation: insulation,
-            material: _selectedMaterial,
-            isCurrentCarrying: true));
+        _activePipe.wires.add(Wire(
+          size: size,
+          insulation: insulation,
+          material: _selectedMaterial,
+          isCurrentCarrying: true,
+        ));
       } else if (type == 'Neutral') {
         if (!_hasShownNeutralDialog) {
           _showOneTimeNeutralDialog(size, insulation);
+          return; // dialog will handle the add decision
         } else {
-          _activePipe.wires.add(Wire(size: size,
-              insulation: insulation,
-              material: _selectedMaterial,
-              isNeutral: true,
-              isCurrentCarrying: _isNeutralCCC));
-        }
-      } else if (type == 'Ground') {
-        _activePipe.wires.add(Wire(size: size,
+          _activePipe.wires.add(Wire(
+            size: size,
             insulation: insulation,
             material: _selectedMaterial,
-            isGround: true,
-            isCurrentCarrying: false));
+            isNeutral: true,
+            isCurrentCarrying: _isNeutralCCC,
+          ));
+        }
+      } else if (type == 'Ground') {
+        _activePipe.wires.add(Wire(
+          size: size,
+          insulation: insulation,
+          material: _selectedMaterial,
+          isGround: true,
+          isCurrentCarrying: false,
+        ));
       }
     });
+
+    // ✅ After adding any wire, re-evaluate the workflow step.
+    // This will move you from boxSetup ("Add Wires...") to free ("Tap Pipe or Box...")
+    // once any pipe has wires.
+    if (_isInitialSetupComplete) {
+      Future.delayed(const Duration(seconds: 10), () {
+        if (!mounted) return;
+        _advanceToNextIncompleteStep();
+      });
+    } else {
+      _advanceToNextIncompleteStep();
+    }
+    debugPrint("ADD WIRE -> initialComplete=$_isInitialSetupComplete, step=$_currentStep, anyWires=${_pipes.any((p) => p.wires.isNotEmpty)}");
+
   }
+
 
   void _removeLastWireOfType(String type) {
     setState(() {
@@ -1076,9 +1100,16 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
   }
 
   void _advanceToNextIncompleteStep() {
-    // This is the new "smart" sequence logic.
+    // If we’re past initial setup, we STILL need to manage the final phases
+    // based on whether wires exist.
     if (_isInitialSetupComplete) {
-      setState(() {}); // Just trigger a rebuild to update calculations
+      final bool hasAnyWires = _pipes.any((p) => p.wires.isNotEmpty);
+
+      setState(() {
+        _currentStep = hasAnyWires ? CalculatorStep.free : CalculatorStep.boxSetup;
+        _infoBarAnimationController.reset();
+        _infoBarAnimationController.forward();
+      });
       return;
     }
 
@@ -1093,16 +1124,19 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
     } else if (_selectedAmbientTempKey == null) {
       _updateStep(CalculatorStep.ambientTemp);
     } else {
-      // All selections are complete, move to the final phases.
+      final bool hasAnyWires = _pipes.any((p) => p.wires.isNotEmpty);
+
       setState(() {
         _isInitialSetupComplete = true;
-        _currentStep =
-            CalculatorStep.boxSetup; // This is the "Tap the Box" step
+        _currentStep = hasAnyWires ? CalculatorStep.free : CalculatorStep.boxSetup;
         _infoBarAnimationController.reset();
         _infoBarAnimationController.forward();
       });
     }
   }
+
+
+
 
   void _addPipe() {
     setState(() {
@@ -1129,18 +1163,17 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
   }
 
   void _toggleBox() async {
-    final bool wasBoxSetupStep = _currentStep == CalculatorStep.boxSetup;
+    final bool wasTapOptionsStep = _currentStep == CalculatorStep.free;
 
-    // Immediately turn off the glow and advance the step.
-    if (wasBoxSetupStep) {
+// Only do “tap-options” behavior during the free step (do NOT advance steps here anymore)
+    if (wasTapOptionsStep) {
       setState(() {
-        _currentStep = CalculatorStep.free;
-        _showPullThroughBoxInfoBar =
-        false; // NEW: Hide pull-through message if box is tapped
+        _showPullThroughBoxInfoBar = false;
         _infoBarAnimationController.reset();
         _infoBarAnimationController.forward();
       });
     }
+
 
     await Navigator.of(context).push(
       PageRouteBuilder(
@@ -1186,7 +1219,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
 
     // After the box detail screen is closed, if we just finished the setup,
     // start the timer to show the alternate "tap pipe" message.
-    if (wasBoxSetupStep) {
+    if (wasTapOptionsStep) {
+
       Future.delayed(const Duration(seconds: 10), () {
         if (mounted && _currentStep == CalculatorStep.free) {
           setState(() {
@@ -1257,7 +1291,9 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
                 }
 
                 setState(() {});
+                _advanceToNextIncompleteStep();
               }
+
 
               return _PipeUIDetailView(
                 // Pass the current state from the main screen.
@@ -1441,9 +1477,23 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
         otherBoxes.sort();
 
         return AlertDialog(
-          backgroundColor: const Color(0xFF2C3030),
-          title: const Text("Select a Box", style: TextStyle(color: kLight)),
-          content: SizedBox(
+            insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+            backgroundColor: const Color(0xFF1F2323),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+              side: BorderSide(color: kSilver.withAlpha(120), width: 1.2),
+            ),
+            title: const Center(
+              child: Text(
+                "Select a Box",
+                style: TextStyle(
+                  color: kLight,
+                  fontSize: 28,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            content: SizedBox(
             width: double.maxFinite,
             child: ListView.builder(
               shrinkWrap: true,
@@ -1810,7 +1860,8 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildVisualsColumn(results, showPipeGlow: showPipeGlow),
+                      _buildVisualsColumn(results),
+
                       _buildDeratingData(results),
                     ],
                   ),
@@ -1876,16 +1927,21 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
     return Column(
       children: [
         Row(children: [
-          Expanded(child: _StyledButton(
-            onPressed: _showPipeSelectionGrid,
-            label: _activePipe.size != null
-                ? '${_activePipe.size}" ${_activePipe.pipeType
-                .toString()
-                .split('.')
-                .last
-                .toUpperCase()}'
-                : "Pipe Size",
-            isActive: _currentStep == CalculatorStep.pipe,
+          Expanded(
+              child: _StyledButton(
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  _showPipeSelectionGrid();
+                },
+                label: _activePipe.size != null
+                    ? '${_activePipe.size}" ${_activePipe.pipeType
+                    .toString()
+                    .split('.')
+                    .last
+                    .toUpperCase()}'
+                    : "Pipe Size",
+
+                isActive: _currentStep == CalculatorStep.pipe,
             isDropdownStyle: true,
           )),
           const SizedBox(width: spacing),
@@ -1894,6 +1950,7 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
             hint: "Box Size",
             items: boxItems,
             onChanged: (v) async { // Added async here
+              HapticFeedback.mediumImpact();
               if (v == _customBoxKey) {
                 await _showCustomBoxDialog(); // Added await
               } else if (v == _moreBoxKey) {
@@ -1914,7 +1971,11 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
         const SizedBox(height: spacing),
         Row(children: [
           Expanded(child: _StyledButton(
-            onPressed: _showWireSelectionGrid,
+            onPressed: () {
+              HapticFeedback.mediumImpact();
+              _showWireSelectionGrid();
+            },
+
             label: _selectedWireSize != null
                 ? '${_selectedWireSize!} ${_selectedMaterial ==
                 ConductorMaterial.copper ? "CU" : "AL"}'
@@ -1932,8 +1993,10 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
                 .wireAreas[_selectedWireSize]!.keys).map((s) =>
                 DropdownMenuItem(value: s, child: Text(s))).toList(),
             onChanged: (v) {
+              HapticFeedback.mediumImpact();
               setState(() {
                 _selectedInsulation = v;
+
                 _advanceToNextIncompleteStep();
               });
             },
@@ -1955,17 +2018,12 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
   // 1) Wire steppers row (NO CC overlay inside here)
   Widget _buildWireSteppers() {
     const spacing = 4.0;
-    final hotCount = _activePipe.wires
-        .where((w) => !w.isNeutral && !w.isGround)
-        .length;
-    final neutralCount = _activePipe.wires
-        .where((w) => w.isNeutral)
-        .length;
-    final groundCount = _activePipe.wires
-        .where((w) => w.isGround)
-        .length;
-    final bool canAdd = _selectedWireSize != null &&
-        _selectedInsulation != null;
+
+    final hotCount = _activePipe.wires.where((w) => !w.isNeutral && !w.isGround).length;
+    final neutralCount = _activePipe.wires.where((w) => w.isNeutral).length;
+    final groundCount = _activePipe.wires.where((w) => w.isGround).length;
+
+    final bool canAdd = _selectedWireSize != null && _selectedInsulation != null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -1977,10 +2035,15 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
               count: hotCount,
               color: kRed,
               onAdd: canAdd
-                  ? () =>
-                  _addWire('Hot', _selectedWireSize!, _selectedInsulation!)
+                  ? () {
+                HapticFeedback.lightImpact();
+                _addWire('Hot', _selectedWireSize!, _selectedInsulation!);
+              }
                   : null,
-              onRemove: () => _removeLastWireOfType('Hot'),
+              onRemove: () {
+                HapticFeedback.lightImpact();
+                _removeLastWireOfType('Hot');
+              },
             ),
           ),
           const SizedBox(width: spacing),
@@ -1991,10 +2054,15 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
               count: neutralCount,
               color: Colors.white,
               onAdd: canAdd
-                  ? () =>
-                  _addWire('Neutral', _selectedWireSize!, _selectedInsulation!)
+                  ? () {
+                HapticFeedback.lightImpact();
+                _addWire('Neutral', _selectedWireSize!, _selectedInsulation!);
+              }
                   : null,
-              onRemove: () => _removeLastWireOfType('Neutral'),
+              onRemove: () {
+                HapticFeedback.lightImpact();
+                _removeLastWireOfType('Neutral');
+              },
             ),
           ),
           const SizedBox(width: spacing),
@@ -2005,16 +2073,22 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
               count: groundCount,
               color: Colors.green,
               onAdd: canAdd
-                  ? () =>
-                  _addWire('Ground', _selectedWireSize!, _selectedInsulation!)
+                  ? () {
+                HapticFeedback.lightImpact();
+                _addWire('Ground', _selectedWireSize!, _selectedInsulation!);
+              }
                   : null,
-              onRemove: () => _removeLastWireOfType('Ground'),
+              onRemove: () {
+                HapticFeedback.lightImpact();
+                _removeLastWireOfType('Ground');
+              },
             ),
           ),
         ],
       ),
     );
   }
+
 
   // 2) CC toggle widget (big hit target, always tappable when visible)
   Widget _buildCcToggle() {
@@ -2091,21 +2165,20 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
     );
   }
 
-  Widget _buildVisualsColumn(Map<String, dynamic> results,
-      {required bool showPipeGlow}) {
+  Widget _buildVisualsColumn(Map<String, dynamic> results) {
     return Expanded(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _buildPipeVisual(results, showPipeGlow: showPipeGlow),
+          _buildPipeVisual(results),
           _buildBoxVisual(results),
         ],
       ),
     );
   }
 
-  Widget _buildPipeVisual(Map<String, dynamic> results,
-      {required bool showPipeGlow}) {
+  Widget _buildPipeVisual(Map<String, dynamic> results) {
+
     final bool isReady = results['isReady'] ?? false;
     final double conduitFill = results['conduitFillPercent'] ?? 0.0;
     final bool isConduitViolation = results['isConduitFillViolation'] ?? false;
@@ -2117,6 +2190,9 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
         .map((w) => '${w.size}-${w.insulation}')
         .toSet();
     final bool showMaxWires = wireTypes.length <= 1;
+    final bool shouldGlowPipe = _currentStep == CalculatorStep.free;
+
+
 
     final pipeContent = Container(
       width: 170,
@@ -2124,8 +2200,9 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.grey[800],
-        border: showPipeGlow ? null : Border.all(
-            color: conduitStatusColor, width: 8),
+        border: shouldGlowPipe ? null : Border.all(
+
+        color: conduitStatusColor, width: 8),
       ),
       child: Center(
         child: Column(
@@ -2160,20 +2237,31 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
       width: 170,
       height: 170,
       child: GestureDetector(
-        onTap: _togglePipeUI,
+        onTap: () {
+          HapticFeedback.mediumImpact();
+          _togglePipeUI();
+        },
         child: Hero(
           tag: 'pipe-hero',
           child: Material(
             type: MaterialType.transparency,
-            child: showPipeGlow
+            child: shouldGlowPipe
+
+
                 ? PulsingGlowBorder(
               animationController: _glowAnimationController,
               shape: BoxShape.circle,
               isPulsing: true,
               borderWidth: 8.0,
+
+              // ✅ Make the glow green/white (not red)
+              startColor: const Color(0xFF00C853).withOpacity(0.35),
+              endColor: kLight.withOpacity(0.85),
+
               child: pipeContent,
             )
                 : pipeContent,
+
           ),
         ),
       ),
@@ -2185,15 +2273,20 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
     final double boxFill = results['boxFillPercent'] ?? 0.0;
     final bool isBoxViolation = results['isBoxFillViolation'] ?? false;
     final int maxBoxWires = results['maxBoxWires'] ?? 0;
-    final isBoxWarning = boxFill > 90.0 && !isBoxViolation;
-    final boxStatusColor = !isReady || _selectedBoxSize == null
+    final bool isBoxWarning = boxFill > 90.0 && !isBoxViolation;
+
+    final Color boxStatusColor = !isReady || _selectedBoxSize == null
         ? Colors.grey
-        : (isBoxViolation ? kRed : (isBoxWarning ? Colors.yellow : Colors
-        .green));
+        : (isBoxViolation
+        ? kRed
+        : (isBoxWarning ? Colors.yellow : Colors.green));
+
     final int boxWireAllowanceCount = results['boxWireAllowanceCount'] ?? 0;
     final wireTypes = _allWires.map((w) => '${w.size}-${w.insulation}').toSet();
     final bool showMaxBoxWires = wireTypes.length <= 1 || _allWires.isEmpty;
-    final bool isBoxSetupStep = _currentStep == CalculatorStep.boxSetup;
+
+    // ✅ Glow only during the final "Tap Pipe or Box" phase
+    final bool shouldGlowBox = _currentStep == CalculatorStep.free;
 
     final boxContent = Container(
       width: 170,
@@ -2201,21 +2294,30 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12.0),
         color: Colors.grey[800],
-        border: isBoxSetupStep ? null : Border.all(
-            color: boxStatusColor, width: 8.0),
+        border: shouldGlowBox
+            ? null
+            : Border.all(
+          color: boxStatusColor,
+          width: 8.0,
+        ),
       ),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text("Box", style: TextStyle(
-                color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+            const Text(
+              "Box",
+              style: TextStyle(
+                color: kLight,
+                fontWeight: FontWeight.bold,
+                fontSize: 20,
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               !isReady || _selectedBoxSize == null
                   ? "-- Wires\n--% Fill"
-                  : "$boxWireAllowanceCount Wires\n${boxFill.toStringAsFixed(
-                  1)}% Fill",
+                  : "$boxWireAllowanceCount Wires\n${boxFill.toStringAsFixed(1)}% Fill",
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontWeight: FontWeight.w700,
@@ -2227,9 +2329,11 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
               const SizedBox(height: 8),
               Text(
                 "Max Wires: $maxBoxWires",
-                style: const TextStyle(color: Colors.white,
-                    fontSize: 14,
-                    fontStyle: FontStyle.italic),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontStyle: FontStyle.italic,
+                ),
               ),
             ],
           ],
@@ -2238,22 +2342,32 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
     );
 
     return GestureDetector(
-      onTap: _toggleBox,
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        _toggleBox();
+      },
       child: Hero(
         tag: 'box-hero',
-        child: isBoxSetupStep
+        child: shouldGlowBox
             ? PulsingGlowBorder(
           animationController: _glowAnimationController,
           shape: BoxShape.rectangle,
           borderRadius: BorderRadius.circular(12.0),
           isPulsing: true,
           borderWidth: 8.0,
+
+
+          // ✅ green → light highlight (not red)
+          startColor: const Color(0xFF00C853).withOpacity(0.35),
+          endColor: kLight.withOpacity(0.85),
+
           child: boxContent,
         )
             : boxContent,
       ),
     );
   }
+
 
   Widget _buildInfoBar() {
     String text;
@@ -2277,13 +2391,13 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
           text = "Select Ambient Temperature";
           break;
         case CalculatorStep.boxSetup:
-          text = "Next: Tap the Box to add devices or fittings.";
+          text = "Add Wires to See Calculations";
           break;
+
         case CalculatorStep.free:
-          text = _showAlternateInfoMessage
-              ? "Tap Pipe or Box for more options"
-              : "Add Wires to Calculate Derating";
+          text = "Tap Pipe or Box for more options";
           break;
+
       }
     }
 
@@ -2347,9 +2461,11 @@ class _UnifiedFeederCalculatorState extends State<UnifiedFeederCalculator>
                       return DropdownMenuItem(value: s, child: Text(s));
                     }).toList(),
                     onChanged: (v) {
+                      HapticFeedback.mediumImpact();
                       setState(() {
                         _selectedAmbientTempKey = v;
                         _advanceToNextIncompleteStep();
+
                       });
                     },
                     isActive: _currentStep == CalculatorStep.ambientTemp,
@@ -2523,20 +2639,71 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
   @override
   void initState() {
     super.initState();
+
     _pipeBorderController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
     )..repeat();
 
-    @override
-    void dispose() {
-      _pipeBorderController.dispose();
-      super.dispose();
-    }
-
     _localActivePipeIndex = widget.activePipeIndex;
     _updateSelectedWireSummary();
   }
+
+  @override
+  void dispose() {
+    _pipeBorderController.dispose();
+    super.dispose();
+  }
+  void _showPipeDetailInfoDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1F1F1F),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text(
+          "Pipe Detail Screen",
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: kLight),
+        ),
+        content: const SingleChildScrollView(
+          child: Text(
+            "Add/remove pipes and wires.\n"
+                "Use the selector to switch active pipe.\n"
+                "Adding a second pipe enables Pull-Through wires in the Box Fill menu.\n"
+                "All pipes shown feed into the currently selected box.\n"
+
+            ,style: TextStyle(
+              color: Colors.white,      // brighter
+              fontSize: 18.5,           // bigger
+              height: 1.45,             // more spacing
+              letterSpacing: 0.2,       // slightly more “premium”
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ConduitFillCodeScreen()),
+              );
+            },
+            child: const Text(
+              "NEC: Learn More",
+              style: TextStyle(color: kRed, fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Close", style: TextStyle(color: kLight)),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
 
   @override
   void didUpdateWidget(covariant _PipeUIDetailView oldWidget) {
@@ -2600,7 +2767,9 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
 
     final wireGroups = <String, List<Wire>>{};
     for (final wire in pipe.wires) {
-      final key = "${wire.size} ${wire.insulation}";
+      final role = wire.isGround ? "G" : (wire.isNeutral ? "N" : "H");
+      final key = "$role ${wire.size} ${wire.insulation}";
+
       wireGroups.putIfAbsent(key, () => []).add(wire);
     }
 
@@ -2702,43 +2871,61 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Hero(
-        tag: 'pipe-hero',
-        child: Material(
-          color: kBlack,
-          child: Center(
-            child:PulsingGlowBorder(
-              animationController: _pipeBorderController,
-              shape: BoxShape.circle,
-              endColor: kSilver,
-              isPulsing: false,
-              clockwise: true,
-
-              sweepColors: [
-                kSilver.withOpacity(0.80),
-                kRed.withOpacity(0.80),
-                const Color(0xFFFFD54F).withOpacity(0.95),
-                kLight.withOpacity(0.95),
-                kSilver.withOpacity(0.80),
-              ],
-              sweepStops: const [0.0, 0.45, 0.65, 0.78, 1.0],
-
-              child: Container(
-                width: double.infinity,
-                height: double.infinity,
-                margin: const EdgeInsets.all(8),
-                decoration: const BoxDecoration(shape: BoxShape.circle, color: kBlack),
-                child: _buildPipeDashboard(),
+    return Scaffold(
+      backgroundColor: const Color(0xD8000000),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1F1F1F),
+        foregroundColor: kLight,
+        title: const Text(
+          'Pipe Detail',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => _showPipeDetailInfoDialog(context),
+          ),
+        ],
+      ),
+      body: Center(
+        child: Hero(
+          tag: 'pipe-hero',
+          child: Material(
+            color: kBlack,
+            child: Center(
+              child: PulsingGlowBorder(
+                animationController: _pipeBorderController,
+                shape: BoxShape.circle,
+                endColor: kSilver,
+                isPulsing: false,
+                clockwise: true,
+                sweepColors: [
+                  kSilver.withOpacity(0.80),
+                  kRed.withOpacity(0.80),
+                  const Color(0xFFFFD54F).withOpacity(0.95),
+                  kLight.withOpacity(0.95),
+                  kSilver.withOpacity(0.80),
+                ],
+                sweepStops: const [0.0, 0.45, 0.65, 0.78, 1.0],
+                child: Container(
+                  width: double.infinity,
+                  height: double.infinity,
+                  margin: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: kBlack,
+                  ),
+                  child: _buildPipeDashboard(),
+                ),
               ),
             ),
-
-
           ),
         ),
       ),
     );
   }
+
 
   Widget _buildPipeDashboard() {
     final fillPercent = _calculatePipeFill(_activePipe);
@@ -2752,7 +2939,8 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 300),
+                  SizedBox(height: MediaQuery.of(context).size.height * 0.26),
+
 
                   _buildPipeInfoSection(),
 
@@ -2856,8 +3044,16 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
       final wire = data['wire'] as Wire;
       final breaker = data['finalBreakerSize'];
 
-      String summaryText = "($count) #${wire.size.replaceAll(" AWG", "")} ${wire.insulation}";
-      if (breaker > 0) summaryText += " -> ${breaker}A Breaker";
+      final role = wire.isGround ? "G" : (wire.isNeutral ? "N" : "H");
+
+      String summaryText =
+          "($count) $role #${wire.size.replaceAll(" AWG", "")} ${wire.insulation}";
+
+// Only show breaker for Hot
+      if (!wire.isGround && !wire.isNeutral && breaker > 0) {
+        summaryText += "  ${breaker}A";
+      }
+
 
       return Column(
         children: [
@@ -2931,43 +3127,67 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2C3030),
-                  borderRadius: BorderRadius.circular(6),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0xFF343838),
+                      Color(0xFF262A2A),
+                    ],
+                  ),
+
+                  borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: kSilver.withAlpha(128)),
                 ),
-                child: DropdownButtonHideUnderline(
-                  child: DropdownButton<String>(
-                    value: _selectedWireSummaryKey,
-                    isExpanded: true,
-                    icon: const Icon(Icons.arrow_drop_down, color: kLight, size: 36),
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                child: SizedBox(
+                  height: 66, // ✅ “3-line window” vibe
+                  child: PageView.builder(
+                    controller: PageController(
+                      initialPage: _selectedWireSummaryKey == null
+                          ? 0
+                          : summaryMap.keys.toList().indexOf(_selectedWireSummaryKey!),
+                      viewportFraction: 0.40, // ✅ shows ~3 items
                     ),
-                    dropdownColor: const Color(0xFF2C3030),
-                    items: summaryMap.entries.map((entry) {
-                      final key = entry.key;
-                      final summaryData = entry.value;
+                    scrollDirection: Axis.vertical,
+                    itemCount: summaryMap.length,
+                    onPageChanged: (index) {
+                      final key = summaryMap.keys.elementAt(index);
+                      setState(() => _selectedWireSummaryKey = key);
+                    },
+                    itemBuilder: (context, index) {
+                      final key = summaryMap.keys.elementAt(index);
+                      final summaryData = summaryMap[key]!;
                       final count = summaryData['count'];
                       final wire = summaryData['wire'] as Wire;
                       final breaker = summaryData['finalBreakerSize'];
 
-                      final shortInsulation =
-                      wire.insulation.length > 4 ? wire.insulation.substring(0, 4) : wire.insulation;
+                      final role = wire.isGround ? "G" : (wire.isNeutral ? "N" : "H");
+                      final shortInsulation = wire.insulation.length > 4
+                          ? wire.insulation.substring(0, 4)
+                          : wire.insulation;
 
-                      String summaryText = "($count) #${wire.size.replaceAll(" AWG", "")} $shortInsulation";
-                      if (breaker > 0) summaryText += " -> ${breaker}A Breaker";
-
-                      return DropdownMenuItem(
-                        value: key,
-                        child: Center(child: Text(summaryText, textAlign: TextAlign.center)),
-                      );
-                    }).toList(),
-                    onChanged: (v) {
-                      if (v != null) {
-                        setState(() => _selectedWireSummaryKey = v);
+                      String summaryText =
+                          "($count) $role #${wire.size.replaceAll(" AWG", "")} $shortInsulation";
+                      if (!wire.isGround && !wire.isNeutral && breaker > 0) {
+                        summaryText += "  ${breaker}A";
                       }
+
+                      final isSelected = key == _selectedWireSummaryKey;
+
+                      return Center(
+                        child: AnimatedDefaultTextStyle(
+                          duration: const Duration(milliseconds: 120),
+                          style: TextStyle(
+                            color: isSelected ? kLight : Colors.white54,
+                            fontSize: isSelected ? 19 : 16,
+                            fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                            letterSpacing: 0.3,
+                            height: 1.35,
+
+                          ),
+                          child: Text(summaryText, textAlign: TextAlign.center),
+                        ),
+                      );
                     },
                   ),
                 ),
@@ -4441,41 +4661,148 @@ class _StyledDropdown extends StatelessWidget {
   final Color? iconColor;
   final Color? hintColor;
 
+  const _StyledDropdown({
+    this.value,
+    required this.hint,
+    required this.items,
+    required this.onChanged,
+    this.isActive = false,
+    this.isEnabled = true,
+    this.iconColor,
+    this.hintColor,
+  });
 
-  const _StyledDropdown(
-      { this.value, required this.hint, required this.items, required this.onChanged, this.isActive = false, this.isEnabled = true, this.iconColor, this.hintColor });
+  String _labelFor(String? v) {
+    if (v == null) return "";
+    // Try to find the matching item and extract its Text label if possible
+    for (final it in items) {
+      if (it.value == v) {
+        final child = it.child;
+        if (child is Text) return child.data ?? v;
+        return v;
+      }
+    }
+    return v;
+  }
+
+  Future<void> _openMenu(BuildContext context) async {
+    if (!isEnabled || onChanged == null) return;
+
+    // ✅ haptic BEFORE opening
+    HapticFeedback.mediumImpact();
+
+    final RenderBox button = context.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+    Overlay.of(context).context.findRenderObject() as RenderBox;
+
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero),
+            ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    final selected = await showMenu<String>(
+      context: context,
+      position: position,
+      elevation: 10,
+      color: const Color(0xFF1F2323),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: kSilver.withAlpha(120), width: 1.2),
+      ),
+      items: items.map((it) {
+        final v = it.value;
+        final isSel = (v == value);
+        final label = _labelFor(v);
+
+        return PopupMenuItem<String>(
+          value: v,
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label.isEmpty ? (v ?? "") : label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isSel ? kLight : Colors.white70,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (isSel) const Icon(Icons.check, size: 18, color: kLight),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+
+    if (selected != null) {
+      // ✅ haptic on selection
+      HapticFeedback.selectionClick();
+      onChanged?.call(selected);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final displayText =
+    (value == null || value!.isEmpty) ? hint : _labelFor(value);
+
+    // Closed field stays the same vibe as your original
+    return SizedBox(
       height: 44,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isEnabled ? (isActive ? [kRed, const Color(0xFFD43D37)] : [
-            const Color(0xFF4E4E52),
-            const Color(0xFF2C3030)
-          ]) : [Colors.grey[800]!, Colors.grey[850]!],
-        ),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          hint: Text(hint, style: TextStyle(
-              color: isEnabled ? (hintColor ?? Colors.white70) : Colors
-                  .grey[600])),
-          isExpanded: true,
-          icon: Icon(Icons.arrow_drop_down,
-              color: isEnabled ? (iconColor ?? kLight) : Colors.grey[600]),
-          style: const TextStyle(
-              color: kLight, fontSize: 16, fontWeight: FontWeight.w700),
-          dropdownColor: const Color(0xFF2C3030),
-          items: items,
-          onChanged: isEnabled ? onChanged : null,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(6),
+          onTap: isEnabled ? () => _openMenu(context) : null,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: isEnabled
+                    ? (isActive
+                    ? [kRed, const Color(0xFFD43D37)]
+                    : const [Color(0xFF4E4E52), Color(0xFF2C3030)])
+                    : [Colors.grey[800]!, Colors.grey[850]!],
+              ),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: kSilver.withAlpha(128), width: 1.1),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    displayText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: (value == null || value!.isEmpty)
+                          ? (isEnabled
+                          ? (hintColor ?? Colors.white70)
+                          : Colors.grey[600])
+                          : kLight,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_drop_down,
+                  color: isEnabled ? (iconColor ?? kLight) : Colors.grey[600],
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -4492,9 +4819,23 @@ class _PipeSelectionGrid extends StatelessWidget {
     final sizes = ConduitDB.tradeSizesInches.keys.toList();
 
     return AlertDialog(
-      backgroundColor: const Color(0xFF2C3030),
-      title: const Center(child: Text(
-          "Select Pipe Size & Type", style: TextStyle(color: kLight))),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+      backgroundColor: const Color(0xFF1F2323),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: kSilver.withAlpha(120), width: 1.2),
+      ),
+      title: const Center(
+        child: Text(
+          "Select Pipe Size & Type",
+          style: TextStyle(
+            color: kLight,
+            fontSize: 28,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+
       content: SizedBox(
         width: double.maxFinite,
         child: SingleChildScrollView(
@@ -4589,29 +4930,44 @@ class _WireSelectionGridState extends State<_WireSelectionGrid> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: const Color(0xFF2C3030),
-      title: Center(child: Text(
-          widget.isMoreWiresScreen
-              ? "Select KCMIL Wire & Material"
-              : "Select Wire Size & Material",
-          style: const TextStyle(color: kLight)
-      )),
-      content: SizedBox(
-        width: double.maxFinite,
-        child: SingleChildScrollView(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 25, vertical: 18),
+        titlePadding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        contentPadding: const EdgeInsets.fromLTRB(18, 8, 18, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+        buttonPadding: EdgeInsets.zero,
+        actionsAlignment: MainAxisAlignment.end,
+        backgroundColor: const Color(0xFF1F2323),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: BorderSide(color: kSilver.withAlpha(120), width: 1.2),
+        ),
+
+        title: Center(child: Text(
+            widget.isMoreWiresScreen
+                ? "Select KCMIL Wire & Material"
+                : "Select Wire Size & Material",
+            style: const TextStyle(color: kLight)
+        )),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: MediaQuery
+              .of(context)
+              .size
+              .height * 0.70, // <- shrink/raise this (0.55, 0.50, etc.)
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               // Material Toggles (Copper / Aluminum)
               Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF4E4E52),
-                  borderRadius: BorderRadius.circular(8),
+                  color: const Color(0xFF2A2F2F),
+                  // optional: slightly darker than before
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: ToggleButtons(
                   isSelected: [
                     _selectedMaterial == ConductorMaterial.copper,
-                    _selectedMaterial == ConductorMaterial.aluminum
+                    _selectedMaterial == ConductorMaterial.aluminum,
                   ],
                   onPressed: (index) {
                     setState(() {
@@ -4620,87 +4976,148 @@ class _WireSelectionGridState extends State<_WireSelectionGrid> {
                           .aluminum;
                     });
                   },
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(10),
                   selectedColor: kLight,
                   color: Colors.white70,
                   fillColor: kRed,
                   selectedBorderColor: kRed,
                   borderColor: kSilver,
+                  constraints: const BoxConstraints(minHeight: 38, minWidth: 98),
                   children: const [
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16),
-                        child: Text("Copper")),
-                    Padding(padding: EdgeInsets.symmetric(horizontal: 16),
-                        child: Text("Aluminum")),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text("Copper", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text("Aluminum", style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    ),
                   ],
+
                 ),
               ),
-              const SizedBox(height: 16),
-              const Row(
-                children: [
-                  Expanded(child: Center(child: Text("Gauge", style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18)))),
-                  // No CU/AL headers here, handled by toggles above
-                ],
-              ),
+
+
+
+              const SizedBox(height: 8),
               const Divider(color: kSilver),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: widget.sizes.length,
-                itemBuilder: (context, index) {
-                  final size = widget.sizes[index];
-                  // Check if the selected material has ampacity data for this size
-                  final hasDataForMaterial = (_selectedMaterial ==
-                      ConductorMaterial.copper &&
-                      ConduitDB.copperAmpacities.containsKey(size)) ||
-                      (_selectedMaterial == ConductorMaterial.aluminum &&
-                          ConduitDB.aluminumAmpacities.containsKey(size));
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          size,
-                          style: TextStyle(
+
+              // ✅ Scrollable list lives here (no shrinkWrap, no SingleChildScrollView)
+              Expanded(
+                child: ListView.builder(
+                  itemCount: widget.sizes.length,
+                  itemBuilder: (context, index) {
+                    final size = widget.sizes[index];
+
+                    final hasDataForMaterial =
+                        (_selectedMaterial == ConductorMaterial.copper &&
+                            ConduitDB.copperAmpacities.containsKey(size)) ||
+                            (_selectedMaterial == ConductorMaterial.aluminum &&
+                                ConduitDB.aluminumAmpacities.containsKey(size));
+
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            size,
+                            style: TextStyle(
                               color: hasDataForMaterial ? kLight : Colors
-                                  .grey[600], fontSize: 16),
-                          textAlign: TextAlign.center,
+                                  .grey[600],
+                              fontSize: 16,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        Expanded(
+                          child: Center(
+                            child: IconButton(
+                              icon: Icon(
+                                Icons.circle_outlined,
+                                color: hasDataForMaterial
+                                    ? Colors.green
+                                    : Colors.grey[700],
+                              ),
+                              onPressed: hasDataForMaterial
+                                  ? () =>
+                                  widget.onSelect(size, _selectedMaterial)
+                                  : null,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+
+              // 🔻 Bottom Action Area
+              if (!widget.isMoreWiresScreen) ...[
+                const Divider(color: kSilver),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: widget.onShowMoreWires,
+                          child: const Text(
+                            "More wires…",
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
                       ),
-                      Expanded(child: Center(child: IconButton(
-                        icon: Icon(
-                            Icons.circle_outlined,
-                            color: hasDataForMaterial ? Colors.green : Colors
-                                .grey[700]),
-                        onPressed: hasDataForMaterial
-                            ? () => widget.onSelect(size, _selectedMaterial)
-                            : null,
-                      ))),
-                    ],
-                  );
-                },
-              ),
-              if (!widget.isMoreWiresScreen &&
-                  widget.onShowMoreWires != null) ...[
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text(
+                        "Cancel",
+                        style: TextStyle(
+                          color: kLight,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
                 const Divider(color: kSilver),
-                TextButton(
-                  onPressed: widget.onShowMoreWires,
-                  child: const Text("More Wires (1/0 AWG and larger)...",
+
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text(
+                      "Back",
                       style: TextStyle(
-                          color: kRed, fontStyle: FontStyle.italic)),
+                        color: kLight,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ],
           ),
         ),
-      ),
-      actions: [
-        TextButton(
-          child: const Text("Cancel", style: TextStyle(color: kLight)),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
-      ],
     );
-  }
-}
+  }}
