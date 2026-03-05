@@ -8,10 +8,8 @@ import 'package:pipe_and_wire_clean/triangle_calculator.dart';
 import 'package:pipe_and_wire_clean/box_layout_mode.dart';
 import 'package:pipe_and_wire_clean/kick_90.dart';
 import 'package:pipe_and_wire_clean/rack_builder_11.dart';
-import 'package:pipe_and_wire_clean/ampacity_derating_code_screen.dart';
-import 'package:pipe_and_wire_clean/box_sizing_code_screen.dart';
-import 'package:pipe_and_wire_clean/conduit_fill_code_screen.dart';
 import 'package:pipe_and_wire_clean/back_to_back_90_screen.dart';
+import 'package:pipe_and_wire_clean/code_screen.dart'; // Import the CodeScreen
 
 class MainMenuScreen extends StatelessWidget {
   const MainMenuScreen({super.key});
@@ -28,7 +26,7 @@ class MainMenuScreen extends StatelessWidget {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
-        automaticallyImplyLeading: false, // This removes the back arrow
+        // Removed: automaticallyImplyLeading: false, // This removes the back arrow
       ),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -72,10 +70,7 @@ class MainMenuScreen extends StatelessWidget {
             iconColor: Colors.white,
             collapsedIconColor: Colors.white,
             children: [
-              _buildMenuButton(context, 'Box Sizing', () => const BoxSizingCodeScreen()),
-              _buildMenuButton(context, 'Conduit Spacing', () => const BoxSizingCodeScreen()),
-              _buildMenuButton(context, 'Conduit and Tubing Fill', () => const ConduitFillCodeScreen()),
-              _buildMenuButton(context, 'Ampacity + V Drop', () => const AmpacityDeratingCodeScreen()),
+              _buildMenuButton(context, 'NEC Code Reference', () => const CodeScreen()), // Consolidated to CodeScreen
               const SizedBox(height: 8.0),
             ],
           ),
