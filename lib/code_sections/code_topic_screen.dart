@@ -215,7 +215,17 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        Container(
+          width: 3,
+          height: 30,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE53935),
+            borderRadius: BorderRadius.circular(99),
+          ),
+        ),
+        const SizedBox(width: 10),
         Icon(icon, color: Colors.white70, size: 18),
         const SizedBox(width: 8),
         Expanded(
@@ -240,7 +250,6 @@ class _SectionHeader extends StatelessWidget {
     );
   }
 }
-
 class _Card extends StatelessWidget {
   final Widget child;
   const _Card({required this.child});

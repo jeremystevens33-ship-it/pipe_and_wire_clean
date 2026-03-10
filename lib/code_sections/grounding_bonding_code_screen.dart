@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'code_topic_screen.dart';
+import 'grounding_bonding_quick_sheet_code_screen.dart';
 
 class GroundingBondingCodeScreen extends StatelessWidget {
   const GroundingBondingCodeScreen({super.key});
@@ -51,8 +52,18 @@ class GroundingBondingCodeScreen extends StatelessWidget {
         'NEC 250.50',
         'NEC 250.66',
       ],
+      branchLinks: [
+        CodeBranchLink(
+          label: 'Grounding & Bonding Quick Sheet',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const GroundingBondingQuickSheetCodeScreen(),
+            ),
+          ),
+        ),
+      ],
     );
-
     return CodeTopicScreen(topic: topic);
   }
 }

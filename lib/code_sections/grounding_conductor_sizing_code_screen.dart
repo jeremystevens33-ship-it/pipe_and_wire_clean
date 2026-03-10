@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'code_topic_screen.dart';
-
+import 'grounding_bonding_quick_sheet_code_screen.dart';
 class GroundingConductorSizingCodeScreen extends StatelessWidget {
   const GroundingConductorSizingCodeScreen({super.key});
 
@@ -61,14 +61,26 @@ class GroundingConductorSizingCodeScreen extends StatelessWidget {
           ],
         ),
       ],
-
+      branchLinks: [
+        CodeBranchLink(
+          label: 'Grounding & Bonding Quick Sheet',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const GroundingBondingQuickSheetCodeScreen()),
+          ),
+        ),
+      ],
       codeRefs: const [
         'NEC 250.122',
         'NEC 250.66',
         'NEC 250.118',
+
       ],
     );
 
+
     return CodeTopicScreen(topic: topic);
+
   }
+
 }

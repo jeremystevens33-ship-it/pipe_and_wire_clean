@@ -5,11 +5,19 @@ import 'code_sections/neutral_ccc_code_screen.dart';
 import 'code_sections/conduit_fill_code_screen.dart';
 import 'code_sections/voltage_drop_code_screen.dart';
 import 'code_sections/junction_box_sizing_code_screen.dart';
-import 'code_sections/box_sizing_code_screen.dart';
+import 'code_sections/box_fill_basics_code_screen.dart';
 import 'code_sections/strapping_support_code_screen.dart';
 import 'code_sections/burial_depth_code_screen.dart';
 import 'code_sections/grounding_bonding_code_screen.dart';
 import 'code_sections/grounding_conductor_sizing_code_screen.dart';
+import 'code_sections/grounding_electrode_conductor_code_screen.dart';
+import 'code_sections/equipment_bonding_code_screen.dart';
+import 'code_sections/box_support_methods_code_screen.dart';
+import 'code_sections/working_clearances_code_screen.dart';
+import 'code_sections/disconnect_requirements_code_screen.dart';
+import 'code_sections/panelboards_overcurrent_code_screen.dart';
+import 'code_sections/continuous_load_code_screen.dart';
+import 'code_sections/branch_circuit_load_basics_code_screen.dart';
 /// --------------------
 /// FONT SCALE CONTROL
 /// --------------------
@@ -112,7 +120,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   _TopicRow(
                     title: 'Conduit & Tubing Fill (40% rule)',
                     codeHint: 'Ch. 9',
-                    onTap: () => _go(const ConduitFillCodeScreen()),
+                    onTap: () => _go( ConduitFillCodeScreen()),
                   ),
                   _TopicRow(
                     title: 'Strapping & Support Requirements',
@@ -132,17 +140,22 @@ class _CodeScreenState extends State<CodeScreen> {
                 controller: _boxesCtrl,
                 onOpened: () => _openOnly(_boxesCtrl),
                 title: 'Boxes & Enclosures',
-                subtitle: 'Box fill, pull boxes, spacing',
+                subtitle: 'Box fill, pull boxes, support',
                 children: [
                   _TopicRow(
-                    title: 'Box sizing & conduit spacing quick rules',
-                    codeHint: '314 / 300',
-                    onTap: () => _go(const BoxSizingCodeScreen()),
+                    title: 'Box fill',
+                    codeHint: '314.16',
+                    onTap: () => _go( BoxFillBasicsCodeScreen()),
                   ),
                   _TopicRow(
-                    title: 'Junction / Pull Box Sizing',
+                    title: 'Junction / Pull Box Sizing #4 AWG and up',
                     codeHint: '314.28',
                     onTap: () => _go(const JunctionBoxSizingCodeScreen()),
+                  ),
+                  _TopicRow(
+                    title: 'Box Support Methods',
+                    codeHint: '314.23',
+                    onTap: () => _go(const BoxSupportMethodsCodeScreen()),
                   ),
                 ],
               ),
@@ -157,12 +170,18 @@ class _CodeScreenState extends State<CodeScreen> {
                   _TopicRow(
                     title: 'Working Clearances',
                     codeHint: '110.26',
-                    onTap: () {},
+                    onTap: () => _go(const WorkingClearancesCodeScreen()),
                   ),
                   _TopicRow(
                     title: 'Disconnect Requirements',
-                    codeHint: '230 / 225',
-                    onTap: () {},
+                    codeHint: '110.25 / 110.26',
+
+                    onTap: () => _go(const DisconnectRequirementsCodeScreen()),
+                  ),
+                  _TopicRow(
+                    title: 'Panelboards & Overcurrent Devices',
+                    codeHint: '240 / 408',
+                    onTap: () => _go(const PanelboardsOvercurrentCodeScreen()),
                   ),
                 ],
               ),
@@ -174,26 +193,30 @@ class _CodeScreenState extends State<CodeScreen> {
                 title: 'Grounding & Bonding',
                 subtitle: 'EGC, GEC, bonding, electrodes',
                 children: [
+
                   _TopicRow(
-                    title: 'Neutral–Ground Bond Location',
+                    title: 'Neutral-Ground Bond Location',
                     codeHint: '250.24 / 250.30',
                     onTap: () => _go(const GroundingBondingCodeScreen()),
                   ),
                   _TopicRow(
-                    title: 'Grounding Electrode System',
-                    codeHint: '250.50 / 250.53',
-                    onTap: () {}, // (later: _go(const GroundingElectrodeSystemCodeScreen()))
+                    title: 'Grounding Electrode Conductor (GEC)',
+                    codeHint: '250.66',
+                    onTap: () => _go(const GroundingElectrodeConductorCodeScreen()),
                   ),
-          _TopicRow(
-            title: 'Grounding Conductor Sizing',
-            codeHint: '250.122 / 250.66',
-            onTap: () => _go(const GroundingConductorSizingCodeScreen()),
-          ),
-
+                  _TopicRow(
+                    title: 'Equipment Bonding & EGC',
+                    codeHint: '250.96 / 250.97',
+                    onTap: () => _go(const EquipmentBondingCodeScreen()),
+                  ),
+                  _TopicRow(
+                    title: 'Sizing',
+                    codeHint: '250.122 / 250.66',
+                    onTap: () => _go(const GroundingConductorSizingCodeScreen()),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
-
               _CategoryTile(
                 controller: _loadsCtrl,
                 onOpened: () => _openOnly(_loadsCtrl),
@@ -202,13 +225,13 @@ class _CodeScreenState extends State<CodeScreen> {
                 children: [
                   _TopicRow(
                     title: 'Continuous Load (125% Rule)',
-                    codeHint: '210.20(A)',
-                    onTap: () {},
+                    codeHint: '210.19-20 / 215.2',
+                    onTap: () => _go(const ContinuousLoadCodeScreen()),
                   ),
                   _TopicRow(
                     title: 'Branch Circuit Load Basics',
-                    codeHint: '220',
-                    onTap: () {},
+                    codeHint: '210',
+                    onTap: () => _go(const BranchCircuitLoadBasicsCodeScreen()),
                   ),
                 ],
               ),
