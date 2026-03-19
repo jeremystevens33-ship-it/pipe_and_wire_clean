@@ -16,6 +16,7 @@ dependencies:
   provider: ^6.1.5+1
   animated_text_kit: ^4.2.2
   shared_preferences: ^2.2.3
+  collection: ^1.17.0
 
 dev_dependencies:
   flutter_test:
@@ -28,4 +29,3 @@ flutter:
     - assets/sounds/soft_click_22k.wav
     - assets/conduits/emt/
     - assets/images/logo/
-

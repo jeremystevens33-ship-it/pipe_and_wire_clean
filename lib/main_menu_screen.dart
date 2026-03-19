@@ -9,7 +9,9 @@ import 'package:pipe_and_wire_clean/box_layout_mode.dart';
 import 'package:pipe_and_wire_clean/kick_90.dart';
 import 'package:pipe_and_wire_clean/rack_builder_11.dart';
 import 'package:pipe_and_wire_clean/back_to_back_90_screen.dart';
-import 'package:pipe_and_wire_clean/code_screen.dart'; // Import the CodeScreen
+import 'package:pipe_and_wire_clean/code_screen.dart';
+import 'package:pipe_and_wire_clean/code_sections/Load_Calculator.dart';
+import 'package:pipe_and_wire_clean/load_calculator2.dart';
 
 class MainMenuScreen extends StatelessWidget {
   const MainMenuScreen({super.key});
@@ -45,7 +47,9 @@ class MainMenuScreen extends StatelessWidget {
                 () => const UnifiedFeederCalculator(),
                 subtitle: 'Derate + V Drop',
               ),
+              _buildMenuButton(context, 'Load Calculator', () => const LoadCalculator()), // Corrected class name
               const SizedBox(height: 8.0),
+              _buildMenuButton(context, 'Load Calculator 2', () => const LoadCalculator2()),
             ],
           ),
           ExpansionTile(

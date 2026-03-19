@@ -6,7 +6,29 @@ import 'rack_state.dart';
 import 'code_screen.dart';
 import 'box_layout_mode.dart';
 import 'package:pipe_and_wire_clean/keypad_5.dart';
-import 'package:pipe_and_wire_clean/bender_model.dart';
+import 'package:collection/collection.dart';
+import 'package:flutter/services.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  runApp(const Kick90TestApp());
+}
+
+class Kick90TestApp extends StatelessWidget {
+  const Kick90TestApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: BendCalculator(), // <-- your Kick90 screen
+    );
+  }
+}
 
 // ===== THEME =====
 const kRed = Color(0xFFE53935);
@@ -43,6 +65,394 @@ const List<String> _pipeSizeOrder = [
 
 
 enum BendingMethod { arrow, centerline }
+enum ConduitType { emt, imc, rigid, pvc }
+
+class Bender {
+  const Bender({
+    required this.brand,
+    this.model,
+    this.displayName,
+    required this.conduitSize,
+    required this.conduitType,
+    required this.clr,
+    required this.deduct,
+    required this.gain,
+  });
+
+  final String brand;
+  final String? model;
+  final String? displayName;
+  final String conduitSize;
+  final ConduitType conduitType;
+  final double clr;
+  final double deduct;
+  final double gain;
+}
+
+final List<Bender> benderDatabase = [
+  const Bender(brand: 'IDEAL',
+      model: '74-031',
+      conduitSize: '0.5',
+      conduitType: ConduitType.emt,
+      clr: 4.34,
+      deduct: 5.0,
+      gain: 1.86), // Math Gain: 2.564
+  const Bender(brand: 'IDEAL',
+      model: '74-032',
+      conduitSize: '0.75',
+      conduitType: ConduitType.emt,
+      clr: 5.0,
+      deduct: 6.0,
+      gain: 2.15), // Math Gain: 3.068
+  const Bender(brand: 'IDEAL',
+      model: '74-033',
+      conduitSize: '1.0',
+      conduitType: ConduitType.emt,
+      clr: 6.5,
+      deduct: 8.0,
+      gain: 2.79), // Math Gain: 3.953
+  const Bender(brand: 'IDEAL',
+      model: '74-036',
+      conduitSize: '1.25',
+      conduitType: ConduitType.emt,
+      clr: 9.75,
+      deduct: 11.0,
+      gain: 4.18), // Math Gain: 5.700
+  const Bender(brand: 'Klein',
+      conduitSize: '0.5',
+      conduitType: ConduitType.emt,
+      clr: 4.625,
+      // 4-5/8",
+      deduct: 5.0,
+      gain: 2.691), // Math Gain: 2.637
+  const Bender(brand: 'Klein',
+      conduitSize: '0.75',
+      conduitType: ConduitType.emt,
+      clr: 6.0,
+      deduct: 6.0,
+      gain: 2.58), // Math Gain: 3.497
+  const Bender(brand: 'Klein',
+      conduitSize: '1.0',
+      conduitType: ConduitType.emt,
+      clr: 7.0,
+      deduct: 8.0,
+      gain: 3.0), // Math Gain: 4.167
+  const Bender(brand: 'Klein',
+      model: '56211',
+      conduitSize: '1.25',
+      conduitType: ConduitType.emt,
+      clr: 9.75,
+      deduct: 11.0,
+      gain: 4.18), // Math Gain: 5.700
+  const Bender(brand: 'Gardner Bender',
+      model: '960 Big Ben',
+      conduitSize: '0.5',
+      conduitType: ConduitType.emt,
+      clr: 4.18,
+      deduct: 4.5,
+      gain: 2.5), // Math Gain: 2.290
+  const Bender(brand: 'Gardner Bender',
+      conduitSize: '0.75',
+      conduitType: ConduitType.emt,
+      clr: 4.74,
+      deduct: 6.0,
+      gain: 2.03), // Math Gain: 2.956
+  const Bender(brand: 'Gardner Bender',
+      conduitSize: '1.0',
+      conduitType: ConduitType.emt,
+      clr: 5.81,
+      deduct: 8.0,
+      gain: 2.49), // Math Gain: 3.663
+  const Bender(brand: 'Gardner Bender',
+      conduitSize: '1.25',
+      conduitType: ConduitType.emt,
+      clr: 9.75,
+      deduct: 12.0,
+      gain: 4.18), // Math Gain: 5.700
+  const Bender(brand: 'Milwaukee',
+      conduitSize: '0.5',
+      conduitType: ConduitType.emt,
+      clr: 4.94,
+      deduct: 5.0,
+      gain: 2.75), // Math Gain: 2.852
+  const Bender(brand: 'Milwaukee',
+      conduitSize: '0.75',
+      conduitType: ConduitType.emt,
+      clr: 6.0,
+      deduct: 6.0,
+      gain: 3.283),
+  const Bender(brand: 'Milwaukee',
+      conduitSize: '1.0',
+      conduitType: ConduitType.emt,
+      clr: 8.0,
+      deduct: 8.0,
+      gain: 4.167),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '0.5',
+      conduitType: ConduitType.emt,
+      deduct: 7.5,
+      clr: 4.3125,
+      gain: 2.557),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '0.5',
+      conduitType: ConduitType.rigid,
+      deduct: 7.5,
+      clr: 4.25,
+      gain: 2.664),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '0.75',
+      conduitType: ConduitType.emt,
+      deduct: 9.0,
+      clr: 5.5,
+      gain: 3.283),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '0.75',
+      conduitType: ConduitType.rigid,
+      deduct: 9.0,
+      clr: 5.4375,
+      gain: 3.384),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '1.0',
+      conduitType: ConduitType.emt,
+      deduct: 11.0,
+      clr: 7.0,
+      gain: 4.167),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '1.0',
+      conduitType: ConduitType.rigid,
+      deduct: 11.0,
+      clr: 6.9375,
+      gain: 4.293),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '1.25',
+      conduitType: ConduitType.emt,
+      deduct: 13.625,
+      clr: 8.8125,
+      gain: 5.292),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '1.25',
+      conduitType: ConduitType.rigid,
+      deduct: 13.625,
+      clr: 8.75,
+      gain: 5.416),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '1.5',
+      conduitType: ConduitType.emt,
+      deduct: 14.875,
+      clr: 8.375,
+      gain: 5.336),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '1.5',
+      conduitType: ConduitType.rigid,
+      deduct: 14.875,
+      clr: 8.25,
+      gain: 5.441),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '2.0',
+      conduitType: ConduitType.emt,
+      deduct: 16.375,
+      clr: 9.25,
+      gain: 6.176),
+  const Bender(brand: 'Greenlee 555',
+      conduitSize: '2.0',
+      conduitType: ConduitType.rigid,
+      deduct: 16.125,
+      clr: 9.0,
+      gain: 6.238),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '0.5',
+      conduitType: ConduitType.rigid,
+      deduct: 6.0,
+      clr: 2.65625,
+      gain: 1.980),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '0.75',
+      conduitType: ConduitType.rigid,
+      deduct: 8.125,
+      clr: 4.50000,
+      gain: 2.981),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '1.0',
+      conduitType: ConduitType.rigid,
+      deduct: 10.25,
+      clr: 5.87500,
+      gain: 3.837),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '1.25',
+      conduitType: ConduitType.rigid,
+      deduct: 12.375,
+      clr: 7.12500,
+      gain: 4.729),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '1.5',
+      conduitType: ConduitType.rigid,
+      deduct: 15.0,
+      clr: 9.00000,
+      gain: 5.762),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '2.0',
+      conduitType: ConduitType.rigid,
+      deduct: 16.3125,
+      clr: 10.50000,
+      gain: 6.882),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '0.75',
+      conduitType: ConduitType.emt,
+      deduct: 8.6875,
+      clr: 5.09375,
+      gain: 3.106),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '1.0',
+      conduitType: ConduitType.emt,
+      deduct: 10.25,
+      clr: 6.40625,
+      gain: 3.910),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '1.25',
+      conduitType: ConduitType.emt,
+      deduct: 12.625,
+      clr: 7.625,
+      gain: 4.786),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '1.5',
+      conduitType: ConduitType.emt,
+      deduct: 12.9375,
+      clr: 8.28125,
+      gain: 5.290),
+  const Bender(brand: 'Greenlee 1818',
+      conduitSize: '2.0',
+      conduitType: ConduitType.emt,
+      deduct: 15.0,
+      clr: 9.1875,
+      gain: 6.145),
+  const Bender(brand: 'Greenlee 881',
+      conduitSize: '2.5',
+      conduitType: ConduitType.rigid,
+      deduct: 15.0,
+      clr: 13.5,
+      gain: 5.8), // Math Gain: 8.669
+  const Bender(brand: 'Greenlee 881',
+      conduitSize: '3.0',
+      conduitType: ConduitType.rigid,
+      deduct: 19.0,
+      clr: 16.0,
+      gain: 6.87), // Math Gain: 10.367
+  const Bender(brand: 'Greenlee 881',
+      conduitSize: '3.5',
+      conduitType: ConduitType.rigid,
+      deduct: 22.25,
+      clr: 18.625,
+      gain: 8.0), // Math Gain: 12.000
+  const Bender(brand: 'Greenlee 881',
+      conduitSize: '4.0',
+      conduitType: ConduitType.rigid,
+      deduct: 25.5,
+      clr: 20.875,
+      gain: 8.96), // Math Gain: 13.468
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '1.25',
+      conduitType: ConduitType.rigid,
+      deduct: 13.0,
+      clr: 7.25,
+      gain: 3.11), // Math Gain: 4.768
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '1.5',
+      conduitType: ConduitType.rigid,
+      deduct: 15.0,
+      clr: 8.25,
+      gain: 3.54), // Math Gain: 5.441
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '2.0',
+      conduitType: ConduitType.rigid,
+      deduct: 16.25,
+      clr: 9.5,
+      gain: 4.08), // Math Gain: 6.452
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '2.5',
+      conduitType: ConduitType.rigid,
+      deduct: 19.5,
+      clr: 12.5,
+      gain: 5.36), // Math Gain: 8.240
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '3.0',
+      conduitType: ConduitType.rigid,
+      deduct: 22.0,
+      clr: 15.0,
+      gain: 6.44), // Math Gain: 9.938
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '3.5',
+      conduitType: ConduitType.rigid,
+      deduct: 25.0,
+      clr: 17.5,
+      gain: 7.51), // Math Gain: 11.511
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '4.0',
+      conduitType: ConduitType.rigid,
+      deduct: 28.0,
+      clr: 20.0,
+      gain: 8.58), // Math Gain: 13.084
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '0.5',
+      conduitType: ConduitType.pvc,
+      deduct: 8.5,
+      clr: 4.5,
+      gain: 1.93), // Math Gain: 2.771
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '0.75',
+      conduitType: ConduitType.pvc,
+      deduct: 10.0,
+      clr: 5.4375,
+      gain: 2.33), // Math Gain: 3.390
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '1.0',
+      conduitType: ConduitType.pvc,
+      deduct: 12.625,
+      clr: 6.9375,
+      gain: 2.98), // Math Gain: 4.298
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '1.25',
+      conduitType: ConduitType.pvc,
+      deduct: 13.0,
+      clr: 7.25,
+      gain: 3.11), // Math Gain: 4.768
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '1.5',
+      conduitType: ConduitType.pvc,
+      deduct: 15.0,
+      clr: 8.25,
+      gain: 3.54), // Math Gain: 5.441
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '2.0',
+      conduitType: ConduitType.pvc,
+      deduct: 16.25,
+      clr: 9.5,
+      gain: 4.08), // Math Gain: 6.452
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '2.5',
+      conduitType: ConduitType.pvc,
+      deduct: 19.5,
+      clr: 11.4375,
+      gain: 4.91), // Math Gain: 7.788
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '3.0',
+      conduitType: ConduitType.pvc,
+      deduct: 22.0,
+      clr: 13.75,
+      gain: 5.9), // Math Gain: 9.402
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '3.5',
+      conduitType: ConduitType.pvc,
+      deduct: 25.0,
+      clr: 16.0,
+      gain: 6.86), // Math Gain: 10.867
+  const Bender(brand: 'Greenlee 884/885',
+      conduitSize: '4.0',
+      conduitType: ConduitType.pvc,
+      deduct: 28.0,
+      clr: 18.25,
+      gain: 7.83), // Math Gain: 12.332
+];
+
 
 double calculateGain90(double clr, double od) {
   const double gainConstant = 2 - (math.pi / 2); // Approx. 0.4292
@@ -69,12 +479,21 @@ class _BendCalculatorState extends State<BendCalculator> {
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
   String? _selectedBrand;
-  List<Map<String, String>> _brands = [];
+  final List<Map<String, String>> _brands = [
+      {'type': 'header', 'name': 'HAND BENDERS'},
+      {'type': 'bender', 'name': 'IDEAL'},
+      {'type': 'bender', 'name': 'Klein'},
+      {'type': 'bender', 'name': 'Gardner Bender'},
+      {'type': 'bender', 'name': 'Milwaukee'},
+      {'type': 'header', 'name': 'MECHANICAL / ELECTRIC'},
+      {'type': 'bender', 'name': 'Greenlee 1818'},
+      {'type': 'bender', 'name': 'Greenlee 555'},
+    ];
   BendingMethod _bendingMethod = BendingMethod.arrow;
 
   // --- NEW: Custom Bender State ---
   bool _isEditMode = false;
-  List<Bender> _customBenders = [];
+  final List<Bender> _customBenders = [];
   List<Map<String, String>> _allBrands = []; // Combined list for dropdown
 
   // Controllers
@@ -82,6 +501,7 @@ class _BendCalculatorState extends State<BendCalculator> {
   final kickCtrl = TextEditingController();
   final angleCtrl = TextEditingController();
   final legCtrl = TextEditingController();
+  final travelCtrl = TextEditingController(); // Added travel controller
   final takeUpCtrl = TextEditingController();
   final gainCtrl = TextEditingController();
   final radiusCtrl = TextEditingController();
@@ -104,18 +524,18 @@ class _BendCalculatorState extends State<BendCalculator> {
   bool _isKeypadVisible = false;
   TextEditingController? _activeController;
 
+  // Conditional Travel Field Visibility
+  final Set<String> _mechanicalElectricBenderBrands = {
+    'Greenlee 1818',
+    'Greenlee 555',
+    'Greenlee 881',
+    'Greenlee 884/885',
+  };
+  bool _showTravelField = false;
+
   @override
   void initState() {
     super.initState();
-    _brands = [
-      {'type': 'header', 'value': '--- HAND BENDERS ---'},
-      {'type': 'bender', 'value': 'IDEAL'},
-      {'type': 'bender', 'value': 'KLEIN'},
-      {'type': 'bender', 'value': 'GARDNER'},
-      {'type': 'bender', 'value': 'MILWAUKEE'},
-      {'type': 'header', 'value': '--- MECHANICAL BENDERS ---'},
-      {'type': 'bender', 'value': 'GREENLEE'},
-    ];
     _updateBrandDropdown();
 
 
@@ -142,6 +562,7 @@ class _BendCalculatorState extends State<BendCalculator> {
       kickCtrl,
       angleCtrl,
       legCtrl,
+      travelCtrl, // Disposed travel controller
       takeUpCtrl,
       gainCtrl,
       radiusCtrl,
@@ -160,9 +581,9 @@ class _BendCalculatorState extends State<BendCalculator> {
       _allBrands = [
         ..._brands,
         if (_customBenders.isNotEmpty)
-          {'type': 'header', 'value': '--- MY BENDERS ---'},
+          {'type': 'header', 'name': '--- MY BENDERS ---'},
         ..._customBenders.map((b) =>
-        {'type': 'bender', 'value': b.model ?? 'Unnamed Bender'})
+        {'type': 'bender', 'name': b.brand})
       ];
     });
   }
@@ -194,36 +615,40 @@ class _BendCalculatorState extends State<BendCalculator> {
   void _updateBenderData() {
     if (_selectedBrand == null || _selectedPipeSize == null) {
       setState(() {
+        travelCtrl.text = ''; // Clear travel
         takeUpCtrl.text = '';
         gainCtrl.text = '';
         setbackCtrl.text = '';
         radiusCtrl.text = '';
+        _showTravelField = false; // Hide travel field
       });
       return;
     }
 
-    Bender? bender;
-    try {
-      bender =
-          _customBenders.firstWhere((b) => b.model == _selectedBrand);
-    } catch (e) {
-      bender = null;
-    }
+    // Try to find a custom bender first
+    Bender? bender = _customBenders.firstWhereOrNull(
+            (b) => b.model == _selectedBrand && b.conduitSize == _selectedPipeSize &&
+            (b.conduitType == (
+            _selectedConduitType == BoxLayoutConduitType.emt ? ConduitType.emt :
+            _selectedConduitType == BoxLayoutConduitType.grc ? ConduitType.rigid :
+            ConduitType.pvc // Default for PVC Coated
+            )
+            )
+    );
 
-    if (bender == null) {
-      // Fallback for built-in benders
-      // This section can be replaced with actual data later
-      // For now, it just clears the fields.
-      setState(() {
-        takeUpCtrl.text = '';
-        gainCtrl.text = '';
-        setbackCtrl.text = '';
-        radiusCtrl.text = '';
-      });
-      return;
-    }
+    // If not found in custom benders, search the main benderDatabase
+    bender ??= benderDatabase.firstWhereOrNull(
+            (b) => b.brand == _selectedBrand && b.conduitSize == _selectedPipeSize &&
+            (b.conduitType == (
+            _selectedConduitType == BoxLayoutConduitType.emt ? ConduitType.emt :
+            _selectedConduitType == BoxLayoutConduitType.grc ? ConduitType.rigid :
+            ConduitType.pvc // Default for PVC Coated
+            )
+            )
+    );
 
     double calculatedGain = 0.0;
+    double calculatedTravel = 0.0; // Declare calculatedTravel
     if (bender != null) {
       final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
           ? _emtOD[_selectedPipeSize]
@@ -232,17 +657,21 @@ class _BendCalculatorState extends State<BendCalculator> {
       if (bender.clr > 0 && pipeOD > 0) {
         calculatedGain = calculateGain90(bender.clr, pipeOD);
       }
+      calculatedTravel = (math.pi * bender.clr) / 2; // Calculate 90° Travel
     }
 
     setState(() {
       _rawTakeUp = bender?.deduct ?? 0.0;
       _rawGain = calculatedGain;
 
+      travelCtrl.text = bender != null ? fmtInches(calculatedTravel) : ''; // Display 90° Travel
       takeUpCtrl.text = bender != null ? fmtInches(bender.deduct) : '';
       gainCtrl.text = bender != null
           ? fmtInches(calculatedGain)
           : '';
       radiusCtrl.text = bender != null ? fmtInches(bender.clr) : '';
+
+      _showTravelField = _mechanicalElectricBenderBrands.contains(bender?.brand ?? '');
 
       _updateSetback();
       if (_isEditMode) {
@@ -275,6 +704,7 @@ class _BendCalculatorState extends State<BendCalculator> {
       angleCtrl.clear();
       legCtrl.clear();
 
+      travelCtrl.clear(); // Clear travel
       takeUpCtrl.clear();
       gainCtrl.clear();
       radiusCtrl.clear();
@@ -296,6 +726,7 @@ class _BendCalculatorState extends State<BendCalculator> {
       _isResultsExpanded = false;
       _isEditMode = false;
       _resetToStep(0);
+      _showTravelField = false;
     });
   }
 
@@ -366,6 +797,42 @@ class _BendCalculatorState extends State<BendCalculator> {
     }
   }
 
+  Map<String, String> _getFilteredPipeSizes() {
+    if (_selectedBrand == null) {
+      return _pipeSizes;
+    }
+
+    final List<String> availableSizes = [];
+    switch (_selectedBrand) {
+      case 'IDEAL':
+      case 'Klein':
+      case 'Gardner Bender':
+        // Hand benders usually go up to 1.25"
+        final int maxIndex = _pipeSizeOrder.indexOf('1.25');
+        availableSizes.addAll(_pipeSizeOrder.sublist(0, maxIndex + 1));
+        break;
+      case 'Milwaukee':
+        // Milwaukee hand benders usually go up to 1"
+        final int maxIndex = _pipeSizeOrder.indexOf('1.0');
+        availableSizes.addAll(_pipeSizeOrder.sublist(0, maxIndex + 1));
+        break;
+      case 'Greenlee 1818':
+      case 'Greenlee 555':
+        // Mechanical/Electric benders go up to 2"
+        final int maxIndex = _pipeSizeOrder.indexOf('2.0');
+        availableSizes.addAll(_pipeSizeOrder.sublist(0, maxIndex + 1));
+        break;
+      default:
+        // For custom benders or others, show all sizes
+        availableSizes.addAll(_pipeSizeOrder);
+        break;
+    }
+
+    return Map.fromEntries(
+      _pipeSizes.entries.where((entry) => availableSizes.contains(entry.key)),
+    );
+  }
+
   void calculate() {
     if (!_isCalculateReady) return;
     final stub = _parseInches(stubCtrl.text);
@@ -388,9 +855,11 @@ class _BendCalculatorState extends State<BendCalculator> {
 
     final markA = stub - takeUp;
 
-    final travel = k * _csc(theta);
+    // The existing 'travel' calculation is for kick travel, not 90° travel.
+    // I will keep it as 'kickTravel' to avoid conflict and for clarity.
+    final kickTravel = k * _csc(theta);
     final centerOf90 = stub - gain90;
-    final centerKick = centerOf90 + travel + (pipeOD / 2.0);
+    final centerKick = centerOf90 + kickTravel + (pipeOD / 2.0);
 
     double markB;
 
@@ -489,6 +958,7 @@ class _BendCalculatorState extends State<BendCalculator> {
       if (!_isEditMode) {
         _hideKeypad();
       } else {
+        if (travelCtrl.text.isEmpty) travelCtrl.text = '0"'; // Custom travel can be edited
         if (takeUpCtrl.text.isEmpty) takeUpCtrl.text = '0"';
         if (gainCtrl.text.isEmpty) gainCtrl.text = '0"';
         if (radiusCtrl.text.isEmpty) radiusCtrl.text = '0"';
@@ -771,6 +1241,8 @@ class _BendCalculatorState extends State<BendCalculator> {
           const SizedBox(height: 12),
           _buildBendingMethodSelector(),
           const SizedBox(height: 12),
+          if (_showTravelField) // Conditionally display the travel field
+            _inlineField('90° Travel', travelCtrl),
           _inlineField('Take Up', takeUpCtrl,
               onTap: _isEditMode ? () => _showKeypad(takeUpCtrl) : null),
           _inlineField('Gain90', gainCtrl,
@@ -803,19 +1275,11 @@ class _BendCalculatorState extends State<BendCalculator> {
               _updateBenderData();
             })),
         const SizedBox(width: 10),
-        Expanded(child: _buildSilverButton(label: 'GRC',
+        Expanded(child: _buildSilverButton(label: 'Rigid',
             height: 40,
             isActive: _selectedConduitType == BoxLayoutConduitType.grc,
             onTap: () {
               setState(() => _selectedConduitType = BoxLayoutConduitType.grc);
-              _updateBenderData();
-            })),
-        const SizedBox(width: 10),
-        Expanded(child: _buildSilverButton(label: 'PVC Coated',
-            height: 40,
-            isActive: _selectedConduitType == BoxLayoutConduitType.pvc,
-            onTap: () {
-              setState(() => _selectedConduitType = BoxLayoutConduitType.pvc);
               _updateBenderData();
             })),
       ],
@@ -856,11 +1320,11 @@ class _BendCalculatorState extends State<BendCalculator> {
           style: const TextStyle(color: kLight, fontSize: 18),
           items: _allBrands.map((brandData) {
             final type = brandData['type']!;
-            final value = brandData['value']!;
+            final name = brandData['name']!;
 
             if (type == 'header') {
               return DropdownMenuItem<String>(
-                value: 'header_$value',
+                value: 'header_$name',
                 enabled: false,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -868,7 +1332,7 @@ class _BendCalculatorState extends State<BendCalculator> {
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
                       child: Text(
-                        value,
+                        name,
                         style: const TextStyle(
                             color: kLight, fontWeight: FontWeight.bold),
                       ),
@@ -879,8 +1343,8 @@ class _BendCalculatorState extends State<BendCalculator> {
               );
             }
             return DropdownMenuItem<String>(
-              value: value,
-              child: Text(value),
+              value: name,
+              child: Text(name),
             );
           }).toList(),
           onChanged: (newValue) {
@@ -909,9 +1373,9 @@ class _BendCalculatorState extends State<BendCalculator> {
               'Select Pipe Size', style: TextStyle(color: Colors.white70)),
           dropdownColor: const Color(0xFF333333),
           style: const TextStyle(color: kLight, fontSize: 18),
-          items: _pipeSizes.keys.map((String value) {
+          items: _getFilteredPipeSizes().keys.map((String value) {
             return DropdownMenuItem<String>(
-                value: value, child: Text(_pipeSizes[value]!));
+                value: value, child: Text(_getFilteredPipeSizes()[value]!));
           }).toList(),
           onChanged: (newValue) {
             setState(() => _selectedPipeSize = newValue);
@@ -1084,7 +1548,8 @@ class _BendCalculatorState extends State<BendCalculator> {
                   Text(
                       '• This feature allows you to fine-tune any bender in the list. Select a bender, tap "Create / Edit," enter your own Take Up, Gain, or Radius values, and then save it as a new profile. Your custom benders will appear at the bottom of the brand list.',
                       style: TextStyle(color: Colors.white70))
-                ])),
+                ]
+            )), // Correctly closed ListBody and SingleChildScrollView
             actions: [
               TextButton(onPressed: () => Navigator.of(context).pop(),
                   child: const Text('Close', style: TextStyle(color: kRed)))
