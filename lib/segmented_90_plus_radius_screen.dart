@@ -1,39 +1,12 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'rack_builder_11.dart';
-import 'rack_state.dart';
+import 'package:collection/collection.dart';
+import 'package:pipe_and_wire_clean/keypad_5.dart';
+import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
+import 'package:flutter/services.dart'; // Added for SystemChrome
+
 import 'code_screen.dart';
 
-import 'package:pipe_and_wire_clean/keypad_5.dart';
-import 'package:collection/collection.dart';
-import 'package:flutter/services.dart';
-import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data; // <<< MODIFIED: Added alias for bending_data
-
-// Local definitions for Kick 90 screen (EMT/GRC up to 2.0")
-enum BoxLayoutConduitType { emt, grc }
-
-
-void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-  runApp(const Kick90TestApp());
-}
-
-class Kick90TestApp extends StatelessWidget {
-  const Kick90TestApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: BendCalculator(), // <-- your Kick90 screen
-    );
-  }
-}
 
 // ===== THEME =====
 const kRed = Color(0xFFE53935);
@@ -41,14 +14,18 @@ const kBlack = Colors.black;
 const kLight = Colors.white;
 const kGreen = Color(0xFF4CAF50);
 
-class BendCalculator extends StatefulWidget {
-  const BendCalculator({super.key});
+
+enum BoxLayoutConduitType { emt, grc } // Local enum for UI selection
+
+
+class Segmented90PlusRadiusScreen extends StatefulWidget {
+  const Segmented90PlusRadiusScreen({super.key});
 
   @override
-  State<BendCalculator> createState() => _BendCalculatorState();
+  State<Segmented90PlusRadiusScreen> createState() => _Segmented90PlusRadiusScreenState();
 }
 
-class _BendCalculatorState extends State<BendCalculator> {
+class _Segmented90PlusRadiusScreenState extends State<Segmented90PlusRadiusScreen> {
   // State management for workflow
   int _currentStep = 0;
   bool _isBenderExpanded = true;
@@ -78,20 +55,21 @@ class _BendCalculatorState extends State<BendCalculator> {
   List<Map<String, String>> _allBrands = []; // Combined list for dropdown
 
   // Controllers
-  final stubCtrl = TextEditingController();
-  final kickCtrl = TextEditingController();
-  final angleCtrl = TextEditingController();
-  final legCtrl = TextEditingController();
+  final measurement1Ctrl = TextEditingController();
+  final measurement2Ctrl = TextEditingController();
+  final measurement3Ctrl = TextEditingController();
   final travelCtrl = TextEditingController(); // Added travel controller
   final takeUpCtrl = TextEditingController();
   final gainCtrl = TextEditingController();
   final radiusCtrl = TextEditingController();
   final setbackCtrl = TextEditingController();
 
+
   // Output variables
   String markAOut = '';
   String markBOut = '';
   String markCOut = '';
+
 
   // Raw values
   double _rawMarkA = 0.0;
@@ -99,16 +77,15 @@ class _BendCalculatorState extends State<BendCalculator> {
   double _rawCut = 0.0;
   double _rawTakeUp = 0.0;
   double _rawGain = 0.0;
-  double _bendAngle = 0.0; // <<< MODIFIED: Added for RackState
+
 
   // Keypad State
   bool _isKeypadVisible = false;
   TextEditingController? _activeController;
 
   // Conditional Travel Field Visibility
-  // Uses _mechanicalElectricBenderBrands from bending_data.dart
-  // final Set<String> _mechanicalElectricBenderBrands = bending_data.mechanicalElectricBenderBrands;
   bool _showTravelField = false;
+
 
   @override
   void initState() {
@@ -117,10 +94,10 @@ class _BendCalculatorState extends State<BendCalculator> {
 
 
     final allInputCtrls = [
-      stubCtrl,
-      kickCtrl,
-      angleCtrl,
-      legCtrl,
+      measurement1Ctrl,
+      measurement2Ctrl,
+      measurement3Ctrl,
+      travelCtrl, // Added travel controller
       takeUpCtrl,
       gainCtrl,
       radiusCtrl
@@ -135,10 +112,9 @@ class _BendCalculatorState extends State<BendCalculator> {
   @override
   void dispose() {
     final allCtrls = [
-      stubCtrl,
-      kickCtrl,
-      angleCtrl,
-      legCtrl,
+      measurement1Ctrl,
+      measurement2Ctrl,
+      measurement3Ctrl,
       travelCtrl, // Disposed travel controller
       takeUpCtrl,
       gainCtrl,
@@ -166,10 +142,9 @@ class _BendCalculatorState extends State<BendCalculator> {
   }
 
   void _updateCalculateButtonState() {
-    final bool isReady = stubCtrl.text.isNotEmpty &&
-        kickCtrl.text.isNotEmpty &&
-        angleCtrl.text.isNotEmpty &&
-        legCtrl.text.isNotEmpty &&
+    final bool isReady = measurement1Ctrl.text.isNotEmpty &&
+        measurement2Ctrl.text.isNotEmpty &&
+        measurement3Ctrl.text.isNotEmpty &&
         _selectedPipeSize != null &&
         _selectedBrand != null;
     if (isReady != _isCalculateReady) {
@@ -208,8 +183,7 @@ class _BendCalculatorState extends State<BendCalculator> {
             (b.conduitType == (
             _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
             bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
-            )
-            )
+            ))
     );
 
     // If not found in custom benders, search the main benderDatabase (from bending_data.dart)
@@ -218,8 +192,7 @@ class _BendCalculatorState extends State<BendCalculator> {
             (b.conduitType == (
             _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
             bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
-            )
-            )
+            ))
     );
 
     double calculatedGain = 0.0;
@@ -274,10 +247,9 @@ class _BendCalculatorState extends State<BendCalculator> {
 
   void _startNewBend() {
     setState(() {
-      stubCtrl.clear();
-      kickCtrl.clear();
-      angleCtrl.clear();
-      legCtrl.clear();
+      measurement1Ctrl.clear();
+      measurement2Ctrl.clear();
+      measurement3Ctrl.clear();
 
       travelCtrl.clear(); // Clear travel
       takeUpCtrl.clear();
@@ -290,12 +262,14 @@ class _BendCalculatorState extends State<BendCalculator> {
       _selectedConduitType = BoxLayoutConduitType.emt;
       _bendingMethod = bending_data.BendingMethod.arrow;
 
+
       markAOut = '';
       markBOut = '';
       markCOut = '';
       _rawMarkA = 0.0;
       _rawMarkB = 0.0;
       _rawCut = 0.0;
+
 
       _isCalculateReady = false;
       _isResultsExpanded = false;
@@ -304,12 +278,6 @@ class _BendCalculatorState extends State<BendCalculator> {
       _showTravelField = false;
     });
   }
-
-  double _deg(double d) => d * math.pi / 180.0;
-
-  double _csc(double deg) => 1.0 / math.sin(_deg(deg));
-
-  double _tanHalf(double deg) => math.tan(_deg(deg / 2.0));
 
   String fmtInches(double x, {bool addInchMark = true}) {
     if (x == 0) return addInchMark ? '0"' : '0';
@@ -397,7 +365,7 @@ class _BendCalculatorState extends State<BendCalculator> {
         final int maxIndex = bending_data.pipeSizeOrder.indexOf('2.0');
         availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
         break;
-      default:
+      default: // Corrected from 'default':
         // For custom benders or others, show all sizes
         availableSizes.addAll(bending_data.pipeSizeOrder);
         break;
@@ -410,63 +378,44 @@ class _BendCalculatorState extends State<BendCalculator> {
 
   void calculate() {
     if (!_isCalculateReady) return;
-    final stub = _parseInches(stubCtrl.text);
-    final k = _parseInches(kickCtrl.text);
-    final theta = double.tryParse(angleCtrl.text) ?? 0;
-    _bendAngle = theta; // <<< MODIFIED: Store angle for RackState
-    final leg = _parseInches(legCtrl.text);
-    _rawTakeUp = _parseInches(takeUpCtrl.text);
-    final takeUp = _rawTakeUp;
 
-    final pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
-        ? bending_data.emtOD[_selectedPipeSize] // Uses emtOD from bending_data.dart
-        : bending_data.grcOD[_selectedPipeSize]) ?? 0.0; // Uses grcOD from bending_data.dart
-    final clr = _parseInches(radiusCtrl.text);
+    // Clear previous results
+    _rawCut = 0.0;
+    _rawMarkA = 0.0;
+    _rawMarkB = 0.0;
+    markAOut = '';
+    markBOut = '';
+    markCOut = '';
 
-    final gain90 = bending_data.calculateGain90(clr, pipeOD); // Uses calculateGain90 from bending_data.dart
-    _rawGain = gain90;
-
-    if (stub == 0 || k == 0 || theta == 0 || pipeOD == 0) return;
-
-    final markA = stub - takeUp;
-
-    // The existing 'travel' calculation is for kick travel, not 90° travel.
-    // I will keep it as 'kickTravel' to avoid conflict and for clarity.
-    final kickTravel = k * _csc(theta);
-    final centerOf90 = stub - gain90;
-    final centerKick = centerOf90 + kickTravel + (pipeOD / 2.0);
-
-    double markB;
-
-    if (_bendingMethod == bending_data.BendingMethod.arrow) {
-      final angleOnArc = theta / 2.0;
-      final arrowToCenterDistance = (math.pi * clr * angleOnArc) / 180.0;
-      markB = centerKick - arrowToCenterDistance;
-    } else {
-      markB = centerKick;
-    }
-
-    final shrink = k * _tanHalf(theta);
-    final olVal = stub + leg - gain90 + shrink;
-
-    _rawMarkA = markA;
-    _rawMarkB = markB;
-    _rawCut = olVal;
-
+    // Placeholder for new calculation logic
+    // You will add your Segmented 90 + Radius calculation here
+    // For now, it just advances the UI
+    
     setState(() {
-      markAOut = fmtInches(markA);
-      markBOut = fmtInches(markB);
-      markCOut = fmtInches(olVal);
       _currentStep = 3;
       _isResultsExpanded = true;
       _isMeasurementsExpanded = false;
+      _hideKeypad();
     });
   }
 
+
   void _advanceKeypadFocus() {
-    if (_activeController == stubCtrl) return _showKeypad(kickCtrl);
-    if (_activeController == kickCtrl) return _showKeypad(angleCtrl);
-    if (_activeController == angleCtrl) return _showKeypad(legCtrl);
+    if (_activeController == measurement1Ctrl) {
+      return _showKeypad(measurement2Ctrl);
+    }
+    if (_activeController == measurement2Ctrl) {
+      return _showKeypad(measurement3Ctrl);
+    }
+    if (_activeController == measurement3Ctrl) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_isCalculateReady) {
+          calculate();
+        }
+        _hideKeypad();
+      });
+      return;
+    }
     _hideKeypad();
   }
 
@@ -480,20 +429,11 @@ class _BendCalculatorState extends State<BendCalculator> {
         controller.text = text.substring(0, text.length - 1);
       }
     } else if (value == '✔') {
-      if (controller != angleCtrl && controller.text.isNotEmpty) {
+      if (controller.text.isNotEmpty) {
         final decimalValue = _parseInches(controller.text);
         controller.text = fmtInches(decimalValue);
       }
-      if (_activeController == legCtrl) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_isCalculateReady) {
-            calculate();
-          }
-          _hideKeypad();
-        });
-      } else {
-        _advanceKeypadFocus();
-      }
+      _advanceKeypadFocus(); // Advance focus after '✔'
     } else {
       if (value.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
         final lastChar = text.characters.last;
@@ -505,8 +445,9 @@ class _BendCalculatorState extends State<BendCalculator> {
     }
   }
 
+
   void _showKeypad(TextEditingController controller) {
-    if (controller.text.isNotEmpty && controller != angleCtrl) {
+    if (controller.text.isNotEmpty) {
       controller.clear();
     }
     setState(() {
@@ -517,7 +458,7 @@ class _BendCalculatorState extends State<BendCalculator> {
 
   void _hideKeypad() {
     setState(() {
-      if (_activeController != null && _activeController != angleCtrl &&
+      if (_activeController != null &&
           _activeController!.text.isNotEmpty) {
         final decimalValue = _parseInches(_activeController!.text);
         _activeController!.text = fmtInches(decimalValue);
@@ -579,9 +520,6 @@ class _BendCalculatorState extends State<BendCalculator> {
         gain: _parseInches(gainCtrl.text),
       );
 
-      // NOTE: Database functionality removed.
-      // In a real app, you would save `newBender` to a local list
-      // or use a state management solution to persist it.
       setState(() {
         _customBenders.add(newBender);
         _updateBrandDropdown();
@@ -598,7 +536,7 @@ class _BendCalculatorState extends State<BendCalculator> {
       backgroundColor: kBlack,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
-        title: const Text('Kick 90'),
+        title: const Text('Segmented 90 + Radius'),
         foregroundColor: kLight,
         actions: [
           IconButton(icon: const Icon(Icons.info_outline),
@@ -630,42 +568,11 @@ class _BendCalculatorState extends State<BendCalculator> {
                     _buildMeasurementsSection(),
                     _buildCalculateSection(),
                     _buildResultsSection(),
-                    const SizedBox(height: 5),
-                    // <<< MODIFIED: "BUILD A RACK" BUTTON LOGIC >>>
-                    _buildSilverButton(
-                      label: 'BUILD A RACK',
-                      height: 50,
-                      fontSize: 18,
-                      onTap: markAOut.isNotEmpty ? () {
-                        final rackState = Provider.of<RackState>(
-                            context, listen: false);
-                        rackState.updateInitialPipe(
-                          markA: _rawMarkA,
-                          markB: _rawMarkB,
-                          ol: _rawCut,
-                          angle: _bendAngle,
-                          gain: _rawGain,
-                          takeup: _rawTakeUp,
-                        );
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (
-                              context) => const RackBuilderScreen()),
-                        );
-                      } : null,
-                    ),
                   ],
                 ),
               ),
-              if (markAOut.isNotEmpty && !_isKeypadVisible)
-                SizedBox(
-                  height: 220,
-                  child: _KickResultGraphic(
-                      markA: markAOut, markB: markBOut, markC: markCOut),
-                )
-              else
-                if (!_isKeypadVisible)
-                  _buildInfoBar(),
+              if (!_isKeypadVisible) // Always show info bar if keypad not visible
+                _buildInfoBar(),
               if (_isKeypadVisible)
                 NumericInputKeypad(onTap: _onKeypadTap),
             ],
@@ -725,14 +632,12 @@ class _BendCalculatorState extends State<BendCalculator> {
               padding: const EdgeInsets.only(top: 12.0),
               child: Column(
                 children: [
-                  _inlineField('Stub Height', stubCtrl,
-                      onTap: () => _showKeypad(stubCtrl)),
-                  _inlineField('Kick Height', kickCtrl,
-                      onTap: () => _showKeypad(kickCtrl)),
-                  _inlineField('Angle', angleCtrl, suffix: '°',
-                      onTap: () => _showKeypad(angleCtrl)),
-                  _inlineField(
-                      'Leg Length', legCtrl, onTap: () => _showKeypad(legCtrl)),
+                  _inlineField('Measurement A', measurement1Ctrl,
+                      onTap: () => _showKeypad(measurement1Ctrl)),
+                  _inlineField('Measurement B', measurement2Ctrl,
+                      onTap: () => _showKeypad(measurement2Ctrl)),
+                  _inlineField('Measurement C', measurement3Ctrl,
+                      onTap: () => _showKeypad(measurement3Ctrl)),
                   const SizedBox(height: 12),
                 ],
               ),
@@ -750,7 +655,7 @@ class _BendCalculatorState extends State<BendCalculator> {
         isCheckmark: _isCalculateReady,
         height: 50,
         fontSize: 18,
-        onTap: null,
+        onTap: _isCalculateReady ? calculate : null,
       ),
     );
   }
@@ -773,9 +678,9 @@ class _BendCalculatorState extends State<BendCalculator> {
               padding: const EdgeInsets.only(top: 18.0, bottom: 12.0),
               child: Column(
                 children: [
-                  _resultRow('Mark A — 90° Bend', markAOut),
-                  _resultRow('Mark B — Kick Bend', markBOut),
-                  _resultRow('Mark C — Overall Length', markCOut),
+                  _resultRow('Result 1', markAOut),
+                  _resultRow('Result 2', markBOut),
+                  _resultRow('Result 3', markCOut),
                   const SizedBox(height: 15),
                   _buildSilverButton(label: 'Start New Bend',
                       height: 40,
@@ -961,13 +866,63 @@ class _BendCalculatorState extends State<BendCalculator> {
     );
   }
 
+  void _showHelpDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) =>
+        AlertDialog(
+            backgroundColor: const Color(0xFF212121),
+            title: const Text('Bender Starting Point Help', style: TextStyle(color: kLight)),
+            content: const SingleChildScrollView(
+                child: ListBody(
+                    children: <Widget>[
+                      Text('This is a generic starting point screen for new bending calculations.',
+                          style: TextStyle(color: kLight,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16)),
+                      SizedBox(height: 10),
+                      Text(
+                          '1. Bender & Conduit: First, select your bender brand, conduit type (EMT, GRC, etc.), and pipe size. This loads the correct data for the calculation.',
+                          style: TextStyle(color: Colors.white70)),
+                      SizedBox(height: 15),
+                      Text('Gain vs. Take-Up:', style: TextStyle(
+                          color: kLight,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16)),
+                      SizedBox(height: 10),
+                      Text(
+                          '• GAIN is used only to determine the CUT LENGTH of the pipe. It ensures the final distance between bends is correct.',
+                          style: TextStyle(color: Colors.white70)),
+                      SizedBox(height: 10),
+                      Text(
+                          '• TAKE-UP is used only to determine WHERE TO MARK the pipe for bending.',
+                          style: TextStyle(color: Colors.white70)),
+                      SizedBox(height: 15),
+                      Text('Bending Methods Explained:', style: TextStyle(
+                          color: kLight,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16)),
+                      SizedBox(height: 10),
+                      Text(
+                          'This app provides two valid methods for marking your second bend. Both produce the same final result, so choose the one you are most comfortable with.',
+                          style: TextStyle(color: Colors.white70)),
+                    ])
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close', style: TextStyle(color: kRed)))
+            ]
+        ),
+    );
+  }
+
   Widget _buildInfoBar() {
     String infoText = "Step 1: Select your bender, conduit, and pipe size.";
     if (_currentStep == 1) {
       infoText = "Step 2: Enter the measurements for your bend.";
     } else if (_currentStep == 2) {
       infoText =
-      "Step 3: All measurements entered. Press '✔' on the keypad to calculate.";
+      "Step 3: All measurements entered. Press 'CALCULATE' to see results.";
     } else if (_currentStep == 3) {
       infoText = "Calculation complete. See results above.";
     }
@@ -1045,8 +1000,7 @@ class _BendCalculatorState extends State<BendCalculator> {
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
-          Expanded(child: Text(
-              label, style: const TextStyle(fontSize: 16, color: kLight))),
+          Expanded(child: Text(label, style: const TextStyle(fontSize: 16, color: kLight))),
           const SizedBox(width: 12),
           SizedBox(
             width: 140, height: 48,
@@ -1084,110 +1038,6 @@ class _BendCalculatorState extends State<BendCalculator> {
           ),
         ],
       ),
-    );
-  }
-
-  void _showHelpDialog(BuildContext context) {
-    showDialog(context: context, builder: (context) =>
-        AlertDialog(backgroundColor: const Color(0xFF212121),
-            title: const Text('Kick 90 Help', style: TextStyle(color: kLight)),
-            content: const SingleChildScrollView(child: ListBody(
-                children: <Widget>[
-                  Text('Follow the steps in order for best results:',
-                      style: TextStyle(color: kLight,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '1. Bender & Conduit: First, select your bender brand, conduit type (EMT, GRC, etc.), and pipe size. This loads the correct data for the calculation.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Bending Methods Explained:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• Use Arrow Mark: . the arrow (or hook on larger benders) can be used normally for take up. this app also uses math that allows the arrow (or hook) to be used for bending on center, therefore eliminating the need to manually mark the bender shoe. for center of bend on kicks, place the arrow (or hook) on your "Mark B" to bend. The math has already been adjusted for this.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• Use Centerline: For benders where you have manually found and marked the exact center of  bend for different angles, place your "Mark B" on your custom centerline mark.the math will adjust for this.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Create / Edit Custom Bender:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• This feature allows you to fine-tune any bender in the list. Select a bender, tap "Create / Edit," enter your own Take Up, Gain, or Radius values, and then save it as a new profile. Your custom benders will appear at the bottom of the brand list.',
-                      style: TextStyle(color: Colors.white70))
-                ]
-            )), // Correctly closed ListBody and SingleChildScrollView
-            actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close', style: TextStyle(color: kRed)))
-            ]));
-  }
-}
-
-class _KickResultGraphic extends StatelessWidget {
-  const _KickResultGraphic(
-      {required this.markA, required this.markB, required this.markC});
-
-  final String markA, markB, markC;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final width = constraints.maxWidth;
-      return Stack(
-          alignment: Alignment.topLeft, clipBehavior: Clip.none, children: [
-        Positioned(top: -60,
-            left: 0,
-            right: 0,
-            child: Image.asset(
-                'assets/conduits/emt/pipe_1.png', width: double.infinity,
-                fit: BoxFit.fill,
-                filterQuality: FilterQuality.high)),
-        Positioned(top: -40,
-            left: 0,
-            right: 0,
-            child: Image.asset(
-                'assets/conduits/emt/pipe_5_ol.png', width: double.infinity,
-                fit: BoxFit.fill,
-                filterQuality: FilterQuality.high)),
-        _downMark(width * 0.9, 105, 'A', markA),
-        _downMark(width * 0.6, 105, 'B', markB),
-        _downMark(width * 0.11, 105, 'C', markC),
-        Positioned(
-          bottom: 0, right: 16,
-          child: Row(mainAxisSize: MainAxisSize.min, children: const [
-            Text('Measure from this end', style: TextStyle(
-                color: kLight, fontWeight: FontWeight.w700, fontSize: 16)),
-            SizedBox(width: 8),
-            Icon(Icons.arrow_forward, color: kLight, size: 18),
-          ]),
-        ),
-      ]);
-    });
-  }
-
-  Widget _downMark(double x, double top, String label, String value) {
-    return Positioned(
-      left: x - 40, top: top + 10,
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(color: Colors.black.withAlpha(191),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white24)),
-          child: Text('$label: $value', style: const TextStyle(
-              color: kLight, fontWeight: FontWeight.w800)),
-        ),
-        const Icon(Icons.arrow_downward, color: Colors.white70, size: 14),
-      ]),
     );
   }
 }

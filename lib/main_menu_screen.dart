@@ -12,6 +12,7 @@ import 'package:pipe_and_wire_clean/back_to_back_90_screen.dart';
 import 'package:pipe_and_wire_clean/code_screen.dart';
 import 'package:pipe_and_wire_clean/code_sections/Load_Calculator.dart';
 import 'package:pipe_and_wire_clean/load_calculator2.dart';
+import 'package:pipe_and_wire_clean/segmented_90_plus_radius_screen.dart'; // Added import for new screen
 
 class MainMenuScreen extends StatelessWidget {
   const MainMenuScreen({super.key});
@@ -59,6 +60,7 @@ class MainMenuScreen extends StatelessWidget {
             children: [
               _buildMenuButton(context, 'Kick 90', () => const BendCalculator()),
               _buildMenuButton(context, 'Back to Back 90', () => const BackToBack90ScreenV2()),
+              _buildMenuButton(context, 'Segmented 90 + Radius', () => const Segmented90PlusRadiusScreen()), // Added new screen
               _buildMenuButton(context, 'Rack Builder', () {
                 // This screen needs its own provider, which is fine
                 return ChangeNotifierProvider(

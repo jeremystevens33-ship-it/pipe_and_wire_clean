@@ -1,11 +1,11 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'rack_builder_11.dart';
-import 'rack_state.dart';
-import 'code_screen.dart';
-import 'box_layout_mode.dart';
+import 'package:collection/collection.dart';
 import 'package:pipe_and_wire_clean/keypad_5.dart';
+import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
+import 'package:flutter/services.dart'; // Added for SystemChrome
+
+import 'code_screen.dart';
 
 
 // ===== THEME =====
@@ -14,42 +14,8 @@ const kBlack = Colors.black;
 const kLight = Colors.white;
 const kGreen = Color(0xFF4CAF50);
 
-// ===== OD tables (inches) =====
-const Map<String, double> _emtOD = {
-  '0.5': 0.706, '0.75': 0.922, '1.0': 1.163, '1.25': 1.510, '1.5': 1.740,
-  '2.0': 2.197, '2.5': 2.875, '3.0': 3.500, '3.5': 4.000, '4.0': 4.500,
-};
-const Map<String, double> _grcOD = {
-  '0.5': 0.840, '0.75': 1.050, '1.0': 1.315, '1.25': 1.660, '1.5': 1.900,
-  '2.0': 2.375, '2.5': 2.875, '3.0': 3.500, '3.5': 4.000, '4.0': 4.500,
-};
-const Map<String, String> _pipeSizes = {
-  '0.5': '1/2"', '0.75': '3/4"', '1.0': '1"', '1.25': '1 1/4"', '1.5': '1 1/2"',
-  '2.0': '2"', '2.5': '2 1/2"', '3.0': '3"', '3.5': '3 1/2"', '4.0': '4"',
-};
-// Used for the smart GRC default logic
-const List<String> _pipeSizeOrder = [
-  '0.5',
-  '0.75',
-  '1.0',
-  '1.25',
-  '1.5',
-  '2.0',
-  '2.5',
-  '3.0',
-  '3.5',
-  '4.0'
-];
 
-
-enum BendingMethod { arrow, centerline }
-enum MarkBMethod { pushThrough, reverseBender }
-enum ConduitType { emt, imc, rigid, pvc }
-
-double calculateGain90(double clr, double od) {
-  const double gainConstant = 2 - (math.pi / 2); // Approx. 0.4292
-  return (gainConstant * clr) + od;
-}
+enum BoxLayoutConduitType { emt, grc } // Local enum for UI selection
 
 
 class BackToBack90ScreenV2 extends StatefulWidget {
@@ -67,78 +33,74 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   bool _isResultsExpanded = false;
   bool _isCalculateReady = false;
 
-  // Bender & Conduit State (Live Selections)
+  // Bender & Conduit State
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
   String? _selectedBrand;
-  List<Map<String, String>> _brands = [];
-  MarkBMethod _selectedMarkBMethod = MarkBMethod.pushThrough;
-
-  // === VVV NEW VVV: Finalized (Locked-in) Bender & Conduit State ===
-  String? _finalizedPipeSize;
-  String? _finalizedBrand;
-  double _finalizedTakeUp = 0.0;
-  double _finalizedGain = 0.0;
-
-  // === ^^^ NEW ^^^ ===
-
+  final List<Map<String, String>> _brands = [
+      {'type': 'header', 'name': 'HAND BENDERS'},
+      {'type': 'bender', 'name': 'IDEAL'},
+      {'type': 'bender', 'name': 'Klein'},
+      {'type': 'bender', 'name': 'Gardner Bender'},
+      {'type': 'bender', 'name': 'Milwaukee'},
+      {'type': 'header', 'name': 'MECHANICAL / ELECTRIC'},
+      {'type': 'bender', 'name': 'Greenlee 1818'},
+      {'type': 'bender', 'name': 'Greenlee 555'},
+    ];
+  bending_data.BendingMethod _bendingMethod = bending_data.BendingMethod.arrow; // Uses BendingMethod from bending_data.dart
 
   // --- NEW: Custom Bender State ---
   bool _isEditMode = false;
-  final List<Bender> _customBenders = [];
+  final List<bending_data.Bender> _customBenders = []; // Uses Bender from bending_data.dart
   List<Map<String, String>> _allBrands = []; // Combined list for dropdown
 
   // Controllers
   final stub1Ctrl = TextEditingController();
   final stub2Ctrl = TextEditingController();
   final backToBackDistanceCtrl = TextEditingController();
+  final travelCtrl = TextEditingController(); // Added travel controller
   final takeUpCtrl = TextEditingController();
   final gainCtrl = TextEditingController();
   final radiusCtrl = TextEditingController();
   final setbackCtrl = TextEditingController();
 
+
   // Output variables
   String markAOut = '';
   String markBOut = '';
   String markCOut = '';
-  String markBMethodAOut = '';
-  String markBMethodBOut = '';
 
 
   // Raw values
   double _rawMarkA = 0.0;
-  double _rawMarkBMethodA = 0.0;
-  double _rawMarkBMethodB = 0.0;
+  double _rawMarkB = 0.0;
   double _rawCut = 0.0;
   double _rawTakeUp = 0.0;
   double _rawGain = 0.0;
+
 
   // Keypad State
   bool _isKeypadVisible = false;
   TextEditingController? _activeController;
 
+  // Conditional Travel Field Visibility
+  bool _showTravelField = false;
+
+
   @override
   void initState() {
     super.initState();
-    _brands = [
-      {'type': 'header', 'name': 'HAND BENDERS'},
-      {'type': 'bender', 'name': 'IDEAL'},
-      {'type': 'bender', 'name': 'KLEIN'},
-      {'type': 'bender', 'name': 'GARDNER BENDER'},
-      {'type': 'bender', 'name': 'GREENLEE'},
-      {'type': 'bender', 'name': 'MILWAUKEE'},
-      {'type': 'header', 'name': 'MECHANICAL / ELECTRIC / HYDRAULIC'},
-      {'type': 'bender', 'name': 'GREENLEE 1818'},
-      {'type': 'bender', 'name': 'GREENLEE 555'},
-      {'type': 'bender', 'name': 'GREENLEE 881'},
-      {'type': 'bender', 'name': 'GREENLEE 884/885'},
-    ];
     _updateBrandDropdown();
+
 
     final allInputCtrls = [
       stub1Ctrl,
       stub2Ctrl,
       backToBackDistanceCtrl,
+      travelCtrl, // Added travel controller
+      takeUpCtrl,
+      gainCtrl,
+      radiusCtrl
     ];
     for (var ctrl in allInputCtrls) {
       ctrl.addListener(_updateCalculateButtonState);
@@ -153,12 +115,15 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       stub1Ctrl,
       stub2Ctrl,
       backToBackDistanceCtrl,
+      travelCtrl, // Disposed travel controller
       takeUpCtrl,
       gainCtrl,
       radiusCtrl,
       setbackCtrl
     ];
     for (var ctrl in allCtrls) {
+      ctrl.removeListener(_updateCalculateButtonState);
+      ctrl.removeListener(_updateSetback);
       ctrl.dispose();
     }
     super.dispose();
@@ -171,7 +136,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
         if (_customBenders.isNotEmpty)
           {'type': 'header', 'name': '--- MY BENDERS ---'},
         ..._customBenders.map((b) =>
-        {'type': 'bender', 'name': b.displayName ?? 'Unnamed Bender'})
+        {'type': 'bender', 'name': b.brand})
       ];
     });
   }
@@ -180,8 +145,8 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     final bool isReady = stub1Ctrl.text.isNotEmpty &&
         stub2Ctrl.text.isNotEmpty &&
         backToBackDistanceCtrl.text.isNotEmpty &&
-        _finalizedPipeSize != null &&
-        _finalizedBrand != null;
+        _selectedPipeSize != null &&
+        _selectedBrand != null;
     if (isReady != _isCalculateReady) {
       setState(() {
         _isCalculateReady = isReady;
@@ -202,89 +167,61 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   void _updateBenderData() {
     if (_selectedBrand == null || _selectedPipeSize == null) {
       setState(() {
+        travelCtrl.text = ''; // Clear travel
         takeUpCtrl.text = '';
         gainCtrl.text = '';
         setbackCtrl.text = '';
         radiusCtrl.text = '';
+        _showTravelField = false; // Hide travel field
       });
       return;
     }
 
-    Bender? bender;
-    try {
-      bender =
-          _customBenders.firstWhere((b) => b.displayName == _selectedBrand);
-    } catch (e) {
-      bender = null;
-    }
+    // Try to find a custom bender first
+    bending_data.Bender? bender = _customBenders.firstWhereOrNull(
+            (b) => b.model == _selectedBrand && b.conduitSize == _selectedPipeSize &&
+            (b.conduitType == (
+            _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
+            bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
+            )
+            )
+    );
 
-    if (bender == null) {
-      ConduitType conduitType;
-      String pipeSize = _selectedPipeSize!;
-
-      switch (_selectedConduitType) {
-        case BoxLayoutConduitType.emt:
-          conduitType = ConduitType.emt;
-          break;
-        case BoxLayoutConduitType.grc:
-        case BoxLayoutConduitType.pvc:
-          conduitType = _selectedConduitType == BoxLayoutConduitType.grc
-              ? ConduitType.rigid
-              : ConduitType.pvc;
-          final handBenders = ['IDEAL', 'KLEIN', 'GARDNER BENDER', 'GREENLEE', 'MILWAUKEE'];
-          if (handBenders.contains(_selectedBrand)) {
-            final currentIndex = _pipeSizeOrder.indexOf(_selectedPipeSize!);
-            if (currentIndex != -1 &&
-                currentIndex + 1 < _pipeSizeOrder.length) {
-              pipeSize = _pipeSizeOrder[currentIndex + 1];
-              conduitType = ConduitType.emt;
-            }
-          }
-          break;
-      }
-
-      try {
-        final brandForLookup = _selectedBrand!.toUpperCase().replaceAllMapped(
-            RegExp(r' (\d)'), (match) => match.group(1)!);
-        bender = benderDatabase.firstWhere((b) =>
-        b.brand.toUpperCase() == brandForLookup &&
-            b.conduitSize == pipeSize &&
-            b.conduitType == conduitType);
-      } catch (e) {
-        try {
-          if (_selectedBrand == 'GREENLEE 881') {
-            bender = benderDatabase.firstWhere((b) =>
-            b.brand.toUpperCase() == 'GREENLEE 881' &&
-                b.conduitSize == pipeSize);
-          } else {
-            bender = null;
-          }
-        } catch (e) {
-          bender = null;
-        }
-      }
-    }
+    // If not found in custom benders, search the main benderDatabase (from bending_data.dart)
+    bender ??= bending_data.benderDatabase.firstWhereOrNull(
+            (b) => b.brand == _selectedBrand && b.conduitSize == _selectedPipeSize &&
+            (b.conduitType == (
+            _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
+            bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
+            )
+            )
+    );
 
     double calculatedGain = 0.0;
+    double calculatedTravel = 0.0; // Declare calculatedTravel
     if (bender != null) {
       final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
-          ? _emtOD[_selectedPipeSize]
-          : _grcOD[_selectedPipeSize]) ?? 0.0;
+          ? bending_data.emtOD[_selectedPipeSize] // Uses emtOD from bending_data.dart
+          : bending_data.grcOD[_selectedPipeSize]) ?? 0.0; // Uses grcOD from bending_data.dart
 
       if (bender.clr > 0 && pipeOD > 0) {
-        calculatedGain = calculateGain90(bender.clr, pipeOD);
+        calculatedGain = bending_data.calculateGain90(bender.clr, pipeOD); // Uses calculateGain90 from bending_data.dart
       }
+      calculatedTravel = (math.pi * bender.clr) / 2; // Calculate 90° Travel
     }
 
     setState(() {
       _rawTakeUp = bender?.deduct ?? 0.0;
       _rawGain = calculatedGain;
 
+      travelCtrl.text = bender != null ? fmtInches(calculatedTravel) : ''; // Display 90° Travel
       takeUpCtrl.text = bender != null ? fmtInches(bender.deduct) : '';
       gainCtrl.text = bender != null
           ? fmtInches(calculatedGain)
           : '';
       radiusCtrl.text = bender != null ? fmtInches(bender.clr) : '';
+
+      _showTravelField = bending_data.mechanicalElectricBenderBrands.contains(bender?.brand ?? '');
 
       _updateSetback();
       if (_isEditMode) {
@@ -316,6 +253,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       stub2Ctrl.clear();
       backToBackDistanceCtrl.clear();
 
+      travelCtrl.clear(); // Clear travel
       takeUpCtrl.clear();
       gainCtrl.clear();
       radiusCtrl.clear();
@@ -324,23 +262,22 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       _selectedBrand = null;
       _selectedPipeSize = null;
       _selectedConduitType = BoxLayoutConduitType.emt;
-      _selectedMarkBMethod = MarkBMethod.pushThrough;
+      _bendingMethod = bending_data.BendingMethod.arrow;
 
-      _finalizedBrand = null;
-      _finalizedPipeSize = null;
-      _finalizedTakeUp = 0.0;
-      _finalizedGain = 0.0;
 
       markAOut = '';
       markBOut = '';
       markCOut = '';
       _rawMarkA = 0.0;
+      _rawMarkB = 0.0;
       _rawCut = 0.0;
+
 
       _isCalculateReady = false;
       _isResultsExpanded = false;
       _isEditMode = false;
       _resetToStep(0);
+      _showTravelField = false;
     });
   }
 
@@ -405,30 +342,72 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     }
   }
 
+  Map<String, String> _getFilteredPipeSizes() {
+    if (_selectedBrand == null) {
+      return bending_data.pipeSizes; // Uses pipeSizes from bending_data.dart
+    }
+
+    final List<String> availableSizes = [];
+    switch (_selectedBrand) {
+      case 'IDEAL':
+      case 'Klein':
+      case 'Gardner Bender':
+        // Hand benders usually go up to 1.25"
+        final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.25'); // Uses pipeSizeOrder from bending_data.dart
+        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
+        break;
+      case 'Milwaukee':
+        // Milwaukee hand benders usually go up to 1"
+        final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.0');
+        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
+        break;
+      case 'Greenlee 1818':
+      case 'Greenlee 555':
+        // Mechanical/Electric benders go up to 2"
+        final int maxIndex = bending_data.pipeSizeOrder.indexOf('2.0');
+        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
+        break;
+      default:
+        // For custom benders or others, show all sizes
+        availableSizes.addAll(bending_data.pipeSizeOrder);
+        break;
+    }
+
+    return Map.fromEntries(
+      bending_data.pipeSizes.entries.where((entry) => availableSizes.contains(entry.key)),
+    );
+  }
+
   void calculate() {
     if (!_isCalculateReady) return;
 
     final s1 = _parseInches(stub1Ctrl.text);
     final s2 = _parseInches(stub2Ctrl.text);
     final d = _parseInches(backToBackDistanceCtrl.text);
-    final t = _finalizedTakeUp;
-    final g = _finalizedGain;
+    final t = _rawTakeUp; // Use _rawTakeUp populated by _updateBenderData
+    final g = _rawGain; // Use _rawGain populated by _updateBenderData
 
     if (s1 == 0 || s2 == 0 || d == 0 || t == 0 || g == 0) return;
 
     final cutLength = (s1 + d + s2) - (2 * g);
     final markA = s1 - t;
-    final markBMethodA = markA + (d - g);
-    final markBMethodB = cutLength - (s2 - t);
+
+    // For Back to Back 90, we need a single Mark B logic, consistent with kick_90's approach to the second bend if it were a kick.
+    // However, the original Back to Back 90 calculation is simpler for Mark B:
+    // Mark B = Mark A + (Center to Center Distance of the 90s)
+    // Here, we have Stub 1, Stub 2, and Back to Back Distance (d).
+    // The center-to-center for the 90s is effectively d.
+    final markB = markA + d; // Simplified for back to back from the first bend's reference
 
     _rawCut = cutLength;
     _rawMarkA = markA;
-    _rawMarkBMethodA = markBMethodA;
-    _rawMarkBMethodB = markBMethodB;
+    _rawMarkB = markB;
 
-    _updateResultDisplay();
 
     setState(() {
+      markAOut = fmtInches(_rawMarkA);
+      markBOut = fmtInches(_rawMarkB);
+      markCOut = fmtInches(_rawCut);
       _currentStep = 3;
       _isResultsExpanded = true;
       _isMeasurementsExpanded = false;
@@ -436,15 +415,6 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     });
   }
 
-  void _updateResultDisplay() {
-    setState(() {
-      markAOut = fmtInches(_rawMarkA);
-      markCOut = fmtInches(_rawCut);
-      markBOut = _selectedMarkBMethod == MarkBMethod.pushThrough
-          ? fmtInches(_rawMarkBMethodA)
-          : fmtInches(_rawMarkBMethodB);
-    });
-  }
 
   void _advanceKeypadFocus() {
     if (_activeController == stub1Ctrl) {
@@ -454,7 +424,13 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       return _showKeypad(backToBackDistanceCtrl);
     }
     if (_activeController == backToBackDistanceCtrl) {
-      return _hideKeypad();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_isCalculateReady) {
+          calculate();
+        }
+        _hideKeypad();
+      });
+      return;
     }
     _hideKeypad();
   }
@@ -473,16 +449,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
         final decimalValue = _parseInches(controller.text);
         controller.text = fmtInches(decimalValue);
       }
-      if (_activeController == backToBackDistanceCtrl) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_isCalculateReady) {
-            calculate();
-          }
-          _hideKeypad();
-        });
-      } else {
-        _advanceKeypadFocus();
-      }
+      _advanceKeypadFocus(); // Advance focus after '✔'
     } else {
       if (value.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
         final lastChar = text.characters.last;
@@ -493,6 +460,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       controller.text += value;
     }
   }
+
 
   void _showKeypad(TextEditingController controller) {
     if (controller.text.isNotEmpty) {
@@ -522,6 +490,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       if (!_isEditMode) {
         _hideKeypad();
       } else {
+        if (travelCtrl.text.isEmpty) travelCtrl.text = '0"'; // Custom travel can be edited
         if (takeUpCtrl.text.isEmpty) takeUpCtrl.text = '0"';
         if (gainCtrl.text.isEmpty) gainCtrl.text = '0"';
         if (radiusCtrl.text.isEmpty) radiusCtrl.text = '0"';
@@ -555,21 +524,22 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     );
 
     if (name != null && name.isNotEmpty) {
-      final newBender = Bender(
+      final newBender = bending_data.Bender(
         brand: name,
-        displayName: name,
+        model: name, // Use name for model as well for custom benders
         conduitSize: _selectedPipeSize ?? 'N/A',
         conduitType: _selectedConduitType == BoxLayoutConduitType.emt
-            ? ConduitType.emt
-            : ConduitType.rigid,
+            ? bending_data.ConduitType.emt
+            : bending_data.ConduitType.rigid, // Only EMT or GRC (Rigid) allowed
         clr: _parseInches(radiusCtrl.text),
         deduct: _parseInches(takeUpCtrl.text),
         gain: _parseInches(gainCtrl.text),
       );
+
       setState(() {
         _customBenders.add(newBender);
         _updateBrandDropdown();
-        _selectedBrand = newBender.displayName;
+        _selectedBrand = newBender.model;
         _isEditMode = false;
       });
       _hideKeypad();
@@ -596,28 +566,34 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
           ),
         ],
       ),
-      body: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: kRed.withAlpha(178), width: 2),
-        ),
-        clipBehavior: Clip.none,
-        margin: const EdgeInsets.all(10), // Set margin once here
-        child: Padding(
-          padding: const EdgeInsets.all(8.0), // Consistent internal padding
+      body: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: kRed.withAlpha(178), width: 2),
+          ),
+          clipBehavior: Clip.none,
           child: Column(
             children: [
               Expanded(
                 child: ListView(
+                  padding: const EdgeInsets.all(8),
                   children: [
                     _buildBenderSection(),
                     _buildMeasurementsSection(),
                     _buildCalculateSection(),
-                    if (_isResultsExpanded) _buildResultsSection(),
+                    _buildResultsSection(),
                   ],
                 ),
               ),
-              if (!_isResultsExpanded && !_isKeypadVisible)
+              if (markAOut.isNotEmpty && !_isKeypadVisible)
+                SizedBox(
+                  height: 220,
+                  child: _BackToBackResultGraphic(
+                      markA: markAOut, markB: markBOut, markC: markCOut),
+                )
+              else if (!_isKeypadVisible)
                 _buildInfoBar(),
               if (_isKeypadVisible)
                 NumericInputKeypad(onTap: _onKeypadTap),
@@ -640,7 +616,22 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
             onTap: () => _resetToStep(0),
           ),
           if (_isBenderExpanded)
-            _buildBenderSetupFields(),
+            Column(
+              children: [
+                _buildBenderSetupFields(),
+                const SizedBox(height: 12),
+                _buildSilverButton(
+                  label: 'Done', height: 40,
+                  onTap: () {
+                    setState(() {
+                      _isBenderExpanded = false;
+                      _currentStep = 1;
+                      _isMeasurementsExpanded = true;
+                    });
+                  },
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -692,84 +683,41 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   }
 
   Widget _buildResultsSection() {
+    bool isEnabled = _currentStep >= 3;
     return _buildGroupContainer(
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _buildSilverButton(
             label: '4. RESULTS',
             fontSize: 18,
             height: 50,
             isActive: _currentStep == 3,
-            onTap: null, // Always visible when in results step
+            onTap: isEnabled ? () =>
+                setState(() => _isResultsExpanded = !_isResultsExpanded) : null,
           ),
-          const SizedBox(height: 6),
-          _buildMethodSelector(),
-          const SizedBox(height: 12.0),
-          const Center(
-            child: Text(
-              'All bends use arrow.',
-              style: TextStyle(
-                  color: kLight, fontStyle: FontStyle.italic, fontSize: 16.8),
+          if (_isResultsExpanded)
+            Padding(
+              padding: const EdgeInsets.only(top: 18.0, bottom: 12.0),
+              child: Column(
+                children: [
+                  _resultRow('Mark A — First Bend', markAOut),
+                  _resultRow('Mark B — Second Bend', markBOut),
+                  _resultRow('Mark C — Cut Length', markCOut),
+                  const SizedBox(height: 15),
+                  _buildSilverButton(label: 'Start New Bend',
+                      height: 40,
+                      onTap: _startNewBend),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12.0),
-          _resultRow('Mark A — First Bend', markAOut),
-          _resultRow('Mark B — Second Bend', markBOut),
-          _resultRow('Mark C — Cut Length', markCOut),
-          const SizedBox(height: 135),
-          SizedBox(
-            height: 120,
-            child: _BackToBackResultGraphic(
-                markA: markAOut, markB: markBOut, markC: markCOut),
-          ),
-          const SizedBox(height: 12.0),
-          _buildSilverButton(
-              label: 'Start New Bend', height: 40, onTap: _startNewBend),
         ],
       ),
     );
   }
 
-
-  Widget _buildMethodSelector() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildSilverButton(
-            label: 'Push Through',
-            height: 40,
-            isActive: _selectedMarkBMethod == MarkBMethod.pushThrough,
-            onTap: () {
-              setState(() {
-                _selectedMarkBMethod = MarkBMethod.pushThrough;
-                _updateResultDisplay();
-              });
-            },
-          ),
-        ),
-        const SizedBox(width: 5),
-        Expanded(
-          child: _buildSilverButton(
-            label: 'Reverse Bender',
-            height: 40,
-            isActive: _selectedMarkBMethod == MarkBMethod.reverseBender,
-            onTap: () {
-              setState(() {
-                _selectedMarkBMethod = MarkBMethod.reverseBender;
-                _updateResultDisplay();
-              });
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-
   Widget _resultRow(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -784,15 +732,19 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
   Widget _buildBenderSetupFields() {
     return Padding(
-      padding: const EdgeInsets.only(top: 8.0),
+      padding: const EdgeInsets.only(top: 12.0),
       child: Column(
         children: [
           _buildBrandSelector(),
-          const SizedBox(height: 5),
+          const SizedBox(height: 12),
           _buildConduitTypeSelector(),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           _buildPipeSizeSelector(),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          _buildBendingMethodSelector(),
+          const SizedBox(height: 12),
+          if (_showTravelField) // Conditionally display the travel field
+            _inlineField('90° Travel', travelCtrl),
           _inlineField('Take Up', takeUpCtrl,
               onTap: _isEditMode ? () => _showKeypad(takeUpCtrl) : null),
           _inlineField('Gain90', gainCtrl,
@@ -801,45 +753,13 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
           _inlineField('Radius / CLR', radiusCtrl,
               onTap: _isEditMode ? () => _showKeypad(radiusCtrl) : null),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: _buildSilverButton(
-              label: _isEditMode
-                  ? 'Save Custom Bender'
-                  : 'Create / Edit Custom Bender',
-              height: 40,
-              isActive: _isEditMode,
-              onTap: _isEditMode ? _saveCustomBender : _toggleEditMode,
-            ),
-          ),
-          const SizedBox(height: 5),
-          SizedBox(
-            width: double.infinity,
-            child: _buildSilverButton(
-              label: 'Done', height: 40,
-              onTap: () {
-                if (_selectedBrand == null || _selectedPipeSize == null) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                          'Please select a bender and pipe size.'),
-                      backgroundColor: kRed,
-                    ),
-                  );
-                  return;
-                }
-                setState(() {
-                  _finalizedBrand = _selectedBrand;
-                  _finalizedPipeSize = _selectedPipeSize;
-                  _finalizedTakeUp = _rawTakeUp;
-                  _finalizedGain = _rawGain;
-
-                  _isBenderExpanded = false;
-                  _currentStep = 1;
-                  _isMeasurementsExpanded = true;
-                });
-              },
-            ),
+          _buildSilverButton(
+            label: _isEditMode
+                ? 'Save Custom Bender'
+                : 'Create / Edit Custom Bender',
+            height: 40,
+            isActive: _isEditMode,
+            onTap: _isEditMode ? _saveCustomBender : _toggleEditMode,
           ),
         ],
       ),
@@ -856,22 +776,31 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
               setState(() => _selectedConduitType = BoxLayoutConduitType.emt);
               _updateBenderData();
             })),
-        const SizedBox(width: 5),
-        Expanded(child: _buildSilverButton(label: 'GRC',
+        const SizedBox(width: 10),
+        Expanded(child: _buildSilverButton(label: 'Rigid',
             height: 40,
             isActive: _selectedConduitType == BoxLayoutConduitType.grc,
             onTap: () {
               setState(() => _selectedConduitType = BoxLayoutConduitType.grc);
               _updateBenderData();
             })),
-        const SizedBox(width: 5),
-        Expanded(child: _buildSilverButton(label: 'PVC Coated',
+      ],
+    );
+  }
+
+  Widget _buildBendingMethodSelector() {
+    return Row(
+      children: [
+        Expanded(child: _buildSilverButton(label: 'Use Arrow Mark',
             height: 40,
-            isActive: _selectedConduitType == BoxLayoutConduitType.pvc,
-            onTap: () {
-              setState(() => _selectedConduitType = BoxLayoutConduitType.pvc);
-              _updateBenderData();
-            })),
+            isActive: _bendingMethod == bending_data.BendingMethod.arrow,
+            onTap: () => setState(() => _bendingMethod = bending_data.BendingMethod.arrow))),
+        const SizedBox(width: 10),
+        Expanded(child: _buildSilverButton(label: 'Use Centerline',
+            height: 40,
+            isActive: _bendingMethod == bending_data.BendingMethod.centerline,
+            onTap: () =>
+                setState(() => _bendingMethod = bending_data.BendingMethod.centerline))),
       ],
     );
   }
@@ -880,61 +809,48 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     return Container(
       height: 48,
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4),
-      decoration: BoxDecoration(
-          color: kBlack.withAlpha(128),
+      decoration: BoxDecoration(color: kBlack.withAlpha(128),
           borderRadius: BorderRadius.circular(4),
           border: Border.all(color: Colors.white54)),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: _selectedBrand,
           isExpanded: true,
-          hint: const Text('Select Bender Brand',
-              style: TextStyle(color: Colors.white70)),
+          hint: const Text(
+              'Select Bender Brand', style: TextStyle(color: Colors.white70)),
           dropdownColor: const Color(0xFF333333),
           style: const TextStyle(color: kLight, fontSize: 18),
-          items: _allBrands.expand((brandData) {
+          items: _allBrands.map((brandData) {
             final type = brandData['type']!;
             final name = brandData['name']!;
 
             if (type == 'header') {
-              return [
-                DropdownMenuItem<String>(
-                  enabled: false,
-                  child: Container(
-                    padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                              color: kLight,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16),
-                        ),
-                        const Divider(color: Colors.white54, height: 4),
-                      ],
+              return DropdownMenuItem<String>(
+                value: 'header_$name',
+                enabled: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                            color: kLight, fontWeight: FontWeight.bold),
+                      ),
                     ),
-                  ),
+                    const Divider(color: Colors.white54, height: 1),
+                  ],
                 ),
-              ];
+              );
             }
-            return [
-              DropdownMenuItem<String>(
-                value: name,
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 8.0),
-                  child: Text(name),
-                ),
-              ),
-            ];
+            return DropdownMenuItem<String>(
+              value: name,
+              child: Text(name),
+            );
           }).toList(),
           onChanged: (newValue) {
-            if (newValue == null) return;
-            // This check prevents setting state for a header
-            if (_allBrands
-                .firstWhere((b) => b['name'] == newValue)['type'] ==
-                'bender') {
+            if (newValue != null && !newValue.startsWith('header_')) {
               setState(() => _selectedBrand = newValue);
               _updateBenderData();
             }
@@ -959,9 +875,9 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
               'Select Pipe Size', style: TextStyle(color: Colors.white70)),
           dropdownColor: const Color(0xFF333333),
           style: const TextStyle(color: kLight, fontSize: 18),
-          items: _pipeSizes.keys.map((String value) {
+          items: _getFilteredPipeSizes().keys.map((String value) {
             return DropdownMenuItem<String>(
-                value: value, child: Text(_pipeSizes[value]!));
+                value: value, child: Text(bending_data.pipeSizes[value]!));
           }).toList(),
           onChanged: (newValue) {
             setState(() => _selectedPipeSize = newValue);
@@ -972,24 +888,71 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     );
   }
 
+  void _showHelpDialog(BuildContext context) {
+    showDialog(context: context, builder: (context) =>
+        AlertDialog(backgroundColor: const Color(0xFF212121),
+            title: const Text('Back to Back 90 Help', style: TextStyle(color: kLight)),
+            content: const SingleChildScrollView(child: ListBody(
+                children: <Widget>[
+                  Text('Follow the steps in order for best results:',
+                      style: TextStyle(color: kLight,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16)),
+                  SizedBox(height: 10),
+                  Text(
+                      '1. Bender & Conduit: First, select your bender brand, conduit type (EMT, GRC, etc.), and pipe size. This loads the correct data for the calculation.',
+                      style: TextStyle(color: Colors.white70)),
+                  SizedBox(height: 15),
+                  Text('Gain vs. Take-Up:', style: TextStyle(
+                      color: kLight,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+                  SizedBox(height: 10),
+                  Text(
+                      '• GAIN is used only to determine the CUT LENGTH of the pipe. It ensures the final distance between bends is correct.',
+                      style: TextStyle(color: Colors.white70)),
+                  SizedBox(height: 10),
+                  Text(
+                      '• TAKE-UP is used only to determine WHERE TO MARK the pipe for bending.',
+                      style: TextStyle(color: Colors.white70)),
+                  SizedBox(height: 15),
+                  Text('Bending Methods Explained:', style: TextStyle(
+                      color: kLight,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16)),
+                  SizedBox(height: 10),
+                  Text(
+                      'This app provides two valid methods for marking your second bend. Both produce the same final result, so choose the one you are most comfortable with.',
+                      style: TextStyle(color: Colors.white70)),
+                ])),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Close', style: TextStyle(color: kRed)))
+            ]));
+  }
+
   Widget _buildInfoBar() {
     String infoText = "Step 1: Select your bender, conduit, and pipe size.";
     if (_currentStep == 1) {
       infoText = "Step 2: Enter the measurements for your bend.";
     } else if (_currentStep == 2) {
       infoText =
-      "Step 3: All measurements entered. Press 'CALCULATE' to see the results.";
+      "Step 3: All measurements entered. Press 'CALCULATE' to see results.";
     } else if (_currentStep == 3) {
       infoText = "Calculation complete. See results above.";
     }
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: kBlack.withAlpha(128),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5)),
-      child: Center(child: Text(infoText, textAlign: TextAlign.center,
-          style: const TextStyle(color: kLight, fontSize: 18))),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      child: Container(
+        height: 120,
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: kBlack.withAlpha(128),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5)),
+        child: Center(child: Text(infoText, textAlign: TextAlign.center,
+            style: const TextStyle(color: kLight, fontSize: 18))),
+      ),
     );
   }
 
@@ -1093,75 +1056,9 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       ),
     );
   }
-
-  void _showHelpDialog(BuildContext context) {
-    showDialog(context: context, builder: (context) =>
-        AlertDialog(backgroundColor: const Color(0xFF212121),
-            title: const Text(
-                'Back to Back 90 Help', style: TextStyle(color: kLight)),
-            content: const SingleChildScrollView(child: ListBody(
-                children: <Widget>[
-                  Text('Follow the steps in order for best results:',
-                      style: TextStyle(color: kLight,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '1. Bender & Conduit: First, select your bender brand, conduit type (EMT, GRC, etc.), and pipe size. This loads the correct data for the calculation.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Gain vs. Take-Up:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• GAIN is used only to determine the CUT LENGTH of the pipe. It ensures the final distance between bends is correct.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• TAKE-UP is used only to determine WHERE TO MARK the pipe for bending.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Bending Methods Explained:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      'This app provides two valid methods for marking your second bend. Both produce the same final result, so choose the one you are most comfortable with.',
-                      style: TextStyle(color: Colors.white70)),
-                ])),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close', style: TextStyle(color: kRed)))
-            ]));
-  }
 }
 
-class Bender {
-  const Bender({
-    required this.brand,
-    this.model,
-    this.displayName,
-    required this.conduitSize,
-    required this.conduitType,
-    required this.clr,
-    required this.deduct,
-    required this.gain,
-  });
 
-  final String brand;
-  final String? model;
-  final String? displayName;
-  final String conduitSize;
-  final ConduitType conduitType;
-  final double clr;
-  final double deduct;
-  final double gain;
-}
-
-// COPIED FROM kick_90.dart and RENAMED
 class _BackToBackResultGraphic extends StatelessWidget {
   const _BackToBackResultGraphic(
       {required this.markA, required this.markB, required this.markC});
@@ -1210,406 +1107,6 @@ class _BackToBackResultGraphic extends StatelessWidget {
         ),
         const Icon(Icons.arrow_downward, color: Colors.white70, size: 14),
       ]),
-    );
-  }
-}
-
-
-final List<Bender> benderDatabase = [
-  const Bender(brand: 'IDEAL',
-      model: '74-031',
-      conduitSize: '0.5',
-      conduitType: ConduitType.emt,
-      clr: 4.34,
-      deduct: 5.0,
-      gain: 1.86), // Math Gain: 2.564
-  const Bender(brand: 'IDEAL',
-      model: '74-032',
-      conduitSize: '0.75',
-      conduitType: ConduitType.emt,
-      clr: 5.0,
-      deduct: 6.0,
-      gain: 2.15), // Math Gain: 3.068
-  const Bender(brand: 'IDEAL',
-      model: '74-033',
-      conduitSize: '1.0',
-      conduitType: ConduitType.emt,
-      clr: 6.5,
-      deduct: 8.0,
-      gain: 2.79), // Math Gain: 3.953
-  const Bender(brand: 'IDEAL',
-      model: '74-036',
-      conduitSize: '1.25',
-      conduitType: ConduitType.emt,
-      clr: 9.75,
-      deduct: 11.0,
-      gain: 4.18), // Math Gain: 5.700
-  const Bender(brand: 'Klein',
-      conduitSize: '0.5',
-      conduitType: ConduitType.emt,
-      clr: 4.625,
-      // 4-5/8",
-      deduct: 5.0,
-      gain: 2.691), // Math Gain: 2.637
-  const Bender(brand: 'Klein',
-      conduitSize: '0.75',
-      conduitType: ConduitType.emt,
-      clr: 6.0,
-      deduct: 6.0,
-      gain: 2.58), // Math Gain: 3.497
-  const Bender(brand: 'Klein',
-      conduitSize: '1.0',
-      conduitType: ConduitType.emt,
-      clr: 7.0,
-      deduct: 8.0,
-      gain: 3.0), // Math Gain: 4.167
-  const Bender(brand: 'Klein',
-      model: '56211',
-      conduitSize: '1.25',
-      conduitType: ConduitType.emt,
-      clr: 9.75,
-      deduct: 11.0,
-      gain: 4.18), // Math Gain: 5.700
-  const Bender(brand: 'Gardner Bender',
-      model: '960 Big Ben',
-      conduitSize: '0.5',
-      conduitType: ConduitType.emt,
-      clr: 4.18,
-      deduct: 4.5,
-      gain: 2.5), // Math Gain: 2.290
-  const Bender(brand: 'Gardner Bender',
-      conduitSize: '0.75',
-      conduitType: ConduitType.emt,
-      clr: 4.74,
-      deduct: 6.0,
-      gain: 2.03), // Math Gain: 2.956
-  const Bender(brand: 'Gardner Bender',
-      conduitSize: '1.0',
-      conduitType: ConduitType.emt,
-      clr: 5.81,
-      deduct: 8.0,
-      gain: 2.49), // Math Gain: 3.663
-  const Bender(brand: 'Gardner Bender',
-      conduitSize: '1.25',
-      conduitType: ConduitType.emt,
-      clr: 9.75,
-      deduct: 12.0,
-      gain: 4.18), // Math Gain: 5.700
-  const Bender(brand: 'Milwaukee',
-      conduitSize: '0.5',
-      conduitType: ConduitType.emt,
-      clr: 4.94,
-      deduct: 5.0,
-      gain: 2.75), // Math Gain: 2.852
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '0.5',
-      conduitType: ConduitType.emt,
-      deduct: 7.25,
-      clr: 4.25,
-      gain: 1.82), // Math Gain: 2.528
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '0.5',
-      conduitType: ConduitType.rigid,
-      deduct: 8.0,
-      clr: 4.375,
-      gain: 1.88), // Math Gain: 2.718
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '0.5',
-      conduitType: ConduitType.pvc,
-      deduct: 8.5,
-      clr: 4.5,
-      gain: 1.93), // Math Gain: 2.771
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '0.75',
-      conduitType: ConduitType.emt,
-      deduct: 9.0,
-      clr: 5.375,
-      gain: 2.31), // Math Gain: 3.226
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '0.75',
-      conduitType: ConduitType.rigid,
-      deduct: 8.5,
-      clr: 4.5,
-      gain: 1.93), // Math Gain: 2.981
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '0.75',
-      conduitType: ConduitType.pvc,
-      deduct: 10.0,
-      clr: 5.4375,
-      gain: 2.33), // Math Gain: 3.390
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.0',
-      conduitType: ConduitType.emt,
-      deduct: 11.25,
-      clr: 6.75,
-      gain: 2.9), // Math Gain: 4.065
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.0',
-      conduitType: ConduitType.rigid,
-      deduct: 10.5,
-      clr: 5.75,
-      gain: 2.47), // Math Gain: 3.783
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.0',
-      conduitType: ConduitType.pvc,
-      deduct: 12.625,
-      clr: 6.9375,
-      gain: 2.98), // Math Gain: 4.298
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.25',
-      conduitType: ConduitType.emt,
-      deduct: 14.25,
-      clr: 8.75,
-      gain: 3.75), // Math Gain: 5.263
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.25',
-      conduitType: ConduitType.rigid,
-      deduct: 13.0,
-      clr: 7.25,
-      gain: 3.11), // Math Gain: 4.768
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.25',
-      conduitType: ConduitType.pvc,
-      deduct: 15.625,
-      clr: 8.75,
-      gain: 3.75), // Math Gain: 5.420
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.5',
-      conduitType: ConduitType.emt,
-      deduct: 14.25,
-      clr: 8.28125,
-      gain: 3.56), // Math Gain: 5.290
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.5',
-      conduitType: ConduitType.rigid,
-      deduct: 15.0,
-      clr: 8.25,
-      gain: 3.54), // Math Gain: 5.441
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '1.5',
-      conduitType: ConduitType.pvc,
-      deduct: 15.375,
-      clr: 8.25,
-      gain: 3.54), // Math Gain: 5.441
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '2.0',
-      conduitType: ConduitType.emt,
-      deduct: 16.0,
-      clr: 9.1875,
-      gain: 3.94), // Math Gain: 6.146
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '2.0',
-      conduitType: ConduitType.rigid,
-      deduct: 16.25,
-      clr: 9.5,
-      gain: 4.08), // Math Gain: 6.452
-  const Bender(brand: 'Greenlee 555',
-      conduitSize: '2.0',
-      conduitType: ConduitType.pvc,
-      deduct: 16.75,
-      clr: 9.0,
-      gain: 3.86), // Math Gain: 6.238
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '0.5',
-      conduitType: ConduitType.rigid,
-      deduct: 6.0,
-      clr: 2.656,
-      gain: 1.14), // Math Gain: 1.980
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '0.75',
-      conduitType: ConduitType.rigid,
-      deduct: 8.0,
-      clr: 3.844,
-      gain: 1.65), // Math Gain: 2.700
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '1.0',
-      conduitType: ConduitType.rigid,
-      deduct: 10.0,
-      clr: 4.75,
-      gain: 2.04), // Math Gain: 3.354
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '1.25',
-      conduitType: ConduitType.rigid,
-      deduct: 13.0,
-      clr: 5.875,
-      gain: 2.52), // Math Gain: 4.178
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '1.5',
-      conduitType: ConduitType.rigid,
-      deduct: 15.0,
-      clr: 7.0,
-      gain: 3.0), // Math Gain: 4.904
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '0.75',
-      conduitType: ConduitType.emt,
-      deduct: 8.0,
-      clr: 5.094,
-      gain: 2.18), // Math Gain: 3.107
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '1.0',
-      conduitType: ConduitType.emt,
-      deduct: 10.0,
-      clr: 6.406,
-      gain: 2.75), // Math Gain: 3.911
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '1.25',
-      conduitType: ConduitType.emt,
-      deduct: 13.0,
-      clr: 7.375,
-      gain: 3.16), // Math Gain: 4.678
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '1.5',
-      conduitType: ConduitType.emt,
-      deduct: 15.0,
-      clr: 8.281,
-      gain: 3.55), // Math Gain: 5.290
-  const Bender(brand: 'Greenlee 1818',
-      conduitSize: '2.0',
-      conduitType: ConduitType.emt,
-      deduct: 17.5,
-      clr: 9.187,
-      gain: 3.94), // Math Gain: 6.145
-  const Bender(brand: 'Greenlee 881',
-      conduitSize: '2.5',
-      conduitType: ConduitType.rigid,
-      deduct: 15.0,
-      clr: 13.5,
-      gain: 5.8), // Math Gain: 8.669
-  const Bender(brand: 'Greenlee 881',
-      conduitSize: '3.0',
-      conduitType: ConduitType.rigid,
-      deduct: 19.0,
-      clr: 16.0,
-      gain: 6.87), // Math Gain: 10.367
-  const Bender(brand: 'Greenlee 881',
-      conduitSize: '3.5',
-      conduitType: ConduitType.rigid,
-      deduct: 22.25,
-      clr: 18.625,
-      gain: 8.0), // Math Gain: 12.000
-  const Bender(brand: 'Greenlee 881',
-      conduitSize: '4.0',
-      conduitType: ConduitType.rigid,
-      deduct: 25.5,
-      clr: 20.875,
-      gain: 8.96), // Math Gain: 13.468
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '1.25',
-      conduitType: ConduitType.rigid,
-      deduct: 13.0,
-      clr: 7.25,
-      gain: 3.11), // Math Gain: 4.768
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '1.5',
-      conduitType: ConduitType.rigid,
-      deduct: 15.0,
-      clr: 8.25,
-      gain: 3.54), // Math Gain: 5.441
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '2.0',
-      conduitType: ConduitType.rigid,
-      deduct: 16.25,
-      clr: 9.5,
-      gain: 4.08), // Math Gain: 6.452
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '2.5',
-      conduitType: ConduitType.rigid,
-      deduct: 19.5,
-      clr: 12.5,
-      gain: 5.36), // Math Gain: 8.240
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '3.0',
-      conduitType: ConduitType.rigid,
-      deduct: 22.0,
-      clr: 15.0,
-      gain: 6.44), // Math Gain: 9.938
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '3.5',
-      conduitType: ConduitType.rigid,
-      deduct: 25.0,
-      clr: 17.5,
-      gain: 7.51), // Math Gain: 11.511
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '4.0',
-      conduitType: ConduitType.rigid,
-      deduct: 28.0,
-      clr: 20.0,
-      gain: 8.58), // Math Gain: 13.084
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '0.5',
-      conduitType: ConduitType.pvc,
-      deduct: 8.5,
-      clr: 4.5,
-      gain: 1.93), // Math Gain: 2.771
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '0.75',
-      conduitType: ConduitType.pvc,
-      deduct: 10.0,
-      clr: 5.4375,
-      gain: 2.33), // Math Gain: 3.390
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '1.0',
-      conduitType: ConduitType.pvc,
-      deduct: 12.625,
-      clr: 6.9375,
-      gain: 2.98), // Math Gain: 4.298
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '1.25',
-      conduitType: ConduitType.pvc,
-      deduct: 13.0,
-      clr: 7.25,
-      gain: 3.11), // Math Gain: 4.768
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '1.5',
-      conduitType: ConduitType.pvc,
-      deduct: 15.0,
-      clr: 8.25,
-      gain: 3.54), // Math Gain: 5.441
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '2.0',
-      conduitType: ConduitType.pvc,
-      deduct: 16.25,
-      clr: 9.5,
-      gain: 4.08), // Math Gain: 6.452
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '2.5',
-      conduitType: ConduitType.pvc,
-      deduct: 19.5,
-      clr: 11.4375,
-      gain: 4.91), // Math Gain: 7.788
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '3.0',
-      conduitType: ConduitType.pvc,
-      deduct: 22.0,
-      clr: 13.75,
-      gain: 5.9), // Math Gain: 9.402
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '3.5',
-      conduitType: ConduitType.pvc,
-      deduct: 25.0,
-      clr: 16.0,
-      gain: 6.86), // Math Gain: 10.867
-  const Bender(brand: 'Greenlee 884/885',
-      conduitSize: '4.0',
-      conduitType: ConduitType.pvc,
-      deduct: 28.0,
-      clr: 18.25,
-      gain: 7.83), // Math Gain: 12.332
-];
-
-void main() {
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Back to Back 90 v2',
-      theme: ThemeData.dark(),
-      home: const BackToBack90ScreenV2(),
     );
   }
 }
