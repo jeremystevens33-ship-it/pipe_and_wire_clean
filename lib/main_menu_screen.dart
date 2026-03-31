@@ -13,6 +13,7 @@ import 'package:pipe_and_wire_clean/code_screen.dart';
 import 'package:pipe_and_wire_clean/code_sections/Load_Calculator.dart';
 import 'package:pipe_and_wire_clean/load_calculator2.dart';
 import 'package:pipe_and_wire_clean/segmented_90_plus_radius_screen.dart'; // Added import for new screen
+import 'package:pipe_and_wire_clean/radius_arc_finder_screen.dart';
 
 class MainMenuScreen extends StatelessWidget {
   const MainMenuScreen({super.key});
@@ -51,6 +52,7 @@ class MainMenuScreen extends StatelessWidget {
               _buildMenuButton(context, 'Load Calculator', () => const LoadCalculator()), // Corrected class name
               const SizedBox(height: 8.0),
               _buildMenuButton(context, 'Load Calculator 2', () => const LoadCalculator2()),
+              _buildMenuButton(context, 'Radius / Arc Finder', () => const RadiusArcFinderScreen()), // Added new screen
             ],
           ),
           ExpansionTile(
