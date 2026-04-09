@@ -21,13 +21,17 @@ enum RadiusMethod {
   acrossRise,
   diameter,
   circumference,
+  tangentOffset,
 }
+
 
 enum KeypadInputType {
   across,
   rise,
   diameter,
   circumference,
+  tangentRun,
+  tangentOffset,
   none,
 }
 
@@ -45,7 +49,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
   String _riseValue = '';
   String _diameterValue = '';
   String _circumferenceValue = '';
-
+  String _tangentRunValue = '';
+  String _tangentOffsetValue = '';
   KeypadInputType _activeInputType = KeypadInputType.none;
 
   double? _radius;
@@ -64,7 +69,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
   final GlobalKey _riseFieldKey = GlobalKey();
   final GlobalKey _diameterFieldKey = GlobalKey();
   final GlobalKey _circumferenceFieldKey = GlobalKey();
-
+  final GlobalKey _tangentRunFieldKey = GlobalKey();
+  final GlobalKey _tangentOffsetFieldKey = GlobalKey();
   bool get _hasResults => _radius != null && _radius! > 0;
 
   @override
@@ -92,6 +98,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
       _riseValue = '';
       _diameterValue = '';
       _circumferenceValue = '';
+      _tangentRunValue = '';
+      _tangentOffsetValue = '';
       _radius = null;
       _diameter = null;
       _arcLength = null;
@@ -159,6 +167,10 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
         return _diameterFieldKey;
       case KeypadInputType.circumference:
         return _circumferenceFieldKey;
+      case KeypadInputType.tangentRun:
+        return _tangentRunFieldKey;
+      case KeypadInputType.tangentOffset:
+        return _tangentOffsetFieldKey;
       case KeypadInputType.none:
         return null;
     }
@@ -334,11 +346,16 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
       case KeypadInputType.circumference:
         _circumferenceValue = value;
         break;
+      case KeypadInputType.tangentRun:
+        _tangentRunValue = value;
+        break;
+      case KeypadInputType.tangentOffset:
+        _tangentOffsetValue = value;
+        break;
       case KeypadInputType.none:
         break;
     }
   }
-
   String _getCurrentInputValue() {
     switch (_activeInputType) {
       case KeypadInputType.across:
@@ -349,10 +366,15 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
         return _diameterValue;
       case KeypadInputType.circumference:
         return _circumferenceValue;
+      case KeypadInputType.tangentRun:
+        return _tangentRunValue;
+      case KeypadInputType.tangentOffset:
+        return _tangentOffsetValue;
       case KeypadInputType.none:
         return '';
     }
   }
+
 
   void _advanceFromCheckmark() {
     switch (_selectedMethod) {
@@ -380,6 +402,19 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
 
       case RadiusMethod.circumference:
         if (_activeInputType == KeypadInputType.circumference) {
+          setState(() {
+            _activeInputType = KeypadInputType.none;
+          });
+          return;
+        }
+        break;
+
+      case RadiusMethod.tangentOffset:
+        if (_activeInputType == KeypadInputType.tangentRun) {
+          _focusInput(KeypadInputType.tangentOffset);
+          return;
+        }
+        if (_activeInputType == KeypadInputType.tangentOffset) {
           setState(() {
             _activeInputType = KeypadInputType.none;
           });
@@ -478,8 +513,33 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
           return false;
         }
         return true;
+
+      case RadiusMethod.tangentOffset:
+        final x = _parseMixedInches(_tangentRunValue);
+        final y = _parseMixedInches(_tangentOffsetValue);
+
+        if (x == null || y == null) {
+          if (showErrors) {
+            setState(() {
+              _errorText = 'Enter both X and Y measurements.';
+            });
+          }
+          return false;
+        }
+
+        if (x <= 0 || y <= 0) {
+          if (showErrors) {
+            setState(() {
+              _errorText = 'Measurements must be greater than zero.';
+            });
+          }
+          return false;
+        }
+
+        return true;
     }
   }
+
 
   void _calculate() {
     setState(() {
@@ -502,6 +562,10 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
         break;
       case RadiusMethod.circumference:
         _solveCircumference();
+        break;
+      case RadiusMethod.tangentOffset:
+        _solveTangentOffset();
+        if (_radius == null || _radius! <= 0) return;
         break;
     }
 
@@ -540,8 +604,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     setState(() {
       _diameter = diameter;
       _radius = diameter / 2;
-      _arcAngleDeg = 360;
-      _arcLength = math.pi * diameter;
+      _arcAngleDeg = null;
+      _arcLength = null;
     });
   }
 
@@ -553,11 +617,24 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     setState(() {
       _diameter = diameter;
       _radius = radius;
-      _arcAngleDeg = 360;
-      _arcLength = circumference;
+      _arcAngleDeg = null;
+      _arcLength = null;
     });
   }
+  void _solveTangentOffset() {
+    final x = _parseMixedInches(_tangentRunValue)!;
+    final y = _parseMixedInches(_tangentOffsetValue)!;
 
+    final radius = ((x * x) + (y * y)) / (2 * y);
+    final diameter = radius * 2.0;
+
+    setState(() {
+      _radius = radius;
+      _diameter = diameter;
+      _arcAngleDeg = null;
+      _arcLength = null;
+    });
+  }
   void _showInfoSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -601,6 +678,12 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                   ),
                   SizedBox(height: 12),
                   _InfoBlock(
+                    title: 'Tangent Offset',
+                    body:
+                    'Use this when you can rest a straight edge against the outside of the curve at one touch point. Measure X along the tangent line, then measure Y at a true 90° angle from the tangent down to the curve.',
+                  ),
+                  const SizedBox(height: 12),
+                  _InfoBlock(
                     title: 'Returned value',
                     body:
                     'This screen solves radius first, and also shows diameter, arc angle, and arc length when available.',
@@ -622,6 +705,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
         return 'Measure straight across the full circle or curved object when that full width is accessible.';
       case RadiusMethod.circumference:
         return 'Measure all the way around the object when you cannot easily measure straight across it.';
+      case RadiusMethod.tangentOffset:
+        return 'Set a straight tangent line against the outside of the curve. Measure X along that tangent from the touch point, then measure Y at 90° from the tangent down to the curve.';
     }
   }
 
@@ -639,7 +724,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
           onPressed: () => Navigator.of(context).maybePop(),
         ),
         title: const Text(
-          'Radius / Arc Finder',
+          'Radius Arc Finder',
           style: TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.w700,
@@ -665,49 +750,58 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                       key: _methodCardKey,
                       title: '1. METHOD',
                       isActive: _activeStep == RadiusStep.method,
+                      onHeaderTap: () {
+                        setState(() {
+                          _activeStep = RadiusStep.method;
+                          _activeInputType = KeypadInputType.none;
+                        });
+                      },
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Wrap(
-                            spacing: 10,
-                            runSpacing: 10,
+                          Column(
                             children: [
-                              _methodChip(
-                                label: 'Across + Rise',
-                                selected: _selectedMethod == RadiusMethod.acrossRise,
-                                onTap: () => _selectMethod(RadiusMethod.acrossRise),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _methodChip(
+                                      label: 'Across + Rise',
+                                      selected: _selectedMethod == RadiusMethod.acrossRise,
+                                      onTap: () => _selectMethod(RadiusMethod.acrossRise),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _methodChip(
+                                      label: 'Diameter',
+                                      selected: _selectedMethod == RadiusMethod.diameter,
+                                      onTap: () => _selectMethod(RadiusMethod.diameter),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              _methodChip(
-                                label: 'Diameter',
-                                selected: _selectedMethod == RadiusMethod.diameter,
-                                onTap: () => _selectMethod(RadiusMethod.diameter),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _methodChip(
+                                      label: 'Circumference',
+                                      selected: _selectedMethod == RadiusMethod.circumference,
+                                      onTap: () => _selectMethod(RadiusMethod.circumference),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _methodChip(
+                                      label: 'Tangent Offset',
+                                      selected: _selectedMethod == RadiusMethod.tangentOffset,
+                                      onTap: () => _selectMethod(RadiusMethod.tangentOffset),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              _methodChip(
-                                label: 'Circumference',
-                                selected:
-                                _selectedMethod == RadiusMethod.circumference,
-                                onTap: () =>
-                                    _selectMethod(RadiusMethod.circumference),
-                              ),
+
                             ],
-                          ),
-                          const SizedBox(height: 16),
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0F0F0F),
-                              border: Border.all(color: Colors.white24),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _instructionText,
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 15,
-                                height: 1.35,
-                              ),
-                            ),
                           ),
                         ],
                       ),
@@ -717,6 +811,12 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                       key: _measurementsCardKey,
                       title: '2. MEASUREMENTS',
                       isActive: _activeStep == RadiusStep.measurements,
+                      onHeaderTap: () {
+                        setState(() {
+                          _activeStep = RadiusStep.measurements;
+                          _activeInputType = KeypadInputType.none;
+                        });
+                      },
                       child: Column(
                         children: [
                           if (_selectedMethod == RadiusMethod.acrossRise) ...[
@@ -753,8 +853,26 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                               label: 'Circumference',
                               currentValue: _circumferenceValue,
                               hint: 'Measure around the object',
-                              onTap: () =>
-                                  _focusInput(KeypadInputType.circumference),
+                              onTap: () => _focusInput(KeypadInputType.circumference),
+                            ),
+                          ],
+                          if (_selectedMethod == RadiusMethod.tangentOffset) ...[
+                            _tangentDiagramCard(),
+                            const SizedBox(height: 14),
+                            _labeledInput(
+                              fieldKey: _tangentRunFieldKey,
+                              label: 'X (distance along tangent)',
+                              currentValue: _tangentRunValue,
+                              hint: 'Example: 10',
+                              onTap: () => _focusInput(KeypadInputType.tangentRun),
+                            ),
+                            const SizedBox(height: 12),
+                            _labeledInput(
+                              fieldKey: _tangentOffsetFieldKey,
+                              label: 'Y (offset to curve)',
+                              currentValue: _tangentOffsetValue,
+                              hint: 'Example: 2',
+                              onTap: () => _focusInput(KeypadInputType.tangentOffset),
                             ),
                           ],
                           if (_errorText != null) ...[
@@ -808,59 +926,69 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                         ],
                       ),
                     ),
-                    if (_hasResults) ...[
-                      const SizedBox(height: 12),
-                      _stepCard(
-                        key: _resultsCardKey,
-                        title: '3. RESULTS',
-                        isActive: _activeStep == RadiusStep.results,
-                        child: Column(
-                          children: [
-                            _resultRow(
-                              'Radius',
-                              _radius == null ? '—' : _fmtInchesFraction(_radius!),
-                            ),
+                    const SizedBox(height: 12),
+                    _stepCard(
+                      key: _resultsCardKey,
+                      title: '3. RESULTS',
+                      isActive: _activeStep == RadiusStep.results,
+                      onHeaderTap: () {
+                        if (_hasResults) {
+                          setState(() {
+                            _activeStep = RadiusStep.results;
+                            _activeInputType = KeypadInputType.none;
+                          });
+                        }
+                      },
+                      child: _hasResults
+                          ? Column(
+                        children: [
+                          _resultRow(
+                            'Radius',
+                            _radius == null ? '—' : _fmtInchesFraction(_radius!),
+                          ),
+                          const SizedBox(height: 10),
+                          _resultRow(
+                            'Diameter',
+                            _diameter == null ? '—' : _fmtInchesFraction(_diameter!),
+                          ),
+                          if (_selectedMethod == RadiusMethod.acrossRise) ...[
                             const SizedBox(height: 10),
                             _resultRow(
-                              'Diameter',
-                              _diameter == null ? '—' : _fmtInchesFraction(_diameter!),
-                            ),
-                            const SizedBox(height: 10),
-                            _resultRow(
-                              'Arc Angle',
+                              'Measured Segment Angle',
                               _arcAngleDeg == null
                                   ? '—'
                                   : '${_fmtDouble(_arcAngleDeg)}°',
                             ),
                             const SizedBox(height: 10),
                             _resultRow(
-                              'Arc Length',
+                              'Measured Segment Length',
                               _arcLength == null
                                   ? '—'
                                   : _fmtInchesFraction(_arcLength!),
                             ),
-                            if (widget.returnRadiusToCaller) ...[
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                child: ElevatedButton(
-                                  onPressed: () => Navigator.of(context).pop(_radius),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF1D7F2C),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 15),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  child: const Text('Use This Radius'),
-                                ),
-                              ),
-                            ],
                           ],
-                        ),
-                      ),
-                    ],
+                          if (widget.returnRadiusToCaller) ...[
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () => Navigator.of(context).pop(_radius),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1D7F2C),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 15),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                                child: const Text('Use This Radius'),
+                              ),
+                            ),
+                          ],
+                        ],
+                      )
+                          : const SizedBox.shrink(),
+                    ),
                   ],
                 ),
               ),
@@ -881,6 +1009,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     required String title,
     required bool isActive,
     required Widget child,
+    VoidCallback? onHeaderTap,
   }) {
     return Container(
       key: key,
@@ -894,37 +1023,42 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white24),
-                gradient: LinearGradient(
-                  colors: isActive
-                      ? const [Color(0xFF7D1111), Color(0xFFB02020)]
-                      : const [Color(0xFF555555), Color(0xFF1E1E1E)],
+            InkWell(
+              onTap: onHeaderTap,
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white24),
+                  gradient: LinearGradient(
+                    colors: isActive
+                        ? const [Color(0xFF7D1111), Color(0xFFB02020)]
+                        : const [Color(0xFF555555), Color(0xFF1E1E1E)],
+                  ),
                 ),
-              ),
-              child: Center(
-                child: Text(
-                  title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
+                child: Center(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.6,
+                    ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 14),
-            child,
+            if (isActive) ...[
+              const SizedBox(height: 14),
+              child,
+            ],
           ],
         ),
       ),
     );
   }
-
   Widget _methodChip({
     required String label,
     required bool selected,
@@ -934,7 +1068,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
@@ -951,14 +1085,13 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
           label,
           style: TextStyle(
             color: selected ? Colors.white : Colors.white70,
-            fontSize: 15,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
           ),
         ),
       ),
     );
   }
-
   Widget _labeledInput({
     required GlobalKey fieldKey,
     required String label,
@@ -1024,6 +1157,9 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
         return fieldKey == _diameterFieldKey;
       case KeypadInputType.circumference:
         return fieldKey == _circumferenceFieldKey;
+      case KeypadInputType.tangentRun:
+      case KeypadInputType.tangentOffset:
+
       case KeypadInputType.none:
         return false;
     }
@@ -1105,6 +1241,335 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     );
   }
 }
+Widget _tangentDiagramCard() {
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFF101010),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.white24),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Tangent offset guide',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 10),
+        AspectRatio(
+          aspectRatio: 1.9,
+          child: CustomPaint(
+            painter: _TangentOffsetPainter(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Rest a straight line tangent to the outside of the curve at one touch point. Measure X along the tangent, then measure Y at 90° from the tangent down to the curve.',
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 13.5,
+            height: 1.35,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+class _TangentOffsetPainter extends CustomPainter {
+  // ===== ARC SHAPE =====
+  static const double arcStartX = 0.05;
+  static const double arcEndX = 0.94;
+  static const double arcStartY = 0.80;
+  static const double arcEndY = 0.80;
+  static const double controlX = 0.53;
+  static const double controlY = 0.3222222222222222222222222222222222;
+
+// ===== TANGENT LINE =====
+  static const double tangentStartX = 0.42;
+  static const double tangentEndX = 0.90;
+  static const double tangentY = 0.54                                                  ;
+
+// ===== TOUCH POINT ON ARC =====
+  static const double touchPointT = 0.50;
+
+// ===== X MEASUREMENT REGION =====
+  static const double xLeftTickX = 0.50;
+  static const double xRightTickX = 0.82;
+
+// Left side = small tick only
+  static const double leftTickHalfHeight = 0.020;
+
+// Right side = full vertical leg
+  static const double rightLegTopExtra = 0.00;
+  static const double rightLegBottomExtra = 0.18;
+
+// ===== Y DROP =====
+  static const double yDropX = 0.90;
+
+// ===== RIGHT ANGLE MARK =====
+  static const double squareSize = 10.0;
+
+// ===== POINT STYLE =====
+  static const double pointRadius = 5.5;
+  static const double pointStrokeWidth = 2.0;
+
+// ===== LINE STYLE =====
+  static const double arcStrokeWidth = 3.4;
+  static const double guideStrokeWidth = 2.3;
+  static const double thinStrokeWidth = 1.9;
+
+// ===== LABEL OFFSETS =====
+  static const double tangentLabelDx = -52.0;
+  static const double tangentLabelDy = -24.0;
+
+  static const double touchLabelDx = -34.0;
+  static const double touchLabelDy = 18.0;
+
+  static const double xLabelDx = 26.0;
+  static const double xLabelDy = -23.0;
+
+  static const double yLabelDx = 14.0;
+  static const double yLabelDy = 0.0;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final arcPaint = Paint()
+      ..color = const Color(0xFFCF2027)
+      ..strokeWidth = arcStrokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final guidePaint = Paint()
+      ..color = const Color(0xFFE0E0E0)
+      ..strokeWidth = guideStrokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final thinPaint = Paint()
+      ..color = const Color(0xFFE0E0E0)
+      ..strokeWidth = thinStrokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final pointFillPaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.fill;
+
+    final pointStrokePaint = Paint()
+      ..color = const Color(0xFFE0E0E0)
+      ..strokeWidth = pointStrokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final arcStart = Offset(size.width * arcStartX, size.height * arcStartY);
+    final arcEnd = Offset(size.width * arcEndX, size.height * arcEndY);
+    final control = Offset(size.width * controlX, size.height * controlY);
+
+    final tangentStart =
+    Offset(size.width * tangentStartX, size.height * tangentY);
+    final tangentEnd =
+    Offset(size.width * tangentEndX, size.height * tangentY);
+
+
+    final arcPath = Path()
+      ..moveTo(arcStart.dx, arcStart.dy)
+      ..quadraticBezierTo(control.dx, control.dy, arcEnd.dx, arcEnd.dy);
+
+    canvas.drawPath(arcPath, arcPaint);
+
+    // Tangent line
+    canvas.drawLine(tangentStart, tangentEnd, guidePaint);
+
+    // Touch point
+    final touchPoint =
+    _pointOnQuadratic(arcStart, control, arcEnd, touchPointT);
+
+    canvas.drawCircle(touchPoint, pointRadius, pointFillPaint);
+    canvas.drawCircle(touchPoint, pointRadius, pointStrokePaint);
+
+    // X ticks
+    final xLeft = Offset(size.width * xLeftTickX, size.height * tangentY);
+    final xRight = Offset(size.width * xRightTickX, size.height * tangentY);
+
+
+
+
+
+    // X span
+    canvas.drawLine(xLeft, xRight, thinPaint);
+
+    // Y drop
+    final yTop = Offset(size.width * yDropX, size.height * tangentY);
+    final yCurve = _verticalIntersectOnQuadratic(
+      arcStart,
+      control,
+      arcEnd,
+      yTop.dx,
+    );
+
+    canvas.drawLine(yTop, yCurve, guidePaint);
+
+    // Right-angle marker
+    final squareLeft = Offset(yTop.dx - squareSize, yTop.dy);
+    final squareBottomLeft = Offset(yTop.dx - squareSize, yTop.dy + squareSize);
+    final squareBottom = Offset(yTop.dx, yTop.dy + squareSize);
+
+// horizontal leg
+    canvas.drawLine(
+      squareLeft,
+      yTop,
+      thinPaint,
+    );
+
+// vertical leg
+    canvas.drawLine(
+      squareLeft,
+      squareBottomLeft,
+      thinPaint,
+    );
+
+// bottom leg to make the corner read clearly
+    canvas.drawLine(
+      squareBottomLeft,
+      squareBottom,
+      thinPaint,
+    );
+
+    // Labels
+    _drawLabel(
+      canvas,
+      'Tangent Line',
+      Offset(
+        (tangentStart.dx + tangentEnd.dx) / 2 + tangentLabelDx,
+        tangentStart.dy + tangentLabelDy,
+      ),
+    );
+
+    _drawLabel(
+      canvas,
+      'Touch Point',
+      Offset(
+        touchPoint.dx + touchLabelDx,
+        touchPoint.dy + touchLabelDy,
+      ),
+    );
+
+    _drawLabel(
+      canvas,
+      'X',
+      Offset(
+        (xLeft.dx + xRight.dx) / 2 + xLabelDx,
+        xLeft.dy + xLabelDy,
+      ),
+    );
+
+    _drawLabel(
+      canvas,
+      'Y',
+      Offset(
+        yTop.dx + yLabelDx,
+        (yTop.dy + yCurve.dy) / 2 + yLabelDy,
+      ),
+    );
+  }
+
+  Offset _pointOnQuadratic(Offset p0, Offset p1, Offset p2, double t) {
+    final mt = 1 - t;
+    final x = (mt * mt * p0.dx) + (2 * mt * t * p1.dx) + (t * t * p2.dx);
+    final y = (mt * mt * p0.dy) + (2 * mt * t * p1.dy) + (t * t * p2.dy);
+    return Offset(x, y);
+  }
+
+  Offset _verticalIntersectOnQuadratic(
+      Offset p0,
+      Offset p1,
+      Offset p2,
+      double targetX,
+      ) {
+    double bestDx = double.infinity;
+    Offset bestPoint = _pointOnQuadratic(p0, p1, p2, 0.5);
+
+    for (int i = 0; i <= 500; i++) {
+      final t = i / 500.0;
+      final pt = _pointOnQuadratic(p0, p1, p2, t);
+      final dx = (pt.dx - targetX).abs();
+      if (dx < bestDx) {
+        bestDx = dx;
+        bestPoint = pt;
+      }
+    }
+
+    return bestPoint;
+  }
+
+  void _drawLabel(Canvas canvas, String text, Offset offset) {
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    textPainter.paint(canvas, offset);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+  Offset _pointOnQuadratic(Offset p0, Offset p1, Offset p2, double t) {
+    final mt = 1 - t;
+    final x = (mt * mt * p0.dx) + (2 * mt * t * p1.dx) + (t * t * p2.dx);
+    final y = (mt * mt * p0.dy) + (2 * mt * t * p1.dy) + (t * t * p2.dy);
+    return Offset(x, y);
+  }
+
+  Offset _verticalIntersectOnQuadratic(
+      Offset p0,
+      Offset p1,
+      Offset p2,
+      double targetX,
+      ) {
+    double bestDx = double.infinity;
+    Offset bestPoint = _pointOnQuadratic(p0, p1, p2, 0.5);
+
+    for (int i = 0; i <= 500; i++) {
+      final t = i / 500.0;
+      final pt = _pointOnQuadratic(p0, p1, p2, t);
+      final dx = (pt.dx - targetX).abs();
+      if (dx < bestDx) {
+        bestDx = dx;
+        bestPoint = pt;
+      }
+    }
+
+    return bestPoint;
+  }
+
+  void _drawLabel(Canvas canvas, String text, Offset offset) {
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    textPainter.paint(canvas, offset);
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
 
 class _InfoBlock extends StatelessWidget {
   const _InfoBlock({required this.title, required this.body});
@@ -1264,3 +1729,4 @@ class _ArcMeasurementPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+

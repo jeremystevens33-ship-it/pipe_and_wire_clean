@@ -23,7 +23,7 @@ const kGreen = Color(0xFF4CAF50);
 enum BoxLayoutConduitType { emt, grc }
 enum SegmentedMode { arcOnly, stubbed90 }
 enum ArcInputMode { boxToBox, arcAngle }
-enum ArcSide { inside, outside }
+enum SurfaceFollowed { inside, outside }
 enum SupportType { surface, strut }
 enum StrutSizeOption { sevenEighths, oneAndFiveEighths, custom }
 
@@ -50,11 +50,15 @@ class _Segmented90PlusRadiusScreenState
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
 
-  // Radius / support logic
-  ArcSide _arcSide = ArcSide.inside;
+// Surface-followed / support logic
+  SurfaceFollowed _surfaceFollowed = SurfaceFollowed.inside;
   SupportType _supportType = SupportType.surface;
   StrutSizeOption _strutSizeOption = StrutSizeOption.oneAndFiveEighths;
-
+  // Radius-from-length lock state
+  bool _radiusWasGeneratedFromLength = false;
+  double? _lockedPipeLength;
+  double? _lockedArcAngleDeg;
+  bool _showPipeLengthHelper = false;
   // Controllers
   final measurement1Ctrl = TextEditingController(); // Stub Height / Arc Box-to-Box Length
   final measurement2Ctrl = TextEditingController(); // Number of Shots
@@ -63,6 +67,10 @@ class _Segmented90PlusRadiusScreenState
   final radiusCtrl = TextEditingController();
   final boxToBoxCtrl = TextEditingController(); // Arc Only total run / box-to-box length
   final arcAngleCtrl = TextEditingController();
+
+  // Radius-from-pipe-length popup controllers
+  final pipeLengthRadiusCtrl = TextEditingController();
+  final pipeLengthArcAngleCtrl = TextEditingController();
   // Output variables
   String markAOut = '';
   String markBOut = '';
@@ -121,6 +129,8 @@ class _Segmented90PlusRadiusScreenState
       radiusCtrl,
       boxToBoxCtrl,
       arcAngleCtrl,
+      pipeLengthRadiusCtrl,
+      pipeLengthArcAngleCtrl,
     ];
 
     for (var ctrl in allCtrls) {
@@ -209,7 +219,7 @@ class _Segmented90PlusRadiusScreenState
       _selectedPipeSize = null;
       _selectedConduitType = BoxLayoutConduitType.emt;
 
-      _arcSide = ArcSide.inside;
+      _surfaceFollowed = SurfaceFollowed.inside;
       _supportType = SupportType.surface;
       _strutSizeOption = StrutSizeOption.oneAndFiveEighths;
       _segmentedMode = SegmentedMode.arcOnly;
@@ -324,7 +334,27 @@ class _Segmented90PlusRadiusScreenState
       return 0.0;
     }
   }
+  double _parseDegrees(String text) {
+    if (text.isEmpty) return 0.0;
+    text = text.replaceAll('°', '').replaceAll('"', '').trim();
+    return double.tryParse(text) ?? 0.0;
+  }
+  bool _isAngleController(TextEditingController controller) {
+    return controller == arcAngleCtrl || controller == pipeLengthArcAngleCtrl;
+  }
 
+  String _formatDegrees(double value) {
+    if (!value.isFinite) return '';
+    if ((value - value.roundToDouble()).abs() < 0.0001) {
+      return value.toStringAsFixed(0);
+    }
+    return value.toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '');
+  }
+
+  double _sanitizeArcAngle(double value) {
+    if (!value.isFinite) return 0.0;
+    return value.clamp(0.0, 360.0);
+  }
   Map<String, String> _getFilteredPipeSizes() {
     return bending_data.pipeSizes;
   }
@@ -351,6 +381,21 @@ class _Segmented90PlusRadiusScreenState
     }
   }
 
+  double? _computedAdjustedBendRadius() {
+    final double measuredRadius = _parseInches(radiusCtrl.text);
+    final double pipeOD = _currentPipeOD();
+    final double standoff = _currentStandoff();
+
+    if (measuredRadius <= 0 || pipeOD <= 0) return null;
+
+    final double adjustedRadius = _surfaceFollowed == SurfaceFollowed.inside
+        ? measuredRadius - standoff - pipeOD
+        : measuredRadius + standoff;
+
+    if (!adjustedRadius.isFinite || adjustedRadius <= 0) return null;
+    return adjustedRadius;
+  }
+
   double? _computedCenterlineRadius() {
     final double measuredRadius = _parseInches(radiusCtrl.text);
     final double pipeOD = _currentPipeOD();
@@ -358,23 +403,47 @@ class _Segmented90PlusRadiusScreenState
 
     if (measuredRadius <= 0 || pipeOD <= 0) return null;
 
-    final double clr = _arcSide == ArcSide.inside
+    final double clr = _surfaceFollowed == SurfaceFollowed.inside
         ? measuredRadius - standoff - (pipeOD / 2.0)
         : measuredRadius + standoff + (pipeOD / 2.0);
 
     if (!clr.isFinite || clr <= 0) return null;
     return clr;
   }
+  double? _radiusFromPipeLength({
+    required double pipeLength,
+    required double arcAngleDeg,
+  }) {
+    final double pipeOD = _currentPipeOD();
+    final double standoff = _currentStandoff();
+
+    if (pipeLength <= 0 || arcAngleDeg <= 0 || pipeOD <= 0) return null;
+
+    final double denominator = (arcAngleDeg / 360.0) * (2 * math.pi);
+    if (denominator <= 0) return null;
+
+    // Step 1: Solve CENTERLINE radius
+    final double clr = pipeLength / denominator;
+
+    // Step 2: Convert to YOUR adjusted radius system
+    final double adjustedRadius = _surfaceFollowed == SurfaceFollowed.inside
+        ? clr - (pipeOD / 2.0) - standoff
+        : clr - (pipeOD / 2.0) + standoff;
+
+    if (!adjustedRadius.isFinite || adjustedRadius <= 0) return null;
+
+    return adjustedRadius;
+  }
 
   void calculate() {
     if (!_isCalculateReady) return;
 
-    final double? clr = _computedCenterlineRadius();
-    if (clr == null || clr <= 0 || _selectedPipeSize == null) {
+    final double? adjustedRadius = _computedAdjustedBendRadius();
+    if (adjustedRadius == null || adjustedRadius <= 0 || _selectedPipeSize == null) {
       return;
     }
 
-    final double radius = clr;
+    final double radius = adjustedRadius;
 
     final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
         ? bending_data.emtOD[_selectedPipeSize]
@@ -402,10 +471,15 @@ class _Segmented90PlusRadiusScreenState
     if (_segmentedMode == SegmentedMode.arcOnly) {
       double runLength = 0.0;
 
-      if (_arcInputMode == ArcInputMode.boxToBox) {
+      if (_radiusWasGeneratedFromLength &&
+          _arcInputMode == ArcInputMode.arcAngle &&
+          _lockedPipeLength != null &&
+          _lockedArcAngleDeg != null) {
+        runLength = _lockedPipeLength!;
+      } else if (_arcInputMode == ArcInputMode.boxToBox) {
         runLength = _parseInches(boxToBoxCtrl.text);
       } else {
-        final double arcAngleDeg = _parseInches(arcAngleCtrl.text);
+        final double arcAngleDeg = _parseDegrees(arcAngleCtrl.text);
         if (arcAngleDeg <= 0) return;
         runLength = (arcAngleDeg / 360.0) * (2 * math.pi * radius);
       }
@@ -415,8 +489,12 @@ class _Segmented90PlusRadiusScreenState
       const double stickLength = 120.0;
       const double couplingKeepClear = 2.0;
 
-      final double actualArcAngleRad = runLength / radius;
-      final double actualArcAngleDeg = actualArcAngleRad * (180 / math.pi);
+      final double actualArcAngleDeg =
+      (_radiusWasGeneratedFromLength &&
+          _arcInputMode == ArcInputMode.arcAngle &&
+          _lockedArcAngleDeg != null)
+          ? _lockedArcAngleDeg!
+          : (runLength / radius) * (180 / math.pi);
 
       Map<String, dynamic> buildArcOption(double targetDeg) {
         final int bendMarks =
@@ -589,13 +667,26 @@ class _Segmented90PlusRadiusScreenState
 
   void _advanceKeypadFocus() {
     if (_activeController == radiusCtrl) {
-      return _showKeypad(measurement2Ctrl);
+      if (_segmentedMode == SegmentedMode.stubbed90) {
+        return _showKeypad(measurement2Ctrl);
+      }
+
+      if (_segmentedMode == SegmentedMode.arcOnly) {
+        return _showKeypad(
+          _arcInputMode == ArcInputMode.boxToBox ? boxToBoxCtrl : arcAngleCtrl,
+        );
+      }
     }
 
     if (_activeController == measurement2Ctrl) {
       if (_segmentedMode == SegmentedMode.stubbed90) {
         return _showKeypad(measurement1Ctrl);
       }
+      _hideKeypad();
+      return;
+    }
+
+    if (_activeController == boxToBoxCtrl || _activeController == arcAngleCtrl) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_isCalculateReady) {
           calculate();
@@ -605,17 +696,11 @@ class _Segmented90PlusRadiusScreenState
       return;
     }
 
-    if (_activeController == measurement1Ctrl) {
-      _hideKeypad();
-      return;
-    }
-
-    if (_activeController == measurement3Ctrl) {
-      _hideKeypad();
-      return;
-    }
-
-    if (_activeController == customStandoffCtrl) {
+    if (_activeController == measurement1Ctrl ||
+        _activeController == measurement3Ctrl ||
+        _activeController == customStandoffCtrl ||
+        _activeController == pipeLengthRadiusCtrl ||
+        _activeController == pipeLengthArcAngleCtrl) {
       _hideKeypad();
       return;
     }
@@ -628,6 +713,7 @@ class _Segmented90PlusRadiusScreenState
 
     final controller = _activeController!;
     final text = controller.text;
+    final bool isAngleField = _isAngleController(controller);
 
     if (value == '⌫') {
       if (text.isNotEmpty) {
@@ -635,12 +721,20 @@ class _Segmented90PlusRadiusScreenState
       }
     } else if (value == '✔') {
       if (controller.text.isNotEmpty) {
-        final decimalValue = _parseInches(controller.text);
-        controller.text = fmtInches(decimalValue);
+        if (isAngleField) {
+          final degreeValue = _sanitizeArcAngle(_parseDegrees(controller.text));
+          controller.text = _formatDegrees(degreeValue);
+        } else {
+          final decimalValue = _parseInches(controller.text);
+          controller.text = fmtInches(decimalValue);
+        }
       }
       _advanceKeypadFocus();
     } else {
-      if (value.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
+      if (!isAngleField &&
+          value.contains('/') &&
+          text.isNotEmpty &&
+          !text.endsWith(' ')) {
         final lastChar = text.characters.last;
         if (lastChar != ' ' && int.tryParse(lastChar) != null) {
           controller.text += ' ';
@@ -648,6 +742,8 @@ class _Segmented90PlusRadiusScreenState
       }
       controller.text += value;
     }
+
+    _updateCalculateButtonState();
   }
 
   void _showKeypad(TextEditingController controller) {
@@ -663,14 +759,21 @@ class _Segmented90PlusRadiusScreenState
   void _hideKeypad() {
     setState(() {
       if (_activeController != null && _activeController!.text.isNotEmpty) {
-        final decimalValue = _parseInches(_activeController!.text);
-        _activeController!.text = fmtInches(decimalValue);
+        if (_isAngleController(_activeController!)) {
+          final degreeValue =
+          _sanitizeArcAngle(_parseDegrees(_activeController!.text));
+          _activeController!.text = _formatDegrees(degreeValue);
+        } else {
+          final decimalValue = _parseInches(_activeController!.text);
+          _activeController!.text = fmtInches(decimalValue);
+        }
       }
       _activeController = null;
       _isKeypadVisible = false;
     });
-  }
 
+    _updateCalculateButtonState();
+  }
   Future<void> _openRadiusFinderScreen() async {
     final double? solvedRadius = await Navigator.push<double>(
       context,
@@ -687,62 +790,326 @@ class _Segmented90PlusRadiusScreenState
 
     _updateCalculateButtonState();
   }
+  Future<void> _showPipeLengthRadiusDialog() async {
+    pipeLengthRadiusCtrl.clear();
+    pipeLengthArcAngleCtrl.clear();
 
-  void _showHelpDialog(BuildContext context) {
-    showDialog(
+    await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF212121),
-        title: const Text(
-          'Segmented 90 + Radius Help',
-          style: TextStyle(color: kLight),
-        ),
-        content: const SingleChildScrollView(
-          child: ListBody(
-            children: <Widget>[
-              Text(
-                'Use this screen to solve a segmented 90 from a measured radius and a chosen number of shots.',
-                style: TextStyle(
-                  color: kLight,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
+      builder: (context) {
+        TextEditingController? localActiveController;
+        String resultText = '';
+
+        String formatDegrees(double value) {
+          if (value % 1 == 0) {
+            return value.toStringAsFixed(0);
+          }
+          return value.toStringAsFixed(1);
+        }
+
+        return StatefulBuilder(
+          builder: (context, setLocalState) {
+            void solve() {
+              final double pipeLength = _parseInches(pipeLengthRadiusCtrl.text);
+              final double arcAngle = _parseDegrees(pipeLengthArcAngleCtrl.text);
+
+              final double? solvedRadius = _radiusFromPipeLength(
+                pipeLength: pipeLength,
+                arcAngleDeg: arcAngle,
+              );
+
+              setLocalState(() {
+                resultText = solvedRadius == null ? '' : fmtInches(solvedRadius);
+              });
+            }
+
+            void localShowKeypad(TextEditingController controller) {
+              setLocalState(() {
+                localActiveController = controller;
+              });
+            }
+
+            void localHideKeypad() {
+              setLocalState(() {
+                if (localActiveController == pipeLengthRadiusCtrl &&
+                    localActiveController!.text.isNotEmpty) {
+                  final decimalValue = _parseInches(localActiveController!.text);
+                  localActiveController!.text = fmtInches(decimalValue);
+                } else if (localActiveController == pipeLengthArcAngleCtrl &&
+                    localActiveController!.text.isNotEmpty) {
+                  final degreeValue = _parseDegrees(localActiveController!.text);
+                  localActiveController!.text = formatDegrees(degreeValue);
+                }
+
+                localActiveController = null;
+              });
+
+              solve();
+            }
+
+            void localOnKeypadTap(String value) {
+              if (localActiveController == null) return;
+
+              final controller = localActiveController!;
+              final text = controller.text;
+
+              if (value == '⌫') {
+                if (text.isNotEmpty) {
+                  controller.text = text.substring(0, text.length - 1);
+                }
+              } else if (value == '✔') {
+                localHideKeypad();
+                return;
+              } else {
+                if (controller == pipeLengthRadiusCtrl &&
+                    value.contains('/') &&
+                    text.isNotEmpty &&
+                    !text.endsWith(' ')) {
+                  final lastChar = text.characters.last;
+                  if (lastChar != ' ' && int.tryParse(lastChar) != null) {
+                    controller.text += ' ';
+                  }
+                }
+                controller.text += value;
+              }
+
+              solve();
+              setLocalState(() {});
+            }
+
+            Widget localField(
+                String label,
+                TextEditingController controller, {
+                  String? suffix,
+                }) {
+              final bool isActive = localActiveController == controller;
+
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: const TextStyle(fontSize: 16, color: kLight),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 140,
+                      height: 48,
+                      child: GestureDetector(
+                        onTap: () => localShowKeypad(controller),
+                        child: AbsorbPointer(
+                          child: TextField(
+                            controller: controller,
+                            readOnly: true,
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(fontSize: 18, color: kLight),
+                            decoration: InputDecoration(
+                              suffixText: suffix,
+                              suffixStyle:
+                              const TextStyle(fontSize: 18, color: kLight),
+                              isDense: true,
+                              filled: true,
+                              fillColor: kBlack.withAlpha(128),
+                              contentPadding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                                horizontal: 10,
+                              ),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide: BorderSide(
+                                  color: isActive
+                                      ? kGreen
+                                      : kGreen.withAlpha(100),
+                                  width: isActive ? 2 : 1.5,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(4),
+                                borderSide:
+                                const BorderSide(color: kGreen, width: 2),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return AlertDialog(
+              backgroundColor: const Color(0xFF212121),
+              title: const Text(
+                'Radius from Pipe Length',
+                style: TextStyle(color: kLight),
+              ),
+              contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    localField('Pipe Length', pipeLengthRadiusCtrl),
+                    const SizedBox(height: 8),
+                    localField(
+                      'Arc Angle (0–360°)',
+                      pipeLengthArcAngleCtrl,
+                      suffix: '°',
+                    ),
+                    const SizedBox(height: 14),
+                    if (resultText.isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: kBlack.withAlpha(128),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: kGreen, width: 1.5),
+                        ),
+                        child: Text(
+                          'Radius: $resultText',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: kLight,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 14),
+                    NumericInputKeypad(onTap: localOnKeypadTap),
+                  ],
                 ),
               ),
-              SizedBox(height: 10),
-              Text(
-                '1. Select conduit type and pipe size.',
-                style: TextStyle(color: Colors.white70),
-              ),
-              SizedBox(height: 10),
-              Text(
-                '2. Enter the measured radius, or use Find Radius / Arc.',
-                style: TextStyle(color: Colors.white70),
-              ),
-              SizedBox(height: 10),
-              Text(
-                '3. Choose inside or outside arc, then choose surface mount or strut. The app converts that to conduit centerline radius automatically.',
-                style: TextStyle(color: Colors.white70),
-              ),
-              SizedBox(height: 10),
-              Text(
-                '4. Choose a shot count. Use Arc Only for just the curve, or Stubbed 90 to add stub height and optional leg length.',
-                style: TextStyle(color: Colors.white70),
-              ),
-              SizedBox(height: 10),
-              Text(
-                '5. The app calculates developed length, spacing between bends, angle per shot, and bend mark locations.',
-                style: TextStyle(color: Colors.white70),
-              ),
-            ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    final double pipeLength = _parseInches(pipeLengthRadiusCtrl.text);
+                    final double arcAngle = _parseDegrees(pipeLengthArcAngleCtrl.text);
+
+                    final double? solvedRadius = _radiusFromPipeLength(
+                      pipeLength: pipeLength,
+                      arcAngleDeg: arcAngle,
+                    );
+
+                    if (solvedRadius == null) return;
+
+                    setState(() {
+                      radiusCtrl.text = fmtInches(solvedRadius);
+
+                      arcAngleCtrl.text = _formatDegrees(_sanitizeArcAngle(arcAngle));
+
+                      _arcInputMode = ArcInputMode.arcAngle;
+
+                      _radiusWasGeneratedFromLength = true;
+                      _lockedPipeLength = pipeLength;
+                      _lockedArcAngleDeg = arcAngle;
+                    });
+
+                    _updateCalculateButtonState();
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text(
+                    'Use This Radius',
+                    style: TextStyle(color: kGreen, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF212121),
+          title: const Text(
+            'Segmented 90 + Radius',
+            style: TextStyle(color: kLight),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close', style: TextStyle(color: kRed)),
+          content: const SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text(
+                  'Use this screen to lay out either a stubbed segmented 90 or an arc-only bend from a chosen radius.',
+                  style: TextStyle(
+                    color: kLight,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                SizedBox(height: 10),
+
+                Text(
+                  '1. Select conduit type and pipe size.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                SizedBox(height: 10),
+
+                Text(
+                  '2. Set your radius. Enter a measured radius, use Find Radius, or create one from pipe length.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                SizedBox(height: 10),
+
+                Text(
+                  '3. Choose the surface followed and support type. The app updates the adjusted bend radius automatically.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                SizedBox(height: 10),
+
+                Text(
+                  '4. For Arc Only, enter either box-to-box length or arc angle. Radius from Length can also fill the arc angle automatically.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                SizedBox(height: 10),
+
+                Text(
+                  '5. For Stubbed 90, choose a shot count, then enter stub height and optional leg length.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+                SizedBox(height: 10),
+
+                Text(
+                  '6. The app calculates spacing, bend angle, bend marks, and cut layout based on your inputs.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text(
+                'Close',
+                style: TextStyle(color: kRed),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -752,21 +1119,20 @@ class _Segmented90PlusRadiusScreenState
     if (_currentStep == 1) {
       if (_segmentedMode == SegmentedMode.arcOnly) {
         infoText =
-        'Step 2: Choose Arc Only, enter the measured radius or use Find Radius / Arc, then enter the box-to-box length. The app converts to centerline radius and builds bend-angle options automatically.';
+        'Step 2: Enter radius, then choose Arc Input (box-to-box or 0–360° angle).';
       } else {
         infoText =
-        'Step 2: Choose Stubbed 90, enter the measured radius or use Find Radius / Arc, then choose shot count, stub height, and optional leg length.';
+        'Step 2: Enter radius, then choose shots, stub height, and optional leg length.';
       }
     } else if (_currentStep == 2) {
-      infoText =
-      'Step 3: Press CALCULATE to solve the bend layout.';
+      infoText = 'Step 3: Press CALCULATE.';
     } else if (_currentStep == 3) {
       if (_segmentedMode == SegmentedMode.arcOnly) {
         infoText =
-        'Arc Only shows the best bend-angle option first. Tap More Options to switch between 3°, 4°, 5°, and 6°. Start and end marks use half-spacing for now, and end bends may still need slight field adjustment.';
+        'Step 4: Use the selected bend angle. Tap More Options if needed.';
       } else {
         infoText =
-        'Calculation complete. Measure Mark A, Mark B, and Mark C from the same end of the pipe.';
+        'Step 4: Measure Mark A, B, and C from the same end of the pipe.';
       }
     }
 
@@ -969,9 +1335,118 @@ class _Segmented90PlusRadiusScreenState
 
   Widget _thinSectionDivider() {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12),
-      height: 1,
-      color: Colors.white24,
+      margin: const EdgeInsets.symmetric(vertical: 14),
+      height: 2,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.transparent,
+            Colors.white38,
+            Colors.transparent,
+          ],
+        ),
+      ),
+    );
+  }
+  Widget _buildPipeLengthHelper() {
+    final double pipeLength = _parseInches(pipeLengthRadiusCtrl.text);
+    final double arcAngle = _parseDegrees(pipeLengthArcAngleCtrl.text);
+
+    final double? solvedRadius = _radiusFromPipeLength(
+      pipeLength: pipeLength,
+      arcAngleDeg: arcAngle,
+    );
+
+    final String resultText = solvedRadius == null ? '' : fmtInches(solvedRadius);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: kBlack.withAlpha(90),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white24, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Radius from Pipe Length',
+            style: TextStyle(
+              color: kLight,
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          _inlineField(
+            'Pipe Length',
+            pipeLengthRadiusCtrl,
+            onTap: () => _showKeypad(pipeLengthRadiusCtrl),
+          ),
+          const SizedBox(height: 8),
+
+          _inlineField(
+            'Arc Angle (0–360°)',
+            pipeLengthArcAngleCtrl,
+            onTap: () => _showKeypad(pipeLengthArcAngleCtrl),
+            suffix: '°',
+          ),
+
+          const SizedBox(height: 10),
+
+          _readOnlyValueField('Radius', resultText),
+
+          const SizedBox(height: 10),
+
+          Row(
+            children: [
+              Expanded(
+                child: _buildSilverButton(
+                  label: 'Cancel',
+                  height: 38,
+                  fontSize: 14,
+                  onTap: () {
+                    setState(() {
+                      _showPipeLengthHelper = false;
+                      pipeLengthRadiusCtrl.clear();
+                      pipeLengthArcAngleCtrl.clear();
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildSilverButton(
+                  label: 'Use This Radius',
+                  height: 38,
+                  fontSize: 13,
+                  onTap: solvedRadius == null
+                      ? null
+                      : () {
+                    setState(() {
+                      radiusCtrl.text = fmtInches(solvedRadius);
+
+                      arcAngleCtrl.text = _formatDegrees(_sanitizeArcAngle(arcAngle));
+
+                      _arcInputMode = ArcInputMode.arcAngle;
+
+                      _radiusWasGeneratedFromLength = true;
+                      _lockedPipeLength = pipeLength;
+                      _lockedArcAngleDeg = arcAngle;
+
+                      _showPipeLengthHelper = false;
+                    });
+
+                    _updateCalculateButtonState();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -1011,8 +1486,9 @@ class _Segmented90PlusRadiusScreenState
 
   Widget _buildMeasurementsSection() {
     final bool isEnabled = _currentStep >= 1;
-    final double? clr = _computedCenterlineRadius();
-    final String clrText = clr == null ? '' : fmtInches(clr);
+    final double? adjustedRadius = _computedAdjustedBendRadius();
+    final String adjustedRadiusText =
+    adjustedRadius == null ? '' : fmtInches(adjustedRadius);
 
     return _buildGroupContainer(
       child: Column(
@@ -1101,18 +1577,50 @@ class _Segmented90PlusRadiusScreenState
                   ),
                   const SizedBox(height: 8),
 
-                  _buildSilverButton(
-                    label: 'Don’t Know Radius? Tap here',
-                    height: 40,
-                    fontSize: 14,
-                    onTap: _openRadiusFinderScreen,
+                  Column(
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildSilverButton(
+                              label: 'Find Radius',
+                              height: 40,
+                              fontSize: 14,
+                              onTap: _openRadiusFinderScreen,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _buildSilverButton(
+                              label: _showPipeLengthHelper
+                                  ? 'Hide Length Tool'
+                                  : 'Radius from Length',
+                              height: 40,
+                              fontSize: 13,
+                              isActive: _showPipeLengthHelper,
+                              onTap: () {
+                                setState(() {
+                                  _showPipeLengthHelper = !_showPipeLengthHelper;
+
+                                  if (!_showPipeLengthHelper) {
+                                    pipeLengthRadiusCtrl.clear();
+                                    pipeLengthArcAngleCtrl.clear();
+                                  }
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_showPipeLengthHelper) _buildPipeLengthHelper(),
+                    ],
                   ),
                   const SizedBox(height: 10),
 
                   const Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Arc Side',
+                      'Surface Followed',
                       style: TextStyle(
                         color: kLight,
                         fontSize: 16,
@@ -1126,12 +1634,12 @@ class _Segmented90PlusRadiusScreenState
                     children: [
                       Expanded(
                         child: _buildSilverButton(
-                          label: 'Inside Arc',
+                          label: 'Inside Surface',
                           height: 40,
-                          isActive: _arcSide == ArcSide.inside,
+                          isActive: _surfaceFollowed == SurfaceFollowed.inside,
                           onTap: () {
                             setState(() {
-                              _arcSide = ArcSide.inside;
+                              _surfaceFollowed = SurfaceFollowed.inside;
                             });
                             _updateCalculateButtonState();
                           },
@@ -1140,12 +1648,12 @@ class _Segmented90PlusRadiusScreenState
                       const SizedBox(width: 8),
                       Expanded(
                         child: _buildSilverButton(
-                          label: 'Outside Arc',
+                          label: 'Outside Surface',
                           height: 40,
-                          isActive: _arcSide == ArcSide.outside,
+                          isActive: _surfaceFollowed == SurfaceFollowed.outside,
                           onTap: () {
                             setState(() {
-                              _arcSide = ArcSide.outside;
+                              _surfaceFollowed = SurfaceFollowed.outside;
                             });
                             _updateCalculateButtonState();
                           },
@@ -1279,7 +1787,7 @@ class _Segmented90PlusRadiusScreenState
 
                   const SizedBox(height: 10),
 
-                  _readOnlyValueField('Centerline Radius (CLR)', clrText),
+                  _readOnlyValueField('Adjusted Bend Radius', adjustedRadiusText),
 
                   const SizedBox(height: 12),
                   _thinSectionDivider(),
@@ -1342,6 +1850,7 @@ class _Segmented90PlusRadiusScreenState
                       'Stub Height',
                       measurement1Ctrl,
                       onTap: () => _showKeypad(measurement1Ctrl),
+                      suffix: '"',
                     ),
                     _inlineField(
                       'Leg Length (optional)',
@@ -1403,7 +1912,7 @@ class _Segmented90PlusRadiusScreenState
                     _inlineField(
                       _arcInputMode == ArcInputMode.boxToBox
                           ? 'Box-to-Box Length'
-                          : 'Arc Angle',
+                          : 'Arc Angle (0–360°)',
                       _arcInputMode == ArcInputMode.boxToBox ? boxToBoxCtrl : arcAngleCtrl,
                       onTap: () => _showKeypad(
                         _arcInputMode == ArcInputMode.boxToBox ? boxToBoxCtrl : arcAngleCtrl,
@@ -1438,6 +1947,9 @@ class _Segmented90PlusRadiusScreenState
 
   Widget _buildResultsSection() {
     final bool isEnabled = _currentStep >= 3;
+    final double? adjustedRadius = _computedAdjustedBendRadius();
+    final String radiusText =
+    adjustedRadius == null ? '' : fmtInches(adjustedRadius);
 
     return _buildGroupContainer(
       child: Column(
@@ -1457,6 +1969,7 @@ class _Segmented90PlusRadiusScreenState
               child: Column(
                 children: [
                   if (_segmentedMode == SegmentedMode.arcOnly) ...[
+                    _resultRow('Radius', radiusText),
                     _resultRow(
                       _arcInputMode == ArcInputMode.boxToBox
                           ? 'Box-to-Box Length'
@@ -1517,13 +2030,14 @@ class _Segmented90PlusRadiusScreenState
                       ),
                     ],
                   ] else ...[
+                    _resultRow('Radius', radiusText),
                     _resultRow('Mark A — First Bend', markAOut),
                     _resultRow('Mark B — Last Bend', markBOut),
                     _resultRow('Mark C — Cut Length', markCOut),
                     const SizedBox(height: 10),
+                    _resultRow('Number of Bends', shotsOut),
                     _resultRow('Spacing Between Bends', spacingOut),
-                    _resultRow('Shots', shotsOut),
-                    _resultRow('Angle Per Shot', anglePerShotOut),
+                    _resultRow('Bend Angle', anglePerShotOut),
                   ],
                   const SizedBox(height: 15),
                   _buildSilverButton(
@@ -1656,7 +2170,7 @@ class _Segmented90PlusRadiusScreenState
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),
-            onPressed: () => _showHelpDialog(context),
+            onPressed: _showHelpDialog,
           ),
           TextButton(
             onPressed: () => Navigator.push(
