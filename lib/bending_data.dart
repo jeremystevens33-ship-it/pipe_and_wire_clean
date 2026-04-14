@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 enum BendingMethod { arrow, centerline }
 enum ConduitType { emt, imc, rigid, pvc }
-enum MarkBMethod { pushThrough, reverseBender } // Kept as it's already in bending_data.dart
+enum MarkBMethod { pushThrough, reverseBender }
 
 class Bender {
   const Bender({
@@ -97,39 +97,18 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Greenlee 1818', conduitSize: '1.25', conduitType: ConduitType.emt, deduct: 12.625, clr: 7.625, gain: 4.786), // kick_90.dart value
   const Bender(brand: 'Greenlee 1818', conduitSize: '1.5', conduitType: ConduitType.emt, deduct: 12.9375, clr: 8.28125, gain: 5.290), // kick_90.dart value
   const Bender(brand: 'Greenlee 1818', conduitSize: '2.0', conduitType: ConduitType.emt, deduct: 15.0, clr: 9.1875, gain: 6.145), // kick_90.dart value
-
-  const Bender(brand: 'Greenlee 881', conduitSize: '2.5', conduitType: ConduitType.rigid, deduct: 15.0, clr: 13.5, gain: 5.8), // kick_90.dart value
-  const Bender(brand: 'Greenlee 881', conduitSize: '3.0', conduitType: ConduitType.rigid, deduct: 19.0, clr: 16.0, gain: 6.87), // kick_90.dart value
-  const Bender(brand: 'Greenlee 881', conduitSize: '3.5', conduitType: ConduitType.rigid, deduct: 22.25, clr: 18.625, gain: 8.0), // kick_90.dart value
-  const Bender(brand: 'Greenlee 881', conduitSize: '4.0', conduitType: ConduitType.rigid, deduct: 25.5, clr: 20.875, gain: 8.96), // kick_90.dart value
-
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '1.25', conduitType: ConduitType.rigid, deduct: 13.0, clr: 7.25, gain: 3.11), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '1.5', conduitType: ConduitType.rigid, deduct: 15.0, clr: 8.25, gain: 3.54), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '2.0', conduitType: ConduitType.rigid, deduct: 16.25, clr: 9.5, gain: 4.08), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '2.5', conduitType: ConduitType.rigid, deduct: 19.5, clr: 12.5, gain: 5.36), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '3.0', conduitType: ConduitType.rigid, deduct: 22.0, clr: 15.0, gain: 6.44), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '3.5', conduitType: ConduitType.rigid, deduct: 25.0, clr: 17.5, gain: 7.51), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '4.0', conduitType: ConduitType.rigid, deduct: 28.0, clr: 20.0, gain: 8.58), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '0.5', conduitType: ConduitType.pvc, deduct: 8.5, clr: 4.5, gain: 1.93), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '0.75', conduitType: ConduitType.pvc, deduct: 10.0, clr: 5.4375, gain: 2.33), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '1.0', conduitType: ConduitType.pvc, deduct: 12.625, clr: 6.9375, gain: 2.98), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '1.25', conduitType: ConduitType.pvc, deduct: 13.0, clr: 7.25, gain: 3.11), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '1.5', conduitType: ConduitType.pvc, deduct: 15.0, clr: 8.25, gain: 3.54), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '2.0', conduitType: ConduitType.pvc, deduct: 16.25, clr: 9.5, gain: 4.08), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '2.5', conduitType: ConduitType.pvc, deduct: 19.5, clr: 11.4375, gain: 4.91), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '3.0', conduitType: ConduitType.pvc, deduct: 22.0, clr: 13.75, gain: 5.9), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '3.5', conduitType: ConduitType.pvc, deduct: 25.0, clr: 16.0, gain: 6.86), // kick_90.dart value
-  const Bender(brand: 'Greenlee 884/885', conduitSize: '4.0', conduitType: ConduitType.pvc, deduct: 28.0, clr: 18.25, gain: 7.83), // kick_90.dart value
 ];
 
 // This helper function calculate 90° gain based on CLR and OD.
 // The gainConstant (2 - (pi / 2)) is approximately 0.4292.
+// Formula: Gain90 = ((2 - (π / 2)) * CLR) + OD
 double calculateGain90(double clr, double od) {
   const double gainConstant = 2 - (math.pi / 2); // Approx. 0.4292
   return (gainConstant * clr) + od;
 }
 
 // This helper function calculates the 90° travel for a given CLR.
+// Formula: Travel90 = (π * CLR) / 2
 double calculateTravel90(double clr) {
   return (math.pi * clr) / 2;
 }
@@ -137,6 +116,44 @@ double calculateTravel90(double clr) {
 const Set<String> mechanicalElectricBenderBrands = {
   'Greenlee 1818',
   'Greenlee 555',
-  'Greenlee 881',
-  'Greenlee 884/885',
 };
+
+// =============================================================================
+// Helper functions for Back-to-Back 90 calculations
+// =============================================================================
+
+/// Calculates the total linear length of conduit required for a back-to-back 90 bend.
+/// This accounts for the desired stub heights, the distance between the bends,
+/// and the pipe material saved due to two 90-degree gains.
+/// Formula: Cut Length = (Stub 1 + Back to Back Distance + Stub 2) - (2 * Gain)
+/// (`cutLength = (s1 + d + s2) - (2 * g)`)
+double calculateBtbCutLength(double s1, double d, double s2, double g) {
+  return (s1 + d + s2) - (2 * g);
+}
+
+/// Determines the first mark (Mark A) on the conduit, measured from the end of the pipe,
+/// to achieve the desired Stub 1 height. This accounts for the bender's take-up.
+/// Formula: Mark A = Stub 1 - Take-Up
+/// (`markA = s1 - t`)
+double calculateBtbMarkA(double s1, double t) {
+  return s1 - t;
+}
+
+/// Calculates the second mark (Mark B) using the "Push Through" method.
+/// This mark is measured from the *same end* of the pipe as Mark A, and it accounts
+/// for the back-to-back distance and the gain from the second bend.
+/// Formula: Mark B (Push Through) = Mark A + (Back to Back Distance - Gain)
+/// (`markB = markA + (d - g)`)
+double calculateBtbMarkBPushThrough(double markA, double d, double g) {
+  return markA + (d - g);
+}
+
+/// Calculates the second mark (Mark B) using the "Reverse Bender" method.
+/// This mark is also measured from the *same end* of the pipe as Mark A, but it's
+/// derived by subtracting the effective length of Stub 2 (after take-up)
+/// from the total Cut Length.
+/// Formula: Mark B (Reverse Bender) = Cut Length - (Stub 2 - Take-Up)
+/// (`markB = cutLength - (s2 - t)`)
+double calculateBtbMarkBReverseBender(double cutLength, double s2, double t) {
+  return cutLength - (s2 - t);
+}

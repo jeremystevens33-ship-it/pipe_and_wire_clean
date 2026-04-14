@@ -6,7 +6,22 @@ import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
 import 'package:flutter/services.dart'; // Added for SystemChrome
 
 import 'code_screen.dart';
+void main() {
+  runApp(const TestApp());
+}
 
+class TestApp extends StatelessWidget {
+  const TestApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData.dark(),
+      home: const BackToBack90ScreenV2(), // 👈 adjust if needed
+    );
+  }
+}
 
 // ===== THEME =====
 const kRed = Color(0xFFE53935);
@@ -552,7 +567,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       backgroundColor: kBlack,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
-        title: const Text('Back to Back 90 v2'),
+        title: const Text('Back to Back 90'),
         foregroundColor: kLight,
         actions: [
           IconButton(icon: const Icon(Icons.info_outline),

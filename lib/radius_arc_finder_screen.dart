@@ -660,7 +660,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                   ),
                   SizedBox(height: 16),
                   _InfoBlock(
-                    title: 'Across + Rise',
+                    title: 'Inside Arc',
                     body:
                     'Pick any two points on the curve. Measure straight across between them. Go to the midpoint of that measurement, then measure up to the arc.',
                   ),
@@ -678,7 +678,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                   ),
                   SizedBox(height: 12),
                   _InfoBlock(
-                    title: 'Tangent Offset',
+                    title: 'Outside Arc',
                     body:
                     'Use this when you can rest a straight edge against the outside of the curve at one touch point. Measure X along the tangent line, then measure Y at a true 90° angle from the tangent down to the curve.',
                   ),
@@ -748,7 +748,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
                   children: [
                     _stepCard(
                       key: _methodCardKey,
-                      title: '1. METHOD',
+                      title: '1. Find Radius',
                       isActive: _activeStep == RadiusStep.method,
                       onHeaderTap: () {
                         setState(() {
@@ -1288,7 +1288,7 @@ class _TangentOffsetPainter extends CustomPainter {
   static const double arcStartY = 0.80;
   static const double arcEndY = 0.80;
   static const double controlX = 0.53;
-  static const double controlY = 0.3222222222222222222222222222222222;
+  static const double controlY = 0.32;
 
 // ===== TANGENT LINE =====
   static const double tangentStartX = 0.42;
