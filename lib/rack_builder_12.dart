@@ -2,6 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'rack_state.dart';
 import 'keypad_5.dart';
+void main() {
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => RackState(),
+      child: const RackBuilder12TestApp(),
+    ),
+  );
+}
+
+class RackBuilder12TestApp extends StatelessWidget {
+  const RackBuilder12TestApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Rack Builder 12 Test',
+      theme: ThemeData.dark(),
+      home: const RackBuilderScreen(),
+    );
+  }
+}
 
 const kRed = Color(0xFFE53935);
 const kBlack = Colors.black;

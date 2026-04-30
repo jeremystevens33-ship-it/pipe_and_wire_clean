@@ -36,6 +36,12 @@ class BackToBack90ScreenV2 extends StatefulWidget {
 }
 
 class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
+  static const double _resultsGraphicBlockHeight = 315.0;
+  static const double _topPipeImageHeight = 200.0;
+  static const double _topPipeImageTopPadding = 2.0;
+  static const double _topPipeImageSidePadding = 0.0;
+  static const double _spaceBetweenTopAndBottomGraphic = 1.0;
+  static const double _bottomMeasurementGraphicHeight = 110.0;
   // State management for workflow
   int _currentStep = 0;
   bool _isBenderExpanded = true;
@@ -65,7 +71,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   final gainCtrl = TextEditingController();
   final radiusCtrl = TextEditingController();
   final setbackCtrl = TextEditingController();
-
+  final parallelSpacingCtrl = TextEditingController();
   // Output variables
   String markAOut = '';
   String markBOut = '';
@@ -85,6 +91,10 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   String _customBenderName = '';
   // Conditional Travel Field Visibility
   bool _showTravelField = false;
+  bool _isParallelMode = false;
+  double _parallelClearSpace = 0.0;
+  double _parallelEffectiveOffset = 0.0;
+  bool _isParallelEntryMode = false;
 
   @override
   void initState() {
@@ -114,6 +124,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       stub1Ctrl,
       stub2Ctrl,
       backToBackDistanceCtrl,
+      parallelSpacingCtrl,
       travelCtrl,
       takeUpCtrl,
       gainCtrl,
@@ -161,10 +172,8 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
       _allBrands = [
         ...defaultBrands,
-        if (_customBenders.isNotEmpty)
-          {'type': 'header', 'name': '--- MY BENDERS ---'},
-        ..._customBenders.map((b) =>
-        {'type': 'bender', 'name': b.brand})
+        {'type': 'header', 'name': 'SAVED BENDERS'},
+        ..._customBenders.map((b) => {'type': 'bender', 'name': b.brand}),
       ];
     });
   }
@@ -339,6 +348,12 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       _isEditMode = false;
       _resetToStep(0);
       _showTravelField = false;
+
+      parallelSpacingCtrl.clear();
+      _isParallelMode = false;
+      _isParallelEntryMode = false;
+      _parallelClearSpace = 0.0;
+      _parallelEffectiveOffset = 0.0;
     });
   }
 
@@ -410,7 +425,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
     final List<String> availableSizes = [];
     switch (_selectedBrand) {
-      case 'IDEAL':
+      case 'Ideal':
       case 'Klein':
       case 'Gardner Bender':
         final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.25');
@@ -434,62 +449,114 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       bending_data.pipeSizes.entries.where((entry) => availableSizes.contains(entry.key)),
     );
   }
+  double _selectedPipeOD() {
+    if (_selectedPipeSize == null) return 0.0;
 
-  void calculate() {
-    if (!_isCalculateReady) return;
+    return (_selectedConduitType == bending_data.ConduitType.emt
+        ? bending_data.emtOD[_selectedPipeSize]
+        : bending_data.grcOD[_selectedPipeSize]) ??
+        0.0;
+  }
 
-    final s1 = _parseInches(stub1Ctrl.text);
-    final s2 = _parseInches(stub2Ctrl.text);
-    final d = _parseInches(backToBackDistanceCtrl.text);
-    final t = _rawTakeUp;
-    final g = _rawGain;
+  Map<String, double>? _buildResultValues() {
+    if (!_isCalculateReady) return null;
 
-    if (s1 == 0 || s2 == 0 || d == 0 || t == 0 || g == 0) return;
+    final baseStub1 = _parseInches(stub1Ctrl.text);
+    final baseStub2 = _parseInches(stub2Ctrl.text);
+    final baseDistance = _parseInches(backToBackDistanceCtrl.text);
+    final takeUp = _rawTakeUp;
+    final gain = _rawGain;
 
-    // Use helper functions from bending_data.dart for calculations
-    _rawCut = bending_data.calculateBtbCutLength(s1, d, s2, g);
-    _rawMarkA = bending_data.calculateBtbMarkA(s1, t);
-
-    // Calculate both Mark B methods
-    final double markBMethodA = bending_data.calculateBtbMarkBPushThrough(_rawMarkA, d, g);
-    final double markBMethodB = bending_data.calculateBtbMarkBReverseBender(_rawCut, s2, t);
-
-    // Set _rawMarkB based on selected method for display and graphic
-    if (_selectedMarkBMethod == bending_data.MarkBMethod.pushThrough) {
-      _rawMarkB = markBMethodA;
-    } else {
-      _rawMarkB = markBMethodB;
+    if (baseStub1 == 0 || baseStub2 == 0 || baseDistance == 0 || takeUp == 0 || gain == 0) {
+      return null;
     }
 
-    _updateResultDisplay(); // Call to update result display
+    final double offset = _isParallelMode ? _parallelEffectiveOffset : 0.0;
+
+    final double stub1 = baseStub1 + offset;
+    final double stub2 = baseStub2 + offset;
+    final double distance = baseDistance + (2 * offset);
+
+    final double cut = bending_data.calculateBtbCutLength(stub1, distance, stub2, gain);
+    final double markA = bending_data.calculateBtbMarkA(stub1, takeUp);
+
+    final double markB = _selectedMarkBMethod == bending_data.MarkBMethod.pushThrough
+        ? bending_data.calculateBtbMarkBPushThrough(markA, distance, gain)
+        : bending_data.calculateBtbMarkBReverseBender(cut, stub2, takeUp);
+
+    return {
+      'markA': markA,
+      'markB': markB,
+      'cut': cut,
+    };
+  }
+
+  void _applyParallelMeasurementsFromSpacing() {
+    final clearSpace = _parseInches(parallelSpacingCtrl.text);
+    final od = _selectedPipeOD();
+
+    if (clearSpace <= 0 || od <= 0) return;
+
+    final offset = clearSpace + od;
+
+    final baseStub1 = _parseInches(stub1Ctrl.text);
+    final baseStub2 = _parseInches(stub2Ctrl.text);
+    final baseDistance = _parseInches(backToBackDistanceCtrl.text);
+
+    if (baseStub1 <= 0 || baseStub2 <= 0 || baseDistance <= 0) return;
+
+    final newStub1 = baseStub1 + offset;
+    final newStub2 = baseStub2 + offset;
+    final newDistance = baseDistance + (2 * offset);
 
     setState(() {
+      _parallelClearSpace = clearSpace;
+      _parallelEffectiveOffset = offset;
+      _isParallelMode = true;
+      _isParallelEntryMode = false;
+
+      stub1Ctrl.text = fmtInches(newStub1);
+      stub2Ctrl.text = fmtInches(newStub2);
+      backToBackDistanceCtrl.text = fmtInches(newDistance);
+    });
+  }
+  void calculate() {
+    if (_isParallelEntryMode) {
+      final clearSpace = _parseInches(parallelSpacingCtrl.text);
+      final od = _selectedPipeOD();
+
+      if (clearSpace > 0 && od > 0) {
+        _parallelClearSpace = clearSpace;
+        _parallelEffectiveOffset = clearSpace + od;
+        _isParallelMode = true;
+      } else {
+        _parallelClearSpace = 0.0;
+        _parallelEffectiveOffset = 0.0;
+        _isParallelMode = false;
+      }
+
+      _isParallelEntryMode = false;
+    }
+
+    final results = _buildResultValues();
+    if (results == null) return;
+
+    setState(() {
+      _rawMarkA = results['markA']!;
+      _rawMarkB = results['markB']!;
+      _rawCut = results['cut']!;
+
+      markAOut = fmtInches(_rawMarkA);
+      markBOut = fmtInches(_rawMarkB);
+      markCOut = fmtInches(_rawCut);
+
       _currentStep = 3;
       _isResultsExpanded = true;
       _isMeasurementsExpanded = false;
-      _hideKeypad();
     });
+
+    _hideKeypad();
   }
-
-  void _updateResultDisplay() {
-    setState(() {
-      markAOut = fmtInches(_rawMarkA);
-      markCOut = fmtInches(_rawCut);
-      // Recalculate Mark B based on the current selection and raw values
-      // Ensure we use the parsed raw values for consistency in display logic
-      final double parsedBtbDistance = _parseInches(backToBackDistanceCtrl.text);
-      final double parsedStub2 = _parseInches(stub2Ctrl.text);
-
-      if (_selectedMarkBMethod == bending_data.MarkBMethod.pushThrough) {
-        markBOut = fmtInches(bending_data.calculateBtbMarkBPushThrough(_rawMarkA, parsedBtbDistance, _rawGain));
-        _rawMarkB = bending_data.calculateBtbMarkBPushThrough(_rawMarkA, parsedBtbDistance, _rawGain);
-      } else {
-        markBOut = fmtInches(bending_data.calculateBtbMarkBReverseBender(_rawCut, parsedStub2, _rawTakeUp));
-        _rawMarkB = bending_data.calculateBtbMarkBReverseBender(_rawCut, parsedStub2, _rawTakeUp);
-      }
-    });
-  }
-
   void _advanceKeypadFocus() {
     if (_activeController == stub1Ctrl) {
       _showKeypad(stub2Ctrl);
@@ -506,6 +573,14 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
         } else {
           _hideKeypad();
         }
+      });
+      return;
+    }
+
+    if (_activeController == parallelSpacingCtrl) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _hideKeypad();
+        _applyParallelMeasurementsFromSpacing();
       });
       return;
     }
@@ -531,7 +606,6 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
     _hideKeypad();
   }
-
   void _onKeypadTap(String value) {
     if (_activeController == null) return;
     final controller = _activeController!;
@@ -607,15 +681,34 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     setState(() {
       _customBenders.add(newBender);
       _updateBrandDropdown();
+
       _selectedBrand = newBender.model;
+
       _isEditMode = false;
       _isNameEntryMode = false;
       _customBenderName = '';
     });
 
+// 🔥 THIS IS THE FIX
+    _updateBenderData();
+
+    _hideKeypad();
     _hideKeypad();
   }
+  void _updateResultDisplay() {
+    final results = _buildResultValues();
+    if (results == null) return;
 
+    setState(() {
+      _rawMarkA = results['markA']!;
+      _rawMarkB = results['markB']!;
+      _rawCut = results['cut']!;
+
+      markAOut = fmtInches(_rawMarkA);
+      markBOut = fmtInches(_rawMarkB);
+      markCOut = fmtInches(_rawCut);
+    });
+  }
   void _showKeypad(TextEditingController controller) {
     if (controller.text.isNotEmpty) {
       controller.clear();
@@ -832,7 +925,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
         _selectedBrand = newBender.model;
         _isEditMode = false;
       });
-
+      _updateBenderData();
       _hideKeypad();
     }
   }
@@ -936,31 +1029,28 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
               padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
               child: ListView(
                 children: [
-                  _buildBenderSection(),
-                  const SizedBox(height: 6),
+                  if (!_isResultsExpanded) ...[
+                    _buildBenderSection(),
+                    const SizedBox(height: 6),
 
-                  _buildMeasurementsSection(),
-                  const SizedBox(height: 6),
+                    _buildMeasurementsSection(),
+                    const SizedBox(height: 6),
 
-                  _buildCalculateSection(),
-                  const SizedBox(height: 6),
+                    _buildCalculateSection(),
+                    const SizedBox(height: 6),
+                  ],
 
                   _buildResultsSection(),
+
+
                 ],
               ),
             ),
           ),
 
-          if (markAOut.isNotEmpty && !_isKeypadVisible && !_isNameEntryMode)
-            SizedBox(
-              height: 220,
-              child: _BackToBackResultGraphic(
-                markA: markAOut,
-                markB: markBOut,
-                markC: markCOut,
-              ),
-            )
-          else if (!_isKeypadVisible && !_isNameEntryMode)
+          // 🔥 RESULTS GRAPHIC + INFO BAR HANDLING (CLEAN BLOCK)
+
+          if (!_isKeypadVisible && !_isNameEntryMode)
             _buildInfoBar(),
 
           if (_isNameEntryMode)
@@ -1210,22 +1300,31 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
               padding: const EdgeInsets.only(top: 12.0),
               child: Column(
                 children: [
-                  _inlineField(
-                    'Stub 1 Height',
-                    stub1Ctrl,
-                    onTap: () => _showKeypad(stub1Ctrl),
-                  ),
-                  _inlineField(
-                    'Stub 2 Height',
-                    stub2Ctrl,
-                    onTap: () => _showKeypad(stub2Ctrl),
-                  ),
-                  _inlineField(
-                    'Back to Back Distance',
-                    backToBackDistanceCtrl,
-                    onTap: () => _showKeypad(backToBackDistanceCtrl),
-                  ),
-                  const SizedBox(height: 12),
+                  if (_isParallelEntryMode) ...[
+                    _inlineField(
+                      'Open Distance Between Pipes',
+                      parallelSpacingCtrl,
+                      onTap: () => _showKeypad(parallelSpacingCtrl),
+                    ),
+                    const SizedBox(height: 12),
+                  ] else ...[
+                    _inlineField(
+                      _isParallelMode ? 'Parallel Stub 1' : 'Stub 1 Height',
+                      stub1Ctrl,
+                      onTap: () => _showKeypad(stub1Ctrl),
+                    ),
+                    _inlineField(
+                      _isParallelMode ? 'Parallel Stub 2' : 'Stub 2 Height',
+                      stub2Ctrl,
+                      onTap: () => _showKeypad(stub2Ctrl),
+                    ),
+                    _inlineField(
+                      _isParallelMode ? 'Parallel Back to Back' : 'Back to Back Distance',
+                      backToBackDistanceCtrl,
+                      onTap: () => _showKeypad(backToBackDistanceCtrl),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 ],
               ),
             ),
@@ -1288,19 +1387,99 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
           ),
           if (_isResultsExpanded)
             Padding(
-              padding: const EdgeInsets.only(top: 18.0, bottom: 12.0),
+              padding: const EdgeInsets.only(top: 10.0, bottom: 6.0),
               child: Column(
                 children: [
                   _buildMethodSelector(),
-                  const SizedBox(height: 8.0), // Reduced space after method selector
+
+                  const SizedBox(height: 6),
+
                   _resultRow('Mark A — First Bend', markAOut),
                   _resultRow('Mark B — Second Bend', markBOut),
                   _resultRow('Mark C — Cut Length', markCOut),
-                  const SizedBox(height: 20), // Increased space before "Start New Bend"
-                  _buildSilverButton(
-                    label: 'Start New Bend',
-                    height: 40,
-                    onTap: _startNewBend,
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Start New Bend',
+                          height: 38,
+                          onTap: _startNewBend,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Parallel',
+                          height: 38,
+                          onTap: () {
+                            if (_isParallelMode || _isParallelEntryMode) {
+                              setState(() {
+                                _isParallelMode = false;
+                                _isParallelEntryMode = false;
+                                _parallelClearSpace = 0.0;
+                                _parallelEffectiveOffset = 0.0;
+                                parallelSpacingCtrl.clear();
+                              });
+                              calculate();
+                            } else {
+                              setState(() {
+                                _isParallelEntryMode = true;
+                                _isParallelMode = false;
+                                _isResultsExpanded = false;
+                                _isMeasurementsExpanded = true;
+                                _currentStep = 1;
+
+                                parallelSpacingCtrl.clear();
+                              });
+
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _showKeypad(parallelSpacingCtrl);
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 6),
+
+                  SizedBox(
+                    height: _resultsGraphicBlockHeight,
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: _topPipeImageHeight,
+                          child: Padding(
+                            padding: const EdgeInsets.only(
+                              top: _topPipeImageTopPadding,
+                              left: _topPipeImageSidePadding,
+                              right: _topPipeImageSidePadding,
+                            ),
+                            child: Center(
+                              child: Image.asset(
+                                _isParallelMode
+                                    ? 'assets/images/btb_parallel.png'
+                                    : 'assets/images/btb_1.png',
+                                width: double.infinity,
+                                fit: BoxFit.fitWidth,
+                                alignment: Alignment.bottomCenter,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: _spaceBetweenTopAndBottomGraphic),
+                        SizedBox(
+                          height: _bottomMeasurementGraphicHeight,
+                          child: _BackToBackResultGraphic(
+                            markA: markAOut,
+                            markB: markBOut,
+                            markC: markCOut,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
@@ -1345,15 +1524,56 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   }
 
   Widget _resultRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(145),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.1),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: const TextStyle(fontSize: 16, color: Colors.white70)),
-          Text(value, style: const TextStyle(
-              fontSize: 18, color: kLight, fontWeight: FontWeight.bold)),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: 132,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF8A1010), Color(0xFFD12A2A)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFB0B0B0), width: 1),
+                ),
+                child: Text(
+                  value,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1402,7 +1622,7 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
             if (type == 'header') {
               return DropdownMenuItem<String>(
-                value: 'header_Sname',
+                value: 'header_$name',
                 enabled: false,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1469,46 +1689,99 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
   }
 
   void _showHelpDialog(BuildContext context) {
-    showDialog(context: context, builder: (context) =>
-        AlertDialog(backgroundColor: const Color(0xFF212121),
-            title: const Text('Back to Back 90 Help', style: TextStyle(color: kLight)),
-            content: const SingleChildScrollView(child: ListBody(
-                children: <Widget>[
-                  Text('Follow the steps in order for best results:',
-                      style: TextStyle(color: kLight,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '1. Bender & Conduit: First, select your bender brand, conduit type (EMT, GRC, etc.), and pipe size. This loads the correct data for the calculation.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Gain vs. Take-Up:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• GAIN is used only to determine the CUT LENGTH of the pipe. It ensures the final distance between bends is correct.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• TAKE-UP is used only to determine WHERE TO MARK the pipe for bending.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Bending Methods Explained:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      'This app provides two valid methods for marking your second bend. Both produce the same final result, so choose the one you are most comfortable with.',
-                      style: TextStyle(color: Colors.white70)),
-                ])),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close', style: TextStyle(color: kRed)))
-            ]));
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        title: const Text(
+          'Back to Back 90 Help',
+          style: TextStyle(color: kLight),
+        ),
+        content: const SingleChildScrollView(
+          child: ListBody(
+            children: <Widget>[
+              Text(
+                'Back-to-Back 90 — Pre-Cut Method',
+                style: TextStyle(
+                  color: kLight,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'This screen uses a pre-cut method. The cut length is calculated first, so you can usually pull your tape one time, mark the conduit, and then make both bends without stopping to measure off the back of a finished 90.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'All bends in this method are made with the arrow.',
+                style: TextStyle(
+                  color: kLight,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+              Text(
+                'That is what makes this method different. Even when using the reverse-bender technique, you do not need the star here because the conduit is already pre-cut to the correct length.',
+                style: TextStyle(color: Colors.white70),
+              ),
+
+              SizedBox(height: 16),
+              Text(
+                'Push Through Method',
+                style: TextStyle(
+                  color: kLight,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+              Text(
+                'Push Through works best when the bends are closer together. After the first bend, you keep feeding the conduit through the bender and make the second bend without fully resetting your setup.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Reverse Bender Method',
+                style: TextStyle(
+                  color: kLight,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+              Text(
+                'Reverse Bender is helpful when the second bend is closer to the end of the conduit and there is not enough room to place the bender normally. In that case, you reverse the conduit in the bender and complete the second bend that way.',
+                style: TextStyle(color: Colors.white70),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Why this screen saves time',
+                style: TextStyle(
+                  color: kLight,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              SizedBox(height: 10),
+
+              Text(
+                'Layout your bend marks and cut length in one pull of the tape measure. Make both bends without stopping to re-measure.',
+                style: TextStyle(color: Colors.white70),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close', style: TextStyle(color: kRed)),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildInfoBar() {
@@ -1525,9 +1798,14 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       infoText =
       "Step 3: All measurements entered. Press 'CALCULATE' to see results.";
     } else {
-      infoText = "Calculation complete. See results above.";
+      if (_selectedMarkBMethod == bending_data.MarkBMethod.pushThrough) {
+        infoText =
+        'All bends use the arrow. Layout marks and cut length in one pull. Push Through for tighter spacing.';
+      } else {
+        infoText =
+        'All bends use the arrow. Layout marks and cut length in one pull. Reverse bender when second bend is near the end.';
+      }
     }
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
       child: Container(
@@ -1678,6 +1956,14 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 }
 
 class _BackToBackResultGraphic extends StatelessWidget {
+  static const double _resultMarksTopPadding = 6.0;
+  static const double _resultPipeTopPadding = 10.0;
+  static const double _resultPipeHeight = 18.0;
+  static const double _resultMeasureTextTopPadding = 10.0;
+  static const double _resultMeasureTextBottomPadding = 0.0;
+  static const double _resultMeasureTextFontSize = 18.0;
+  static const double _resultPipeBottomOffset = 10.0;
+  static const double _resultMeasureTextBottomOffset = 0.0;
   const _BackToBackResultGraphic(
       {required this.markA, required this.markB, required this.markC});
 
@@ -1690,19 +1976,19 @@ class _BackToBackResultGraphic extends StatelessWidget {
       return Stack(
           alignment: Alignment.topLeft, clipBehavior: Clip.none, children: [
         Positioned(
-          bottom: 40, left: -17, right: -23,
+          bottom: _resultPipeBottomOffset, left: -17, right: -23,
           child: Image.asset('assets/conduits/emt/pipe_5_ol.png',
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high),
         ),
-        _downMark(width * 0.9, 0, 'A', markA),
-        _downMark(width * 0.4, 0, 'B', markB),
-        _downMark(width * 0.11, 0, 'C', markC),
+        _downMark(width * 0.9, 7, 'A', markA),
+        _downMark(width * 0.4, 7, 'B', markB),
+        _downMark(width * 0.11, 7, 'C', markC),
         const Positioned(
-          bottom: 10, right: 16,
+      bottom: _resultMeasureTextBottomOffset, right: 16,
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             Text('Measure from this end', style: TextStyle(
-                color: kLight, fontWeight: FontWeight.w700, fontSize: 16)),
+                color: kLight, fontWeight: FontWeight.w700, fontSize: 18)),
             SizedBox(width: 8),
             Icon(Icons.arrow_forward, color: kLight, size: 18),
           ]),
@@ -1713,7 +1999,7 @@ class _BackToBackResultGraphic extends StatelessWidget {
 
   Widget _downMark(double x, double top, String label, String value) {
     return Positioned(
-      left: x - 40, top: top + 10,
+      left: x - 40, top: top + 15,
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1723,7 +2009,7 @@ class _BackToBackResultGraphic extends StatelessWidget {
           child: Text('$label: $value', style: const TextStyle(
               color: kLight, fontWeight: FontWeight.w800)),
         ),
-        const Icon(Icons.arrow_downward, color: Colors.white70, size: 14),
+        const Icon(Icons.arrow_downward, color: Colors.white70, size: 18),
       ]),
     );
   }

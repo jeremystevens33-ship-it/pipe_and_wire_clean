@@ -54,10 +54,10 @@ const List<String> pipeSizeOrder = [
 ];
 
 final List<Bender> benderDatabase = [
-  const Bender(brand: 'IDEAL', model: '74-031', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.34, deduct: 5.0, gain: 1.86), // kick_90.dart value
-  const Bender(brand: 'IDEAL', model: '74-032', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.0, deduct: 6.0, gain: 2.15), // kick_90.dart value
-  const Bender(brand: 'IDEAL', model: '74-033', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 8.0, gain: 2.79), // kick_90.dart value
-  const Bender(brand: 'IDEAL', model: '74-036', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.75, deduct: 11.0, gain: 4.18), // kick_90.dart value
+  const Bender(brand: 'Ideal', model: '74-031', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.34, deduct: 5.0, gain: 1.86), // kick_90.dart value
+  const Bender(brand: 'Ideal', model: '74-032', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.0, deduct: 6.0, gain: 2.15), // kick_90.dart value
+  const Bender(brand: 'Ideal', model: '74-033', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 8.0, gain: 2.79), // kick_90.dart value
+  const Bender(brand: 'Ideal', model: '74-036', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.75, deduct: 11.0, gain: 4.18), // kick_90.dart value
 
   const Bender(brand: 'Klein', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.625, deduct: 5.0, gain: 2.691), // kick_90.dart value
   const Bender(brand: 'Klein', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 6.0, deduct: 6.0, gain: 2.58), // kick_90.dart value

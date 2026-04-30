@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
+import 'code_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,13 +17,17 @@ void main() async {
 }
 
 class BoxLayoutModeScreen extends StatelessWidget {
-  const BoxLayoutModeScreen({super.key});
+  final double? preCalculatedCenterToCenter;
+
+  const BoxLayoutModeScreen({super.key, this.preCalculatedCenterToCenter});
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
+        backgroundColor: const Color(0xFF1F1F1F),
+        foregroundColor: Colors.white,
         title: const Text('Box Layout'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -43,14 +48,14 @@ class BoxLayoutModeScreen extends StatelessWidget {
                       backgroundColor: Colors.black,
                       title: const Text('How to Use'),
                       content: const Text(
-                          '• This tool helps you calculate the layout of conduits in a box.\n\n'
-                              '• Start by selecting the conduit type (EMT or GRC).\n\n'
-                              '• Next, choose the fitting type (Lock, Bush, Hub).\n\n'
-                              '• Enter the number of pipes, their sizes, and the spacing between them.\n\n'
-                              '• Finally, enter the total width of the box to see if the layout fits.\n\n'
-                              '• The tool will show you the center marks for each pipe from the left edge of the box.\n\n'
-                              '• You can also see the distances from the strut to the center of each pipe.\n\n'
-                              '• If the layout does not fit, you can adjust the values to find a solution.'),
+                          '• This tool helps you calculate the layout of pipes entering a box.\n\n'
+                              '• Start by selecting the conduit type (EMT or GRC) and the fitting type.\n\n'
+                              '• Use the keypad to enter the number of pipes, their sizes, spacing, and the total box width. Confirm each entry with the green checkmark.\n\n'
+                              '• You can also start with the box dimension first. The layout will update as you enter values.\n\n'
+                              '• The tool displays the center marks for each pipe from the left edge of the box, and the distance from a strut to the center of each pipe.\n\n'
+                              '• Warning messages will appear if the layout does not fit or if spacing is tight.\n\n'
+                              '• A green success message will appear when the layout is complete and fits well.\n\n'
+                              '• After a layout is complete, you can still tap any top button to edit its value. Long-press the "Space" button to quickly edit spacing.'),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(context),
@@ -61,14 +66,23 @@ class BoxLayoutModeScreen extends StatelessWidget {
               );
             },
           ),
+          TextButton(
+            child: const Text("NEC"),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CodeScreen()),
+              );
+            },
+          ),
         ],
       ),
-      body: const Center(child: _BoxLayoutModeWidget()),
+      body: Center(child: _BoxLayoutModeWidget(preCalculatedCenterToCenter: preCalculatedCenterToCenter)),
     );
   }
 }
 
-enum BoxLayoutConduitType { emt, grc }
+enum BoxLayoutConduitType { emt, grc, pvc }
 enum FittingType { lock, hub, bush } // The three fitting types
 
 enum WorkflowStep {
@@ -83,7 +97,9 @@ enum WorkflowStep {
 
 
 class _BoxLayoutModeWidget extends StatefulWidget {
-  const _BoxLayoutModeWidget({super.key});
+  final double? preCalculatedCenterToCenter;
+
+  const _BoxLayoutModeWidget({this.preCalculatedCenterToCenter});
 
   @override
   State<_BoxLayoutModeWidget> createState() => _BoxLayoutModeState();
@@ -112,11 +128,14 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   bool _boxWidthConfirmed = false; // For ruler visibility
 
   // Computed outputs
-  List<double> _centerMarksIn = [];
-  List<double> _odsPerPipe = [];
-  List<double> _strutDistancesIn = [];
-  String? _fitWarning; // non-null = error
-  bool _errorAcknowledged = false; // user tapped a mode button after error
+  final List<double> _centerMarksIn = [];
+  final List<double> _effectiveODs = [];
+  final List<double> _pipeODs = [];
+  final List<double> _strutDistancesIn = [];
+  String? _fitWarning;
+  String? _spacingWarning;
+  String? _autoSpacingWarning;
+  bool _errorAcknowledged = false;
 
   // ===== Pulse animation for Total box =====
   late final AnimationController _pulseCtrl;
@@ -130,6 +149,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   static const double kButtonH = 44;
   static const double kCircleSize = 40;
   static const int kVisibleSlots = 6;
+  static const double kMinWorkableSpacingIn = 0.25;
 
   static const List<String> _fractions = <String>[
     '1/16', '1/8', '3/16', '1/4', '5/16', '3/8', '7/16', '1/2',
@@ -169,6 +189,16 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     )
       ..repeat(reverse: true);
     _pulseAnim = CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut);
+
+    if (widget.preCalculatedCenterToCenter != null) {
+      // Convert the center-to-center to space between
+      // This is an approximation, assuming two identical pipes for now.
+      // A more robust solution would need the pipe sizes.
+      // For now, let's assume the user can adjust if needed.
+      _space = _formatToSixteenth(widget.preCalculatedCenterToCenter!);
+      _spacingConfirmed = true;
+      _step = WorkflowStep.pipeCount;
+    }
   }
 
   @override
@@ -181,62 +211,94 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   // LAYOUT STATE HELPERS
   // =====================================================
 
-  double _totalUsedIn({required bool includeSpacing}) {
-    if (_pipes.isEmpty) return 0;
-    if (_odsPerPipe.length != _pipes.length) {
-      _updateODOnly();
+  double _totalUsedIn() {
+    if (_pipes.isEmpty || _centerMarksIn.isEmpty) {
+      return 0;
     }
-    final totalPipeW = _odsPerPipe.fold<double>(0, (a, b) => a + b);
-    if (!includeSpacing) return totalPipeW;
-    final n = _pipes.length;
-    final spaceW = _parseInches(_space);
-    return totalPipeW + spaceW * math.max(0, n - 1);
+    final lastCenter = _centerMarksIn.last;
+    final lastEffectiveOD = _effectiveODs.last;
+    final rackEnd = lastCenter + lastEffectiveOD / 2;
+
+    final firstCenter = _centerMarksIn.first;
+    final firstEffectiveOD = _effectiveODs.first;
+    final rackStart = firstCenter - firstEffectiveOD / 2;
+
+    return rackEnd - rackStart;
   }
 
   String get _totalSpaceText {
-    if (_pipes.isEmpty) return "";
-    final includeSpacing = _space
-        .trim()
-        .isNotEmpty;
-    final total = _totalUsedIn(includeSpacing: includeSpacing);
+    if (_pipes.isEmpty) {
+      return "";
+    }
+    final total = _totalUsedIn();
     return _formatToSixteenth(total);
   }
 
   double _clearanceIn() {
     final boxW = _parseInches(_boxWidth);
-    if (boxW <= 0) return double.infinity;
-    final includeSpacing = _space
-        .trim()
-        .isNotEmpty;
-    final total = _totalUsedIn(includeSpacing: includeSpacing);
+    if (boxW <= 0) {
+      return double.infinity;
+    }
+    final total = _totalUsedIn();
     return boxW - total;
   }
 
   bool get isError => _fitWarning != null;
 
+  bool get hasWarning => _spacingWarning != null || _autoSpacingWarning != null;
+
   bool get isSuccess {
-    if (_step != WorkflowStep.done) return false;
-    if (_fitWarning != null) return false;
-    if (!_spacingConfirmed) return false;
-    if (_parseInches(_boxWidth) <= 0) return false;
-    if (_parseInches(_space) < 0) return false;
-    if (_pipes.isEmpty || _pipes.contains("--")) return false;
-    if (_centerMarksIn.length != _pipes.length) return false;
+    if (_step != WorkflowStep.done) {
+      return false;
+    }
+    if (isError || hasWarning) {
+      return false;
+    }
+    if (!_spacingConfirmed) {
+      return false;
+    }
+    if (_parseInches(_boxWidth) <= 0) {
+      return false;
+    }
+    if (_parseInches(_space) < 0) {
+      return false;
+    }
+    if (_pipes.isEmpty || _pipes.contains("--")) {
+      return false;
+    }
+    if (_centerMarksIn.length != _pipes.length) {
+      return false;
+    }
     final clearance = _clearanceIn();
-    if (!clearance.isFinite || clearance <= 1.0) return false;
+    if (!clearance.isFinite || clearance < 1.0) {
+      return false;
+    }
     return true;
   }
 
-  bool get isNeutral => !isError && !isSuccess;
+  bool get isNeutral => !isError && !isSuccess && !hasWarning;
 
   Color _totalBaseColor() {
     if (isSuccess) {
       return const Color(0xFF3AAE75);
     }
+    if (isError) {
+      return const Color(0xFFE24E47);
+    }
+    if (hasWarning) {
+      return const Color(0xFFE0A72E);
+    }
+
     final clearance = _clearanceIn();
-    if (!clearance.isFinite) return Colors.black;
-    if (clearance < 0) return const Color(0xFFE24E47);
-    if (clearance <= 1.0) return const Color(0xFFE0A72E);
+    if (!clearance.isFinite) {
+      return Colors.black;
+    }
+    if (clearance < 0) {
+      return const Color(0xFFE24E47);
+    }
+    if (clearance < 1.0) {
+      return const Color(0xFFE0A72E);
+    }
     return Colors.black;
   }
 
@@ -252,7 +314,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   bool get isEditing {
     if (_currentInput
         .trim()
-        .isNotEmpty) return true;
+        .isNotEmpty) {
+      return true;
+    }
     switch (_step) {
       case WorkflowStep.boxWidth:
         return _boxWidth
@@ -276,18 +340,21 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     }
   }
 
-  bool get _showErrorBanner => isError && !_errorAcknowledged;
+  bool get _showErrorBanner => (isError || hasWarning) && !_errorAcknowledged;
 
   String get _displayTop {
     if (_showErrorBanner) {
-      return "Adjust spacing, box width\nconduit size, or number of pipes.";
+      return _fitWarning ?? _autoSpacingWarning ?? _spacingWarning ??
+          "An unknown error occurred.";
     }
     if (!isSuccess) {
       switch (_step) {
         case WorkflowStep.typeSelect:
-          return "Toggle conduit type: EMT / Rigid (GRC)";
+          return "Toggle pipe type EMT / GRC or tap Box size to start.";
         case WorkflowStep.fittingSelect:
-          return "Toggle fitting: Locknut / Myers Hub / Grounding Bushing";
+          return _type == BoxLayoutConduitType.emt
+              ? "Toggle fitting: Locknut / Grounding Bushing"
+              : "Toggle fitting: Locknut / Myers Hub / Grounding Bushing";
         case WorkflowStep.boxWidth:
           return "Enter total box width";
         case WorkflowStep.pipeCount:
@@ -305,7 +372,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
   String get _displayBottom {
     if (isSuccess) {
-      return "Bottom row = strut ➜ center.";
+      return "";
     }
     if (_showErrorBanner) {
       return "";
@@ -317,16 +384,27 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
       case WorkflowStep.fittingSelect:
         return "";
       case WorkflowStep.boxWidth:
-        return live.isNotEmpty ? live : _boxWidth;
+        final value = live.isNotEmpty ? live : _boxWidth;
+        return value.isNotEmpty ? '$value"' : '';
       case WorkflowStep.pipeCount:
         return live.isNotEmpty
             ? live
             : (_pipes.isNotEmpty ? _pipes.length.toString() : "");
       case WorkflowStep.pipeSizes:
         final idx = _activePipeIndex >= 0 ? _activePipeIndex + 1 : 1;
-        return live.isNotEmpty ? live : "Pipe $idx";
+        if (live.isNotEmpty) {
+          return '$live"';
+        }
+        if (_activePipeIndex >= 0 && _activePipeIndex < _pipes.length) {
+          final pipeValue = _pipes[_activePipeIndex];
+          if (pipeValue != '--' && pipeValue.isNotEmpty) {
+            return '$pipeValue"';
+          }
+        }
+        return "Pipe $idx";
       case WorkflowStep.spacing:
-        return live.isNotEmpty ? live : _space;
+        final value = live.isNotEmpty ? live : _space;
+        return value.isNotEmpty ? '$value"' : '';
       case WorkflowStep.done:
         return "";
     }
@@ -396,7 +474,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               end: Alignment.bottomRight,
               colors: active
                   ? [const Color(0xFFE24E47), const Color(0xFFD43D37)]
-                  : const [Color(0xFF4E4E52), const Color(0xFF2C2C30)],
+                  : [const Color(0xFF4E4E52), const Color(0xFF2C2C30)],
             ),
             borderRadius: BorderRadius.circular(kRadius),
             border: Border.all(color: const Color(0xFF9E9E9E), width: 1.1),
@@ -446,14 +524,20 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                   fontWeight: FontWeight.w700,
                 ),
               ),
-              active: _typeActive, // <-- FIXED
+              active: _typeActive,
               onTap: () {
                 HapticFeedback.lightImpact();
                 setState(() {
                   _type = (_type == BoxLayoutConduitType.emt)
                       ? BoxLayoutConduitType.grc
                       : BoxLayoutConduitType.emt;
-                  if (_hasCompletedOnce) _recomputeLayout();
+                  if (_type == BoxLayoutConduitType.emt &&
+                      _fitting == FittingType.hub) {
+                    _fitting = FittingType.lock;
+                  }
+                  if (_hasCompletedOnce) {
+                    _recomputeLayout();
+                  }
                 });
               },
             ),
@@ -472,14 +556,22 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               onTap: () {
                 HapticFeedback.lightImpact();
                 setState(() {
-                  if (_fitting == FittingType.lock) {
-                    _fitting = FittingType.hub;
-                  } else if (_fitting == FittingType.hub) {
-                    _fitting = FittingType.bush;
+                  if (_type == BoxLayoutConduitType.emt) {
+                    _fitting = (_fitting == FittingType.lock)
+                        ? FittingType.bush
+                        : FittingType.lock;
                   } else {
-                    _fitting = FittingType.lock;
+                    if (_fitting == FittingType.lock) {
+                      _fitting = FittingType.hub;
+                    } else if (_fitting == FittingType.hub) {
+                      _fitting = FittingType.bush;
+                    } else {
+                      _fitting = FittingType.lock;
+                    }
                   }
-                  if (_hasCompletedOnce) _recomputeLayout();
+                  if (_hasCompletedOnce) {
+                    _recomputeLayout();
+                  }
                 });
               },
             ),
@@ -496,9 +588,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               active: _countActive,
               onTap: () {
                 HapticFeedback.lightImpact();
-                if (_fitWarning != null) {
+                if (_showErrorBanner) {
                   setState(() {
-                    _fitWarning = null;
+                    _fitWarning = _spacingWarning = _autoSpacingWarning = null;
                     _errorAcknowledged = true;
                     _step = WorkflowStep.pipeCount;
                     _currentInput = "";
@@ -523,10 +615,12 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               active: _pipeActive,
               onTap: () {
                 HapticFeedback.lightImpact();
-                if (_pipes.isEmpty) return;
-                if (_fitWarning != null) {
+                if (_pipes.isEmpty) {
+                  return;
+                }
+                if (_showErrorBanner) {
                   setState(() {
-                    _fitWarning = null;
+                    _fitWarning = _spacingWarning = _autoSpacingWarning = null;
                     _errorAcknowledged = true;
                     _step = WorkflowStep.pipeSizes;
                     _currentInput = "";
@@ -549,9 +643,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               active: _spaceActive,
               onTap: () {
                 HapticFeedback.lightImpact();
-                if (_fitWarning != null) {
+                if (_showErrorBanner) {
                   setState(() {
-                    _fitWarning = null;
+                    _fitWarning = _spacingWarning = _autoSpacingWarning = null;
                     _errorAcknowledged = true;
                     _step = WorkflowStep.spacing;
                     _currentInput = "";
@@ -569,11 +663,14 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                 _goToStep(WorkflowStep.spacing);
               },
               onLongPress: () {
-                if (!isSuccess) return;
+                if (!isSuccess && !hasWarning) {
+                  return;
+                }
                 HapticFeedback.mediumImpact();
                 setState(() {
                   _step = WorkflowStep.spacing;
                   _currentInput = "";
+                  _spacingWarning = _autoSpacingWarning = null;
                 });
               },
             ),
@@ -590,9 +687,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               active: _boxActive,
               onTap: () {
                 HapticFeedback.lightImpact();
-                if (_fitWarning != null) {
+                if (_showErrorBanner) {
                   setState(() {
-                    _fitWarning = null;
+                    _fitWarning = _spacingWarning = _autoSpacingWarning = null;
                     _errorAcknowledged = true;
                     _step = WorkflowStep.boxWidth;
                     _currentInput = "";
@@ -609,7 +706,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   }
 
   // =====================================================
-  // KEYPAD & OPERATORS (Restored Missing Methods)
+  // KEYPAD & OPERATORS
   // =====================================================
 
   Widget _textBtn(String label, {double font = 15, VoidCallback? onTap}) {
@@ -892,10 +989,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               final label = _pipes[i];
 
               String topLabel = "--";
-              if (_spacingConfirmed &&
-                  i < _centerMarksIn.length &&
-                  _odsPerPipe.isNotEmpty &&
-                  _odsPerPipe[i] > 0) {
+              if (isSuccess && i < _centerMarksIn.length) {
                 if (_centerToCenterMode) {
                   if (i == 0) {
                     topLabel = "--";
@@ -909,9 +1003,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               }
 
               String bottomLabel = "--";
-              if (i < _strutDistancesIn.length &&
-                  _odsPerPipe.isNotEmpty &&
-                  _odsPerPipe[i] > 0) {
+              if (i < _strutDistancesIn.length) {
                 bottomLabel = _formatToSixteenth(_strutDistancesIn[i]);
               }
 
@@ -919,7 +1011,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                 onTap: () {
                   HapticFeedback.lightImpact();
                   setState(() {
-                    if (_fitWarning != null) {
+                    if (_showErrorBanner) {
                       _errorAcknowledged = true;
                     }
                     _activePipeIndex = i;
@@ -945,7 +1037,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        topLabel,
+                        topLabel == "--" ? topLabel : '$topLabel"',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
@@ -967,13 +1059,20 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                           color: Colors.black,
                         ),
                         child: Center(
-                          child: Text(
-                            label,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Padding(
+                              padding: const EdgeInsets.all(4.0),
+                              child: Text(
+                                label == "--" ? label : '$label"',
+                                textAlign: TextAlign.center,
+                                softWrap: false,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -992,7 +1091,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                       ),
                       const SizedBox(height: 1),
                       Text(
-                        bottomLabel,
+                        bottomLabel == "--" ? bottomLabel : '$bottomLabel"',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
@@ -1105,7 +1204,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                           "Total",
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 13.5,
+                            fontSize: 12.0,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -1114,10 +1213,30 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 15.5,
+                            fontSize: 14.0,
                             fontWeight: FontWeight.w800,
                           ),
                         ),
+                        if (_spacingConfirmed && _space.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          const Text(
+                            "Space",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12.0,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            '$_space"',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14.0,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ]
                       ],
                     ),
                   );
@@ -1130,10 +1249,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 decoration: BoxDecoration(
-                  color: (_showErrorBanner || isSuccess) &&
-                      baseColor != Colors.black
+                  color: isSuccess ? const Color(0xFF3AAE75) : (_showErrorBanner
                       ? baseColor
-                      : Colors.black,
+                      : Colors.black),
                   borderRadius: BorderRadius.circular(kRadius),
                   border: Border.all(
                     color: const Color(0xFF9E9E9E),
@@ -1152,7 +1270,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                   const double pos3StrutFace = 122.7;
                   const double pos4Arrow = 97.0;
                   const double pos5PipeCenter = 17.5;
-                  return Column(
+                  return const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SizedBox(
@@ -1161,22 +1279,22 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                           children: [
                             Positioned(
                               right: topPos1TopRow,
-                              child: const Text("Top row",
+                              child: Text("Top row",
                                   style: successTextStyle),
                             ),
                             Positioned(
                               right: topPos2Equals,
-                              child: const Text("=",
+                              child: Text("=",
                                   style: successTextStyle),
                             ),
                             Positioned(
                               right: topPos3BoxEdge,
-                              child: const Text("Box edge",
+                              child: Text("Box edge",
                                   style: successTextStyle),
                             ),
                             Positioned(
                               right: topPos4Arrow,
-                              child: const Text("➜",
+                              child: Text("➜",
                                   style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 16,
@@ -1185,37 +1303,37 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                             ),
                             Positioned(
                               right: topPos5PipeCenter,
-                              child: const Text("pipe center",
+                              child: Text("pipe center",
                                   style: successTextStyle),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      SizedBox(height: 4),
                       SizedBox(
                         height: 20,
                         child: Stack(
                           children: [
                             Positioned(
                               right: pos1BotRow,
-                              child: const Text("Bot row",
+                              child: Text("Bot row",
                                   style: successTextStyle),
                             ),
                             Positioned(
                               right: pos2Equals,
-                              child: const Text("=",
+                              child: Text("=",
                                   style: successTextStyle),
                             ),
                             Positioned(
                               right: pos3StrutFace,
-                              child: const Text("Strut face",
+                              child: Text("Strut face",
                                   style: successTextStyle),
                             ),
                             Positioned(
                               right: pos4Arrow,
                               child: RotatedBox(
                                 quarterTurns: -1,
-                                child: const Text("➜",
+                                child: Text("➜",
                                     style: TextStyle(
                                         color: Colors.white,
                                         fontSize: 16,
@@ -1225,14 +1343,14 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                             ),
                             Positioned(
                               right: pos5PipeCenter,
-                              child: const Text("pipe center",
+                              child: Text("pipe center",
                                   style: successTextStyle),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      const Text(
+                      SizedBox(height: 6),
+                      Text(
                         "(Tap space again for center to center.)",
                         textAlign: TextAlign.center,
                         style: TextStyle(
@@ -1296,7 +1414,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
   double _parseInches(String text) {
     final s = text.trim();
-    if (s.isEmpty || s == "--") return 0;
+    if (s.isEmpty || s == "--") {
+      return 0;
+    }
     double whole = 0,
         frac = 0;
     final parts = s.split(RegExp(r'\s+'));
@@ -1306,7 +1426,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
         if (f.length == 2) {
           final num = double.tryParse(f[0]) ?? 0;
           final den = double.tryParse(f[1]) ?? 1;
-          if (den != 0) frac += num / den;
+          if (den != 0) {
+            frac += num / den;
+          }
         }
       } else {
         whole += double.tryParse(p) ?? 0;
@@ -1316,18 +1438,26 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   }
 
   String _formatToSixteenth(double value) {
-    if (value.isNaN || value.isInfinite || value < 0) return "Err";
+    if (value.isNaN || value.isInfinite || value < 0) {
+      return "Err";
+    }
     final whole = value.floor();
     final dec = value - whole;
     int sixteenths = (dec * 16).round();
-    if (sixteenths == 16) return (whole + 1).toString();
-    if (sixteenths == 0) return whole.toString();
+    if (sixteenths == 16) {
+      return (whole + 1).toString();
+    }
+    if (sixteenths == 0) {
+      return whole.toString();
+    }
     int num = sixteenths,
         den = 16;
     final g = _gcd(num, den);
     num ~/= g;
     den ~/= g;
-    if (whole == 0) return "$num/$den";
+    if (whole == 0) {
+      return "$num/$den";
+    }
     return "$whole $num/$den";
   }
 
@@ -1365,56 +1495,63 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
 
   void _recomputeLayout() {
-    _centerMarksIn = [];
-    _odsPerPipe = [];
-    _strutDistancesIn = [];
+    _centerMarksIn.clear();
+    _effectiveODs.clear();
+    _pipeODs.clear();
+    _strutDistancesIn.clear();
+    _fitWarning = null;
+    _autoSpacingWarning = null;
+    _errorAcknowledged = false;
 
     if (_pipes.isEmpty) {
-      _fitWarning = null;
-      _errorAcknowledged = false;
       return;
     }
 
-    // NEW LOGIC: Use effective diameter
+    // First, pre-calculate all the diameters we'll need.
     for (final p in _pipes) {
       final trade = _parseInches(p);
-      _odsPerPipe.add(trade > 0 ? _effectiveDiameterForPipe(trade) : 0.0);
+      if (trade > 0) {
+        _effectiveODs.add(_effectiveDiameterForPipe(trade));
+        _pipeODs.add(_outsideDiameterForTradeSize(trade));
+      } else {
+        _effectiveODs.add(0.0);
+        _pipeODs.add(0.0);
+      }
     }
 
+    // Now, calculate the center marks based on the new intelligent spacing logic.
+    final userSpaceW = _parseInches(_space);
+    if (_pipes.isNotEmpty) {
+      _centerMarksIn.add(_effectiveODs[0] / 2);
+
+      for (int i = 1; i < _pipes.length; i++) {
+        final centerToCenterDist = (_effectiveODs[i - 1] / 2) + userSpaceW + (_effectiveODs[i] / 2);
+        _centerMarksIn.add(_centerMarksIn.last + centerToCenterDist);
+      }
+    }
+
+    // After all center marks are calculated, check if the total layout fits in the box.
     final boxW = _parseInches(_boxWidth);
-    if (boxW <= 0) {
-      _fitWarning = null;
-      _errorAcknowledged = false;
-      return;
+    if (boxW > 0) {
+      final totalRackW = _totalUsedIn();
+      final clearance = boxW - totalRackW;
+
+      if (clearance < 0) {
+        _fitWarning = "Layout does not fit in the box.";
+      } else if (clearance < 1.0) {
+        _fitWarning = "Clearance is tight (< 1 inch).";
+      }
+
+      final rackStart = _centerMarksIn.first - _effectiveODs.first / 2;
+      final leftOffset = (clearance / 2) - rackStart;
+      if (leftOffset > 0) {
+        for (int i = 0; i < _centerMarksIn.length; i++) {
+          _centerMarksIn[i] += leftOffset;
+        }
+      }
     }
-
-    final n = _pipes.length;
-    final spaceW = _parseInches(_space);
-    final totalPipeW = _odsPerPipe.fold<double>(0, (a, b) => a + b);
-    final totalSpaceW = spaceW * math.max(0, n - 1);
-    final rackW = totalPipeW + totalSpaceW;
-    final clearance = boxW - rackW;
-
-    if (clearance < 0 || clearance <= 1.0) {
-      _fitWarning =
-      "Adjust spacing, box width\nconduit size, or number of pipes.";
-      _errorAcknowledged = false;
-      _activePipeIndex = -1;
-    } else {
-      _fitWarning = null;
-      _errorAcknowledged = false;
-    }
-
-    double leftOffset = (boxW - rackW) / 2;
-    if (leftOffset < 0) leftOffset = 0;
-
-    double cursor = leftOffset;
-    for (int i = 0; i < n; i++) {
-      final od = _odsPerPipe[i];
-      final center = cursor + od / 2;
-      _centerMarksIn.add(center);
-      cursor += od + spaceW;
-      _strutDistancesIn.add(od / 2); // This remains OD/2 for strut calculations
+    for (final od in _pipeODs) {
+      _strutDistancesIn.add(od / 2);
     }
   }
 
@@ -1440,6 +1577,8 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
       }
       if (s == WorkflowStep.spacing) {
         _centerToCenterMode = false;
+        _spacingWarning = null;
+        _autoSpacingWarning = null;
       }
     });
   }
@@ -1456,7 +1595,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     }
 
     if (label == '✓' || label == '=') {
-      if (_canConfirm) _commitInput();
+      if (_canConfirm) {
+        _commitInput();
+      }
       return;
     }
 
@@ -1465,7 +1606,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     }
 
     setState(() {
-      if (_fitWarning != null) {
+      if (_showErrorBanner) {
         _errorAcknowledged = true;
       }
       if (_currentInput.isEmpty) {
@@ -1527,9 +1668,8 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           }
           _activePipeIndex = _pipes.isEmpty ? -1 : 0;
           _currentInput = "";
-          _updateODOnly();
+          _recomputeLayout();
           if (_hasCompletedOnce) {
-            _recomputeLayout();
             _step = WorkflowStep.done;
           } else {
             _step = WorkflowStep.pipeSizes;
@@ -1547,10 +1687,11 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           _pipes[_activePipeIndex] =
           enteredSize.isEmpty ? "--" : enteredSize;
           _currentInput = "";
-          _updateODOnly();
           _recomputeLayout();
 
-          if (isError) return;
+          if (isError) {
+            return;
+          }
 
           if (_hasCompletedOnce) {
             _step = WorkflowStep.done;
@@ -1572,10 +1713,20 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           _space = takeClean(_space);
           _currentInput = "";
           _spacingConfirmed = true;
+
+          final spaceIn = _parseInches(_space);
+          if (spaceIn > 0 && spaceIn < kMinWorkableSpacingIn) {
+            _spacingWarning = "Warning: Spacing is below 1/4\" minimum.";
+          } else {
+            _spacingWarning = null;
+          }
+
           _recomputeLayout();
 
           if (isError) {
-            if (_hasCompletedOnce) _step = WorkflowStep.done;
+            if (_hasCompletedOnce) {
+              _step = WorkflowStep.done;
+            }
             return;
           }
 
@@ -1599,18 +1750,32 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
           if (!_hasCompletedOnce && _pipes.isEmpty) {
             _isBoxFirstWorkflow = true;
-            _step = WorkflowStep.pipeCount;
+            _step = WorkflowStep.typeSelect;
             _recomputeLayout();
             return;
           }
 
           _recomputeLayout();
 
-          if (!isError) {
-            _step = WorkflowStep.done;
-            _activePipeIndex = -1;
-            _hasCompletedOnce = true;
+          if (!isError && !hasWarning) {
+            // This is the key change. Instead of just going to done,
+            // we check if there are other steps to complete.
+            if (_hasCompletedOnce) {
+              _step = WorkflowStep.done;
+            } else if (_pipes.contains("--")) {
+              _step = WorkflowStep.pipeSizes;
+              // Find first "--" pipe and set it as active
+              _activePipeIndex = _pipes.indexOf("--");
+            } else if (!_spacingConfirmed) {
+              _step = WorkflowStep.spacing;
+            } else {
+              _step = WorkflowStep.done;
+              _activePipeIndex = -1;
+              _hasCompletedOnce = true;
+            }
           }
+          // If there's still an error, we stay on the boxWidth step
+          // so the user can see the error and correct it again.
           return;
 
         case WorkflowStep.done:
@@ -1618,19 +1783,6 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           return;
       }
     });
-  }
-
-  void _updateODOnly() {
-    _odsPerPipe = [];
-    _strutDistancesIn = [];
-    for (final p in _pipes) {
-      final trade = _parseInches(p);
-      final od = trade > 0 ? _effectiveDiameterForPipe(trade) : 0.0;
-      _odsPerPipe.add(od);
-      // Strut distance is still based on the actual pipe OD, not the fitting.
-      _strutDistancesIn.add(
-          trade > 0 ? _outsideDiameterForTradeSize(trade) / 2 : 0.0);
-    }
   }
 
   void _clearAll() {
@@ -1644,9 +1796,12 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
       _spacingConfirmed = false;
       _boxWidthConfirmed = false;
       _fitWarning = null;
+      _spacingWarning = null;
+      _autoSpacingWarning = null;
       _errorAcknowledged = false;
       _centerMarksIn.clear();
-      _odsPerPipe.clear();
+      _effectiveODs.clear();
+      _pipeODs.clear();
       _strutDistancesIn.clear();
       _step = WorkflowStep.typeSelect;
       _type = BoxLayoutConduitType.emt;

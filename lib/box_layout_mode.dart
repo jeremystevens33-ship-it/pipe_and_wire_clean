@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'code_screen.dart';
-
+import 'dart:async';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SystemChrome.setPreferredOrientations([
@@ -43,26 +43,51 @@ class BoxLayoutModeScreen extends StatelessWidget {
             onPressed: () {
               showDialog(
                 context: context,
-                builder: (_) =>
-                    AlertDialog(
-                      backgroundColor: Colors.black,
-                      title: const Text('How to Use'),
-                      content: const Text(
-                          '• This tool helps you calculate the layout of pipes entering a box.\n\n'
-                              '• Start by selecting the conduit type (EMT or GRC) and the fitting type.\n\n'
-                              '• Use the keypad to enter the number of pipes, their sizes, spacing, and the total box width. Confirm each entry with the green checkmark.\n\n'
-                              '• You can also start with the box dimension first. The layout will update as you enter values.\n\n'
-                              '• The tool displays the center marks for each pipe from the left edge of the box, and the distance from a strut to the center of each pipe.\n\n'
-                              '• Warning messages will appear if the layout does not fit or if spacing is tight.\n\n'
-                              '• A green success message will appear when the layout is complete and fits well.\n\n'
-                              '• After a layout is complete, you can still tap any top button to edit its value. Long-press the "Space" button to quickly edit spacing.'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('OK'),
-                        ),
-                      ],
+                builder: (context) => AlertDialog(
+                  backgroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: const BorderSide(color: Colors.white24),
+                  ),
+                  title: const Text(
+                    "How to Use",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 18,
                     ),
+                  ),
+                  content: const SingleChildScrollView(
+                    child: Text(
+                      "1. Select pipe type (EMT or RMC).\n\n"
+                          "2. Enter number of conduits.\n\n"
+                          "3. Enter pipe size.\n\n"
+                          "4. Enter spacing or box size.\n\n"
+                          "5. Tap Space to calculate layout.\n\n"
+                          "6. Tap Space again to switch to center-to-center spacing.\n\n"
+                          "7. Press and hold Space to fine-tune spacing.\n\n"
+                          "Tip:\n"
+                          "Use hold-to-edit to quickly tighten or spread conduits when space is limited.",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 15,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(
+                        "OK",
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               );
             },
           ),
@@ -77,7 +102,19 @@ class BoxLayoutModeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Center(child: _BoxLayoutModeWidget(preCalculatedCenterToCenter: preCalculatedCenterToCenter)),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: _BoxLayoutModeWidget(
+                preCalculatedCenterToCenter: preCalculatedCenterToCenter,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -111,6 +148,41 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   WorkflowStep _step = WorkflowStep.typeSelect;
   bool _hasCompletedOnce = false; // "Memory" for smart-edit logic
   bool _isBoxFirstWorkflow = false;
+  bool _showAltMessage = false;
+
+  Timer? _hintToggleTimer;
+  void _startHintToggle() {
+    if (_hintToggleTimer != null) return;
+
+    if (mounted) {
+      setState(() {
+        _showAltMessage = false;
+      });
+    } else {
+      _showAltMessage = false;
+    }
+
+    _hintToggleTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted || !isSuccess) return;
+
+      setState(() {
+        _showAltMessage = !_showAltMessage;
+      });
+    });
+  }
+
+  void _stopHintToggle() {
+    _hintToggleTimer?.cancel();
+    _hintToggleTimer = null;
+
+    if (mounted) {
+      setState(() {
+        _showAltMessage = false;
+      });
+    } else {
+      _showAltMessage = false;
+    }
+  }
 
   // ===== Inputs =====
   BoxLayoutConduitType _type = BoxLayoutConduitType.emt;
@@ -204,7 +276,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   @override
   void dispose() {
     _pulseCtrl.dispose();
+    _hintToggleTimer?.cancel();
     super.dispose();
+
   }
 
   // =====================================================
@@ -212,16 +286,17 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   // =====================================================
 
   double _totalUsedIn() {
-    if (_pipes.isEmpty || _centerMarksIn.isEmpty) {
+    if (_pipes.isEmpty || _centerMarksIn.isEmpty || _pipeODs.isEmpty) {
       return 0;
     }
+
     final lastCenter = _centerMarksIn.last;
-    final lastEffectiveOD = _effectiveODs.last;
-    final rackEnd = lastCenter + lastEffectiveOD / 2;
+    final lastPipeOD = _pipeODs.last;
+    final rackEnd = lastCenter + lastPipeOD / 2;
 
     final firstCenter = _centerMarksIn.first;
-    final firstEffectiveOD = _effectiveODs.first;
-    final rackStart = firstCenter - firstEffectiveOD / 2;
+    final firstPipeOD = _pipeODs.first;
+    final rackStart = firstCenter - firstPipeOD / 2;
 
     return rackEnd - rackStart;
   }
@@ -350,7 +425,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     if (!isSuccess) {
       switch (_step) {
         case WorkflowStep.typeSelect:
-          return "Toggle pipe type EMT / GRC or tap Box size to start.";
+          return "Toggle pipe type EMT / RMC or tap Box size to start.";
         case WorkflowStep.fittingSelect:
           return _type == BoxLayoutConduitType.emt
               ? "Toggle fitting: Locknut / Grounding Bushing"
@@ -517,7 +592,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           children: [
             buildBtn(
               child: Text(
-                _type == BoxLayoutConduitType.emt ? "EMT" : "GRC",
+                _type == BoxLayoutConduitType.emt ? "EMT" : "RMC",
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 15,
@@ -1270,7 +1345,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                   const double pos3StrutFace = 122.7;
                   const double pos4Arrow = 97.0;
                   const double pos5PipeCenter = 17.5;
-                  return const Column(
+                  return  Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SizedBox(
@@ -1351,7 +1426,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                       ),
                       SizedBox(height: 6),
                       Text(
-                        "(Tap space again for center to center.)",
+                        _showAltMessage
+                            ? "(Press and hold Space to edit spacing)"
+                            : "(Tap space again for center to center.)",
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: Colors.white,
@@ -1369,7 +1446,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 14.5,
+                        fontSize: 16.5,
                         fontWeight: FontWeight.w700,
                         height: 1.1,
                       ),
@@ -1391,7 +1468,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 13.5,
+                            fontSize: 15.5,
                             fontWeight: FontWeight.w600,
                             height: 1.1,
                           ),
@@ -1496,44 +1573,51 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
   void _recomputeLayout() {
     _centerMarksIn.clear();
-    _effectiveODs.clear();
+    _effectiveODs.clear(); // keep if you still want to display / inspect fitting ODs
     _pipeODs.clear();
     _strutDistancesIn.clear();
     _fitWarning = null;
+    _spacingWarning = null;
     _autoSpacingWarning = null;
     _errorAcknowledged = false;
+
 
     if (_pipes.isEmpty) {
       return;
     }
 
-    // First, pre-calculate all the diameters we'll need.
+    // Build actual pipe ODs and selected fitting ODs separately.
     for (final p in _pipes) {
       final trade = _parseInches(p);
       if (trade > 0) {
-        _effectiveODs.add(_effectiveDiameterForPipe(trade));
-        _pipeODs.add(_outsideDiameterForTradeSize(trade));
+        final pipeOD = _outsideDiameterForTradeSize(trade);
+        _pipeODs.add(pipeOD);
+        _effectiveODs.add(_effectiveDiameterForPipe(trade)); // fitting envelope, warning only
       } else {
-        _effectiveODs.add(0.0);
         _pipeODs.add(0.0);
+        _effectiveODs.add(0.0);
       }
     }
 
-    // Now, calculate the center marks based on the new intelligent spacing logic.
     final userSpaceW = _parseInches(_space);
+
+    // BASE LAYOUT: use actual pipe ODs only.
     if (_pipes.isNotEmpty) {
-      _centerMarksIn.add(_effectiveODs[0] / 2);
+      _centerMarksIn.add(_pipeODs[0] / 2);
 
       for (int i = 1; i < _pipes.length; i++) {
-        final centerToCenterDist = (_effectiveODs[i - 1] / 2) + userSpaceW + (_effectiveODs[i] / 2);
+        final centerToCenterDist =
+            (_pipeODs[i - 1] / 2) + userSpaceW + (_pipeODs[i] / 2);
         _centerMarksIn.add(_centerMarksIn.last + centerToCenterDist);
       }
     }
 
-    // After all center marks are calculated, check if the total layout fits in the box.
+    // FIT CHECK FOR ACTUAL PIPE LAYOUT IN THE BOX.
     final boxW = _parseInches(_boxWidth);
-    if (boxW > 0) {
-      final totalRackW = _totalUsedIn();
+    if (boxW > 0 && _centerMarksIn.isNotEmpty) {
+      final rackStart = _centerMarksIn.first - (_pipeODs.first / 2);
+      final rackEnd = _centerMarksIn.last + (_pipeODs.last / 2);
+      final totalRackW = rackEnd - rackStart;
       final clearance = boxW - totalRackW;
 
       if (clearance < 0) {
@@ -1542,7 +1626,6 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
         _fitWarning = "Clearance is tight (< 1 inch).";
       }
 
-      final rackStart = _centerMarksIn.first - _effectiveODs.first / 2;
       final leftOffset = (clearance / 2) - rackStart;
       if (leftOffset > 0) {
         for (int i = 0; i < _centerMarksIn.length; i++) {
@@ -1550,8 +1633,37 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
         }
       }
     }
+
+    // STRUT FACE TO PIPE CENTER stays based on actual conduit OD.
     for (final od in _pipeODs) {
       _strutDistancesIn.add(od / 2);
+    }
+
+    // SECONDARY FITTING CLEARANCE CHECK.
+    // Only run this after spacing has actually been entered and confirmed.
+    if (_spacingConfirmed && _space.trim().isNotEmpty && _pipes.length > 1) {
+      for (int i = 1; i < _pipes.length; i++) {
+        final requiredGap =
+            ((_effectiveODs[i - 1] - _pipeODs[i - 1]) / 2) +
+                ((_effectiveODs[i] - _pipeODs[i]) / 2);
+
+        if (userSpaceW < requiredGap) {
+          final fittingName = _fitting == FittingType.lock
+              ? "locknuts"
+              : _fitting == FittingType.bush
+              ? "bushings"
+              : "Myers hubs";
+
+          _spacingWarning =
+          'Warning: $fittingName may interfere at ${_formatToSixteenth(userSpaceW)}" spacing.';
+          break;
+        }
+      }
+    }
+    if (isSuccess) {
+      _startHintToggle();
+    } else {
+      _stopHintToggle();
     }
   }
 
@@ -1772,6 +1884,17 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               _step = WorkflowStep.done;
               _activePipeIndex = -1;
               _hasCompletedOnce = true;
+              if (isSuccess) {
+                _showAltMessage = false;
+
+                Future.delayed(const Duration(seconds: 5), () {
+                  if (mounted && isSuccess) {
+                    setState(() {
+                      _showAltMessage = true;
+                    });
+                  }
+                });
+              }
             }
           }
           // If there's still an error, we stay on the boxWidth step
@@ -1818,7 +1941,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.all(kOuterPad),
+      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.black,
         borderRadius: BorderRadius.circular(10),
@@ -1834,11 +1957,11 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           _buildFullKeypad(),
           const SizedBox(height: 4),
           _buildBottomScrollBar(),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           _buildMeasurementRuler(),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           _buildDisplayBar(),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
         ],
       ),
     );

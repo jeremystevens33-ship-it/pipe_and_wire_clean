@@ -48,8 +48,8 @@ class NumericInputKeypad extends StatelessWidget {
                   _buildRow(['1', '2', '3']),
                   _buildRow(['4', '5', '6']),
                   _buildRow(['7', '8', '9']),
-                  _buildRow(['10', '11', '12']),
-                  _buildRow(['13', '14', '0']),
+                  _buildRow(['10', '11', '0']),
+                  _buildRow(['12', '13', '14']),
                 ],
               ),
             ),
@@ -124,12 +124,23 @@ class NumericInputKeypad extends StatelessWidget {
 
   Widget _buildButton(String value) {
     final bool isIcon = value == '⌫' || value == '✔';
-    final Color buttonColor = (value == '✔') ? kGreen : const Color(0xFF4E4E52);
-    final Color splashColor = (value == '✔') ? Colors.lightGreen : const Color(
-        0xFF616161);
-    
-    // THE FIX: No longer converts fractions to decimals. It sends the literal string.
-    final String outputValue = value;
+
+    final Map<String, String> anglePresetLabels = {
+      '10': '10°',
+      '11': '15°',
+      '12': '22.5°',
+      '13': '30°',
+      '14': '45°',
+    };
+
+    final String displayValue = anglePresetLabels[value] ?? value;
+    final String outputValue = displayValue; // sends with °
+
+    final Color buttonColor =
+    (value == '✔') ? kGreen : const Color(0xFF4E4E52);
+
+    final Color splashColor =
+    (value == '✔') ? Colors.lightGreen : const Color(0xFF616161);
 
     return Container(
       decoration: BoxDecoration(
@@ -150,12 +161,14 @@ class NumericInputKeypad extends StatelessWidget {
           child: Center(
             child: isIcon
                 ? Icon(
-              value == '⌫' ? Icons.backspace_outlined : Icons.check_circle,
+              value == '⌫'
+                  ? Icons.backspace_outlined
+                  : Icons.check_circle,
               color: kLight,
               size: 20,
             )
                 : Text(
-              value,
+              displayValue,
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,

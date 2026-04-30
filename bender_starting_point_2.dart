@@ -5,8 +5,6 @@ import 'package:pipe_and_wire_clean/keypad_5.dart';
 import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
 import 'package:flutter/services.dart';
 import 'code_screen.dart';
-import 'package:pipe_and_wire_clean/keypad_6.dart';
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -48,40 +46,21 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   bool _isCalculateReady = false;
   bool get _isBenderSetupComplete =>
       _selectedBrand != null && _selectedPipeSize != null;
-  static const double _resultsGraphicBlockHeight = 315.0;
-  static const double _topGraphicPlaceholderHeight = 200.0;
-  static const double _spaceBetweenTopAndBottomGraphic = 1.0;
-  static const double _bottomMeasurementGraphicHeight = 110.0;
 
   // Bender & Conduit State
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
   String? _selectedBrand;
-  List<Map<String, String>> get _brands {
-    final handBenders = bending_data.benderDatabase
-        .where((b) =>
-    !bending_data.mechanicalElectricBenderBrands.contains(b.brand))
-        .map((b) => b.brand)
-        .toSet()
-        .toList()
-      ..sort();
-
-    final mechanicalElectric = bending_data.benderDatabase
-        .where((b) =>
-        bending_data.mechanicalElectricBenderBrands.contains(b.brand))
-        .map((b) => b.brand)
-        .toSet()
-        .toList()
-      ..sort();
-
-    return [
-      {'type': 'header', 'name': 'HAND BENDERS'},
-      ...handBenders.map((name) => {'type': 'bender', 'name': name}),
-
-      {'type': 'header', 'name': 'MECHANICAL / ELECTRIC'},
-      ...mechanicalElectric.map((name) => {'type': 'bender', 'name': name}),
-    ];
-  }
+  final List<Map<String, String>> _brands = [
+    {'type': 'header', 'name': 'HAND BENDERS'},
+    {'type': 'bender', 'name': 'IDEAL'},
+    {'type': 'bender', 'name': 'Klein'},
+    {'type': 'bender', 'name': 'Gardner Bender'},
+    {'type': 'bender', 'name': 'Milwaukee'},
+    {'type': 'header', 'name': 'MECHANICAL / ELECTRIC'},
+    {'type': 'bender', 'name': 'Greenlee 1818'},
+    {'type': 'bender', 'name': 'Greenlee 555'},
+  ];
   bending_data.BendingMethod _bendingMethod = bending_data.BendingMethod.arrow; // Uses BendingMethod from bending_data.dart
 
   // --- NEW: Custom Bender State ---
@@ -117,8 +96,6 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   // Keypad State
   bool _isKeypadVisible = false;
   TextEditingController? _activeController;
-  bool _isNameEntryMode = false;
-  String _customBenderName = '';
 
   // Conditional Travel Field Visibility
   bool _showTravelField = false;
@@ -178,11 +155,10 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     setState(() {
       _allBrands = [
         ..._brands,
-        {'type': 'header', 'name': 'SAVED BENDERS'},
-        ..._customBenders.map((b) => {
-          'type': 'bender',
-          'name': b.brand,
-        }),
+        if (_customBenders.isNotEmpty)
+          {'type': 'header', 'name': '--- MY BENDERS ---'},
+        ..._customBenders.map((b) =>
+        {'type': 'bender', 'name': b.brand})
       ];
     });
   }
@@ -262,8 +238,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     bending_data.Bender? bender = _customBenders.firstWhereOrNull(
             (b) => b.model == _selectedBrand && b.conduitSize == _selectedPipeSize &&
             (b.conduitType == (
-            _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
-            bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
+                _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
+                bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
             )
             )
     );
@@ -272,8 +248,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     bender ??= bending_data.benderDatabase.firstWhereOrNull(
             (b) => b.brand == _selectedBrand && b.conduitSize == _selectedPipeSize &&
             (b.conduitType == (
-            _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
-            bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
+                _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
+                bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
             )
             )
     );
@@ -432,26 +408,26 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
 
     final List<String> availableSizes = [];
     switch (_selectedBrand) {
-      case 'Ideal':
+      case 'IDEAL':
       case 'Klein':
       case 'Gardner Bender':
-        // Hand benders usually go up to 1.25"
+      // Hand benders usually go up to 1.25"
         final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.25'); // Uses pipeSizeOrder from bending_data.dart
         availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
         break;
       case 'Milwaukee':
-        // Milwaukee hand benders usually go up to 1"
+      // Milwaukee hand benders usually go up to 1"
         final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.0');
         availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
         break;
       case 'Greenlee 1818':
       case 'Greenlee 555':
-        // Mechanical/Electric benders go up to 2"
+      // Mechanical/Electric benders go up to 2"
         final int maxIndex = bending_data.pipeSizeOrder.indexOf('2.0');
         availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
         break;
       default:
-        // For custom benders or others, show all sizes
+      // For custom benders or others, show all sizes
         availableSizes.addAll(bending_data.pipeSizeOrder);
         break;
     }
@@ -546,65 +522,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
       controller.text += value;
     }
   }
-  void _onNameKeyTap(String value) {
-    if (value == '⌫') {
-      if (_customBenderName.isNotEmpty) {
-        setState(() {
-          _customBenderName =
-              _customBenderName.substring(0, _customBenderName.length - 1);
-        });
-      }
-      return;
-    }
 
-    if (value == 'CLEAR') {
-      setState(() {
-        _customBenderName = '';
-      });
-      return;
-    }
-
-    if (value == '✔') {
-      _finishSaveCustomBender();
-      return;
-    }
-
-    if (_customBenderName.length < 24) {
-      setState(() {
-        _customBenderName += value;
-      });
-    }
-  }
-
-  void _finishSaveCustomBender() {
-    final name = _customBenderName.trim();
-    if (name.isEmpty) return;
-
-    final newBender = bending_data.Bender(
-      brand: name,
-      model: name,
-      conduitSize: _selectedPipeSize ?? 'N/A',
-      conduitType: _selectedConduitType == BoxLayoutConduitType.emt
-          ? bending_data.ConduitType.emt
-          : bending_data.ConduitType.rigid,
-      clr: _parseInches(radiusCtrl.text),
-      deduct: _parseInches(takeUpCtrl.text),
-      gain: _parseInches(gainCtrl.text),
-    );
-
-    setState(() {
-      _customBenders.add(newBender);
-      _updateBrandDropdown();
-      _selectedBrand = newBender.model;
-
-      _isEditMode = false;
-      _isNameEntryMode = false;
-      _customBenderName = '';
-    });
-
-    _updateBenderData();
-    _hideKeypad();
-  }
 
   void _showKeypad(TextEditingController controller) {
     if (controller.text.isNotEmpty) {
@@ -663,7 +581,53 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     _hideKeypad();
     _updateBenderData();
   }
+  Future<void> _saveCustomBender() async {
+    final nameController = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          AlertDialog(
+            backgroundColor: const Color(0xFF212121),
+            title: const Text(
+                'Save Custom Bender', style: TextStyle(color: kLight)),
+            content: TextField(
+              controller: nameController,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: 'Enter a nickname'),
+              style: const TextStyle(color: kLight),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel', style: TextStyle(color: kRed))),
+              TextButton(onPressed: () =>
+                  Navigator.of(context).pop(nameController.text),
+                  child: const Text('Save', style: TextStyle(color: kGreen))),
+            ],
+          ),
+    );
 
+    if (name != null && name.isNotEmpty) {
+      final newBender = bending_data.Bender(
+        brand: name,
+        model: name, // Use name for model as well for custom benders
+        conduitSize: _selectedPipeSize ?? 'N/A',
+        conduitType: _selectedConduitType == BoxLayoutConduitType.emt
+            ? bending_data.ConduitType.emt
+            : bending_data.ConduitType.rigid, // Only EMT or GRC (Rigid) allowed
+        clr: _parseInches(radiusCtrl.text),
+        deduct: _parseInches(takeUpCtrl.text),
+        gain: _parseInches(gainCtrl.text),
+      );
+
+      setState(() {
+        _customBenders.add(newBender);
+        _updateBrandDropdown();
+        _selectedBrand = newBender.model;
+        _isEditMode = false;
+      });
+      _hideKeypad();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -701,16 +665,14 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
               padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
               child: ListView(
                 children: [
-                  if (!_isResultsExpanded) ...[
-                    _buildBenderSection(),
-                    const SizedBox(height: 6),
+                  _buildBenderSection(),
+                  const SizedBox(height: 6),
 
-                    _buildMeasurementsSection(),
-                    const SizedBox(height: 6),
+                  _buildMeasurementsSection(),
+                  const SizedBox(height: 6),
 
-                    _buildCalculateSection(),
-                    const SizedBox(height: 6),
-                  ],
+                  _buildCalculateSection(),
+                  const SizedBox(height: 6),
 
                   _buildResultsSection(),
                 ],
@@ -718,99 +680,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
             ),
           ),
 
-          if (!_isKeypadVisible && !_isNameEntryMode)
-            _buildInfoBar(),
-
-          if (_isNameEntryMode)
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                    decoration: BoxDecoration(
-                      color: kBlack.withAlpha(180),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: const Color(0xFFC0C0C0),
-                        width: 1.5,
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Save Custom Bender',
-                          style: TextStyle(
-                            color: kLight,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          width: double.infinity,
-                          height: 52,
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          alignment: Alignment.centerLeft,
-                          decoration: BoxDecoration(
-                            color: kBlack,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.white54, width: 1.2),
-                          ),
-                          child: Text(
-                            _customBenderName.isEmpty
-                                ? 'Enter a nickname'
-                                : _customBenderName,
-                            style: TextStyle(
-                              color: _customBenderName.isEmpty
-                                  ? Colors.white38
-                                  : kLight,
-                              fontSize: 18,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildSilverButton(
-                                label: 'Cancel',
-                                height: 40,
-                                onTap: () {
-                                  setState(() {
-                                    _isNameEntryMode = false;
-                                    _customBenderName = '';
-                                  });
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _buildSilverButton(
-                                label: 'Save',
-                                height: 40,
-                                isActive: true,
-                                onTap: _customBenderName.trim().isEmpty
-                                    ? null
-                                    : _finishSaveCustomBender,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                AlphaInputKeypad(onTap: _onNameKeyTap),
-              ],
-            ),
-
-          if (_isKeypadVisible)
-            NumericInputKeypad(onTap: _onKeypadTap),
+          if (!_isKeypadVisible) _buildInfoBar(),
+          if (_isKeypadVisible) NumericInputKeypad(onTap: _onKeypadTap),
         ],
       ),
     );
@@ -1049,14 +920,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
                               label: 'Save Custom Bender',
                               height: 44,
                               isActive: true,
-                              onTap: () {
-                                setState(() {
-                                  _isNameEntryMode = true;
-                                  _customBenderName = '';
-                                  _isKeypadVisible = false;
-                                  _activeController = null;
-                                });
-                              },
+                              onTap: _saveCustomBender,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1174,11 +1038,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   }
 
   Widget _buildResultsSection() {
-    final bool canOpen =
-        _currentStep >= 3 ||
-            markAOut.isNotEmpty ||
-            markBOut.isNotEmpty ||
-            markCOut.isNotEmpty;
+    final bool canOpen = _currentStep >= 3 || markAOut.isNotEmpty || markBOut.isNotEmpty || markCOut.isNotEmpty;
 
     return _buildGroupContainer(
       child: Column(
@@ -1202,79 +1062,19 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
             }
                 : null,
           ),
-
           if (_isResultsExpanded)
             Padding(
-              padding: const EdgeInsets.only(top: 10.0, bottom: 6.0),
+              padding: const EdgeInsets.only(top: 18.0, bottom: 12.0),
               child: Column(
                 children: [
-                  _buildResultModeButtons(),
-
-                  const SizedBox(height: 6),
-
-                  _resultRow('Mark A — Bend A', markAOut),
-                  _resultRow('Mark B — Bend B', markBOut),
-                  _resultRow('Mark C — Cut Length', markCOut),
-
-                  const SizedBox(height: 6),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Start New Bend',
-                          height: 38,
-                          onTap: _startNewBend,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Option',
-                          height: 38,
-                          onTap: () {},
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  SizedBox(
-                    height: _resultsGraphicBlockHeight,
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          height: _topGraphicPlaceholderHeight,
-                          child: Container(
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: Colors.black,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Center(
-                              child: Text(
-                                'Result graphic area',
-                                style: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: _spaceBetweenTopAndBottomGraphic),
-                        SizedBox(
-                          height: _bottomMeasurementGraphicHeight,
-                          child: _StarterResultGraphic(
-                            markA: markAOut,
-                            markB: markBOut,
-                            markC: markCOut,
-                          ),
-                        ),
-                      ],
-                    ),
+                  _resultRow('Result 1', markAOut),
+                  _resultRow('Result 2', markBOut),
+                  _resultRow('Result 3', markCOut),
+                  const SizedBox(height: 15),
+                  _buildSilverButton(
+                    label: 'Start New Bend',
+                    height: 40,
+                    onTap: _startNewBend,
                   ),
                 ],
               ),
@@ -1283,83 +1083,22 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
       ),
     );
   }
-  Widget _buildResultModeButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: _buildSilverButton(
-            label: 'Method 1',
-            height: 40,
-            isActive: true,
-            onTap: () {},
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: _buildSilverButton(
-            label: 'Method 2',
-            height: 40,
-            onTap: () {},
-          ),
-        ),
-      ],
-    );
-  }
+
   Widget _resultRow(String label, String value) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 3),
-      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withAlpha(145),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.1),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(right: 10),
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 15,
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: 132,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [Color(0xFF8A1010), Color(0xFFD12A2A)],
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFB0B0B0), width: 1),
-                ),
-                child: Text(
-                  value.isEmpty ? '—' : value,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 19,
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          Text(label,
+              style: const TextStyle(fontSize: 16, color: Colors.white70)),
+          Text(value, style: const TextStyle(
+              fontSize: 18, color: kLight, fontWeight: FontWeight.bold)),
         ],
       ),
     );
   }
+
   Widget _buildBenderSetupFields() {
     return Padding(
       padding: const EdgeInsets.only(top: 12.0),
@@ -1383,41 +1122,14 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
           _inlineField('Radius / CLR', radiusCtrl,
               onTap: _isEditMode ? () => _showKeypad(radiusCtrl) : null),
           const SizedBox(height: 12),
-          if (_isEditMode) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _buildSilverButton(
-                    label: 'Save Custom Bender',
-                    height: 44,
-                    isActive: true,
-                    onTap: () {
-                      setState(() {
-                        _isNameEntryMode = true;
-                        _customBenderName = '';
-                        _isKeypadVisible = false;
-                        _activeController = null;
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildSilverButton(
-                    label: 'Cancel',
-                    height: 44,
-                    onTap: _cancelEditMode,
-                  ),
-                ),
-              ],
-            ),
-          ] else ...[
-            _buildSilverButton(
-              label: 'Create / Edit Custom Bender',
-              height: 44,
-              onTap: _toggleEditMode,
-            ),
-          ],
+          _buildSilverButton(
+            label: _isEditMode
+                ? 'Save Custom Bender'
+                : 'Create / Edit Custom Bender',
+            height: 40,
+            isActive: _isEditMode,
+            onTap: _isEditMode ? _saveCustomBender : _toggleEditMode,
+          ),
         ],
       ),
     );
@@ -1718,94 +1430,6 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-class _StarterResultGraphic extends StatelessWidget {
-  static const double _resultPipeBottomOffset = 10.0;
-  static const double _resultMeasureTextBottomOffset = 0.0;
-
-  const _StarterResultGraphic({
-    required this.markA,
-    required this.markB,
-    required this.markC,
-  });
-
-  final String markA;
-  final String markB;
-  final String markC;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final width = constraints.maxWidth;
-
-      return Stack(
-        alignment: Alignment.topLeft,
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            bottom: _resultPipeBottomOffset,
-            left: -17,
-            right: -23,
-            child: Image.asset(
-              'assets/conduits/emt/pipe_5_ol.png',
-              fit: BoxFit.contain,
-              filterQuality: FilterQuality.high,
-            ),
-          ),
-          _downMark(width * 0.9, 7, 'A', markA),
-          _downMark(width * 0.4, 7, 'B', markB),
-          _downMark(width * 0.11, 7, 'C', markC),
-          const Positioned(
-            bottom: _resultMeasureTextBottomOffset,
-            right: 16,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Measure from this end',
-                  style: TextStyle(
-                    color: kLight,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 18,
-                  ),
-                ),
-                SizedBox(width: 8),
-                Icon(Icons.arrow_forward, color: kLight, size: 18),
-              ],
-            ),
-          ),
-        ],
-      );
-    });
-  }
-
-  Widget _downMark(double x, double top, String label, String value) {
-    return Positioned(
-      left: x - 40,
-      top: top + 15,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withAlpha(191),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white24),
-            ),
-            child: Text(
-              '$label: ${value.isEmpty ? "—" : value}',
-              style: const TextStyle(
-                color: kLight,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const Icon(Icons.arrow_downward, color: Colors.white70, size: 18),
         ],
       ),
     );
