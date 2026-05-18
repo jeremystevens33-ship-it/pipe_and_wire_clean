@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import 'keypad_5.dart';
 import 'rack_builder_11.dart';
 import 'rack_state.dart';
-
+import 'main_menu_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -50,7 +50,8 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
   bool _showParallelSetup = false;
   bool _isRollingOffset = false;
   bool _isQuickMode = true;
-
+  bool _modeTouched = false;
+  bool _typeTouched = false;
   final distanceCtl = TextEditingController();
   final offsetHeightCtl = TextEditingController();
   final rollingVerticalCtl = TextEditingController();
@@ -58,7 +59,7 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
   final overallCtl = TextEditingController();
   final angleCtl = TextEditingController();
   final parallelSpacingCtl = TextEditingController();
-
+  final ScrollController _scrollCtl = ScrollController();
   String markA = '';
   String markB = '';
   String markC = '';
@@ -78,55 +79,96 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
     angleCtl.dispose();
     parallelSpacingCtl.dispose();
     parallelSpacingCtl.removeListener(_onParallelSpacingChanged);
+    _scrollCtl.dispose();
     super.dispose();
   }
 
-  void _showKeypad(TextEditingController controller) {
+  void _showKeypad(
+      TextEditingController controller, {
+        bool clearFirst = false,
+      }) {
     setState(() {
+      if (_activeController != controller) {
+        _commitActiveFieldFormatting();
+      }
+
       _activeController = controller;
+
+      if (clearFirst) {
+        controller.clear();
+      }
+
       _isKeypadVisible = true;
     });
   }
 
   void _hideKeypad() {
     setState(() {
-      if (_activeController != null && _activeController!.text.isNotEmpty) {
-        final c = _activeController!;
-        if (c != angleCtl) {
-          final v = parseInches(c.text);
-          c.text = fmtInches(v);
-        }
-      }
+      _commitActiveFieldFormatting();
       _activeController = null;
       _isKeypadVisible = false;
     });
   }
-
   void _advanceFocus() {
-    if (_activeController == distanceCtl) {
-      if (_isRollingOffset) {
-        _showKeypad(rollingVerticalCtl);
+    if (_isRollingOffset) {
+      if (_activeController == rollingVerticalCtl) {
+        _showKeypad(rollingHorizontalCtl);
+      } else if (_activeController == rollingHorizontalCtl) {
+        _showKeypad(angleCtl);
+      } else if (_activeController == angleCtl) {
+        if (_isQuickMode) {
+          _hideKeypad();
+          calculate();
+        } else {
+          _showKeypad(distanceCtl);
+        }
+      } else if (_activeController == distanceCtl) {
+        _showKeypad(overallCtl);
+      } else if (_activeController == overallCtl) {
+        _hideKeypad();
+        calculate();
+      } else if (_activeController == parallelSpacingCtl) {
+        _hideKeypad();
       } else {
-        _showKeypad(offsetHeightCtl);
+        _hideKeypad();
       }
-    } else if (_activeController == offsetHeightCtl) {
-      _showKeypad(overallCtl);
-    } else if (_activeController == rollingVerticalCtl) {
-      _showKeypad(rollingHorizontalCtl);
-    } else if (_activeController == rollingHorizontalCtl) {
-      _showKeypad(overallCtl);
-    } else if (_activeController == overallCtl) {
-      _showKeypad(angleCtl);
-    } else if (_activeController == parallelSpacingCtl) {
-      _hideKeypad();
-    } else if (_activeController == angleCtl) {
-      _hideKeypad();
-      calculate();
     } else {
-      _hideKeypad();
+      if (_activeController == offsetHeightCtl) {
+        _showKeypad(angleCtl);
+      } else if (_activeController == angleCtl) {
+        if (_isQuickMode) {
+          _hideKeypad();
+          calculate();
+        } else {
+          _showKeypad(distanceCtl);
+        }
+      } else if (_activeController == distanceCtl) {
+        _showKeypad(overallCtl);
+      } else if (_activeController == overallCtl) {
+        _hideKeypad();
+        calculate();
+      } else if (_activeController == parallelSpacingCtl) {
+        _hideKeypad();
+      } else {
+        _hideKeypad();
+      }
     }
   }
+  void _commitActiveFieldFormatting() {
+    final c = _activeController;
+    if (c == null || c.text.trim().isEmpty) return;
 
+    if (c == angleCtl) {
+      final angle = double.tryParse(c.text.replaceAll('°', '').trim()) ?? 0;
+      if (angle > 0) {
+        c.text = angle.toString().replaceAll('.0', '');
+      }
+      return;
+    }
+
+    final v = parseInches(c.text);
+    c.text = fmtInches(v);
+  }
   void _onKeypadTap(String value) {
     if (_activeController == null) return;
 
@@ -205,13 +247,22 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       markC = fmtInches(c);
       shrinkOut = fmtInches(shrink);
       travelOut = fmtInches(travel);
-      final trueOffsetOut = fmtInches(trueOffset);
 
       _activeController = null;
       _isKeypadVisible = false;
 
       _isMeasurementsExpanded = false;
       _isResultsExpanded = true;
+    });
+
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (_scrollCtl.hasClients) {
+        _scrollCtl.animateTo(
+          _scrollCtl.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
@@ -234,8 +285,14 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       _showParallelSetup = false;
       _isResultsExpanded = false;
       _isMeasurementsExpanded = true;
-      _activeController = distanceCtl;
       _isKeypadVisible = false;
+      _modeTouched = false;
+      _typeTouched = false;
+
+
+      _activeController = _isRollingOffset
+          ? rollingVerticalCtl
+          : offsetHeightCtl;
     });
   }
 
@@ -285,17 +342,116 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: kLight,
         centerTitle: true,
+
+        // LEFT SIDE: Home + Back
+        leadingWidth: 96,
+        leading: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.home),
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const MainMenuScreen(),
+                  ),
+                      (route) => false,
+                );
+              },
+            ),
+            IconButton(
+              icon: const RotatedBox(
+                quarterTurns: 2,
+                child: Text(
+                  "➜",
+                  style: TextStyle(
+                    color: kLight,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              onPressed: () {
+                if (_isResultsExpanded) {
+                  setState(() {
+                    _isResultsExpanded = false;
+                    _isMeasurementsExpanded = true;
+                    _activeController = null;
+                    _isKeypadVisible = false;
+                  });
+                } else {
+                  Navigator.maybePop(context);
+                }
+              },
+            ),
+          ],
+        ),
+
         title: const Text(
           'Offset Starting Point',
           style: TextStyle(fontWeight: FontWeight.w700),
         ),
+
+        // RIGHT SIDE: Info
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) {
+                  return AlertDialog(
+                    backgroundColor: const Color(0xFF2C3030),
+                    title: const Text(
+                      'Offset Info',
+                      style: TextStyle(
+                        color: kLight,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    content: const SingleChildScrollView(
+                      child: Text(
+                        '''Quick mode:
+Use this when you only need offset size, bend angle, distance between bends, and shrink.
+
+Full mode:
+Use this when you need layout marks A, B, and C.
+
+Standard Offset:
+Uses offset height and bend angle.
+
+Rolling Offset:
+Uses vertical offset + horizontal roll to calculate the true offset.''',
+                        style: TextStyle(
+                          color: kLight,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text(
+                          'Close',
+                          style: TextStyle(color: kRed),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ],
       ),
+
       body: Column(
         children: [
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
               child: ListView(
+                controller: _scrollCtl,
                 children: [
                   _buildMeasurementsSection(),
                   const SizedBox(height: 6),
@@ -330,6 +486,7 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
               });
             },
           ),
+
           if (_isMeasurementsExpanded)
             Padding(
               padding: const EdgeInsets.only(top: 12),
@@ -340,24 +497,28 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: _buildSilverButton(
+                            child: _buildChoiceButton(
                               label: 'Quick',
-                              isActive: _isQuickMode,
+                              selected: _isQuickMode,
+                              touched: _modeTouched,
                               onTap: () {
                                 setState(() {
                                   _isQuickMode = true;
+                                  _modeTouched = true;
                                 });
                               },
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: _buildSilverButton(
+                            child: _buildChoiceButton(
                               label: 'Full',
-                              isActive: !_isQuickMode,
+                              selected: !_isQuickMode,
+                              touched: _modeTouched,
                               onTap: () {
                                 setState(() {
                                   _isQuickMode = false;
+                                  _modeTouched = true;
                                 });
                               },
                             ),
@@ -368,30 +529,30 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: _buildSilverButton(
+                            child: _buildChoiceButton(
                               label: 'Standard Offset',
-                              height: 44,
-                              fontSize: 15,
-                              isActive: !_isRollingOffset,
+                              selected: !_isRollingOffset,
+                              touched: _typeTouched,
                               onTap: () {
                                 setState(() {
                                   _isRollingOffset = false;
                                   _showParallelSetup = false;
+                                  _typeTouched = true;
                                 });
                               },
                             ),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: _buildSilverButton(
+                            child: _buildChoiceButton(
                               label: 'Rolling Offset',
-                              height: 44,
-                              fontSize: 15,
-                              isActive: _isRollingOffset,
+                              selected: _isRollingOffset,
+                              touched: _typeTouched,
                               onTap: () {
                                 setState(() {
                                   _isRollingOffset = true;
                                   _showParallelSetup = false;
+                                  _typeTouched = true;
                                 });
                               },
                             ),
@@ -400,45 +561,48 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 10),
-                  if (!_isQuickMode) ...[
-                    _inlineField(
-                      'Distance to Obstruction',
-                      distanceCtl,
-                      onTap: () => _showKeypad(distanceCtl),
-                    ),
-                  ],
+
                   if (_isRollingOffset) ...[
                     _inlineField(
                       'Vertical Offset',
                       rollingVerticalCtl,
-                      onTap: () => _showKeypad(rollingVerticalCtl),
+                      onTap: () => _showKeypad(rollingVerticalCtl, clearFirst: true),
                     ),
                     _inlineField(
                       'Horizontal Roll',
                       rollingHorizontalCtl,
-                      onTap: () => _showKeypad(rollingHorizontalCtl),
+                      onTap: () => _showKeypad(rollingHorizontalCtl, clearFirst: true),
                     ),
                   ] else ...[
                     _inlineField(
                       'Offset Height',
                       offsetHeightCtl,
-                      onTap: () => _showKeypad(offsetHeightCtl),
+                      onTap: () => _showKeypad(offsetHeightCtl, clearFirst: true),
                     ),
                   ],
-                  if (!_isQuickMode) ...[
-                    _inlineField(
-                      'Finished Overall Length',
-                      overallCtl,
-                      onTap: () => _showKeypad(overallCtl),
-                    ),
-                  ],
+
                   _inlineField(
                     'Bend Angle',
                     angleCtl,
                     suffix: null,
-                    onTap: () => _showKeypad(angleCtl),
+                    onTap: () => _showKeypad(angleCtl, clearFirst: true),
                   ),
+
+                  if (!_isQuickMode) ...[
+                    _inlineField(
+                      'Distance to Obstruction',
+                      distanceCtl,
+                      onTap: () => _showKeypad(distanceCtl, clearFirst: true),
+                    ),
+                    _inlineField(
+                      'Finished Overall Length',
+                      overallCtl,
+                      onTap: () => _showKeypad(overallCtl, clearFirst: true),
+                    ),
+                  ],
+
                   const SizedBox(height: 8),
                 ],
               ),
@@ -491,46 +655,71 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
                     _offsetMarksCard(),
                   ],
 
-                  const SizedBox(height: 10),
+
 
                   // GRAPHIC (standalone feel)
-                  _OffsetResultGraphic(
-                    markB: markB,
-                    markA: markA,
-                    markC: markC,
-                  ),
+                  // GRAPHIC (only in Full mode)
+                  if (!_isQuickMode) ...[
+                    const SizedBox(height: 8),
+                    _OffsetResultGraphic(
+                      markB: markB,
+                      markA: markA,
+                      markC: markC,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
-                  const SizedBox(height: 10),
+
+
 
                   // BUTTON ROW
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Start New Bend',
-                          height: 44,
-                          onTap: _startNewBend,
+                  if (_isQuickMode)
+                    _buildSilverButton(
+                      label: 'Start New Bend',
+                      height: 44,
+                      onTap: _startNewBend,
+                    )
+                  else
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildSilverButton(
+                            label: 'Start New Bend',
+                            height: 44,
+                            onTap: _startNewBend,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Parallel',
-                          height: 44,
-                          isActive: _showParallelSetup,
-                          onTap: () {
-                            setState(() {
-                              _showParallelSetup = !_showParallelSetup;
-                              if (_showParallelSetup) {
-                                _activeController = parallelSpacingCtl;
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _buildSilverButton(
+                            label: 'Parallel',
+                            height: 44,
+                            isActive: _showParallelSetup,
+                            onTap: () {
+                              setState(() {
+                                _showParallelSetup = !_showParallelSetup;
+                                _activeController = null;
                                 _isKeypadVisible = false;
-                              }
-                            });
-                          },
+                              });
+
+                              if (!_showParallelSetup) return;
+
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                Future.delayed(const Duration(milliseconds: 80), () {
+                                  if (_scrollCtl.hasClients) {
+                                    _scrollCtl.animateTo(
+                                      _scrollCtl.position.maxScrollExtent,
+                                      duration: const Duration(milliseconds: 300),
+                                      curve: Curves.easeOut,
+                                    );
+                                  }
+                                });
+                              });
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
                   if (_showParallelSetup) ...[
                     const SizedBox(height: 8),
                     _parallelSetupCard(),
@@ -545,6 +734,13 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
   Widget _buildOffsetExtras() {
     if (travelOut.isEmpty) return const SizedBox.shrink();
 
+    final double offsetSize = _isRollingOffset
+        ? math.sqrt(
+      math.pow(parseInches(rollingVerticalCtl.text), 2) +
+          math.pow(parseInches(rollingHorizontalCtl.text), 2),
+    )
+        : parseInches(offsetHeightCtl.text);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -558,18 +754,15 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       ),
       child: Column(
         children: [
-          _cleanResultRow('Distance Between Bends', travelOut),
+          _cleanResultRow('Offset Size', fmtInches(offsetSize)),
           const SizedBox(height: 6),
+          _cleanResultRow(
+            'Bend Angle',
+            '${angleCtl.text.replaceAll('°', '').trim()}°',
+          ),
+          const SizedBox(height: 6),
+          _cleanResultRow('Distance Between Bends', travelOut),
           _cleanResultRow('Shrink', shrinkOut),
-          if (_isRollingOffset) ...[
-            const SizedBox(height: 6),
-            _cleanResultRow('True Offset', fmtInches(
-              math.sqrt(
-                math.pow(parseInches(rollingVerticalCtl.text), 2) +
-                    math.pow(parseInches(rollingHorizontalCtl.text), 2),
-              ),
-            )),
-          ],
         ],
       ),
     );
@@ -601,7 +794,19 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
             'Center-to-Center Spacing',
             parallelSpacingCtl,
             suffix: null,
-            onTap: () => _showKeypad(parallelSpacingCtl),
+            onTap: () {
+              _showKeypad(parallelSpacingCtl, clearFirst: true);
+
+              Future.delayed(const Duration(milliseconds: 150), () {
+                if (_scrollCtl.hasClients) {
+                  _scrollCtl.animateTo(
+                    _scrollCtl.position.maxScrollExtent,
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
+                  );
+                }
+              });
+            },
           ),
           const SizedBox(height: 10),
           _buildSilverButton(
@@ -686,10 +891,15 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
   }
 
   Widget _buildInfoBar() {
-    final text = _isRollingOffset
-        ? 'Rolling offset: enter vertical and horizontal roll. The app uses true offset for A and B.'
-        : 'Enter offset measurements. Mark C first, then A, then B. A = distance + shrink. B = A - travel.';
+    String text;
 
+    if (!_isResultsExpanded) {
+      text = 'Choose Quick or Full, then Standard or Rolling. Enter your measurements.';
+    } else if (_isQuickMode) {
+      text = 'Quick results show offset size, bend angle, distance between bends, and shrink.';
+    } else {
+      text = 'Full results include layout marks. Use Parallel to build this offset into a rack.';
+    }
     return Container(
       height: 78,
       width: double.infinity,
@@ -777,6 +987,55 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
     );
   }
 
+  Widget _buildChoiceButton({
+    required String label,
+    required bool selected,
+    required bool touched,
+    required VoidCallback onTap,
+    double height = 44,
+    double fontSize = 15,
+  }) {
+    final bool showFilled = selected && touched;
+
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        gradient: showFilled
+            ? const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF8A1010), Color(0xFFE53935)],
+        )
+            : const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF3A3A3D), Color(0xFF1F1F21)],
+        ),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: selected ? kRed : const Color(0xFF9E9E9E),
+          width: selected ? 2.0 : 1.2,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: kLight,
+                fontSize: fontSize,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
   Widget _inlineField(
       String label,
       TextEditingController c, {

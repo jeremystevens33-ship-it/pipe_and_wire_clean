@@ -59,31 +59,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
   String? _selectedBrand;
-  List<Map<String, String>> get _brands {
-    final handBenders = bending_data.benderDatabase
-        .where((b) =>
-    !bending_data.mechanicalElectricBenderBrands.contains(b.brand))
-        .map((b) => b.brand)
-        .toSet()
-        .toList()
-      ..sort();
-
-    final mechanicalElectric = bending_data.benderDatabase
-        .where((b) =>
-        bending_data.mechanicalElectricBenderBrands.contains(b.brand))
-        .map((b) => b.brand)
-        .toSet()
-        .toList()
-      ..sort();
-
-    return [
-      {'type': 'header', 'name': 'HAND BENDERS'},
-      ...handBenders.map((name) => {'type': 'bender', 'name': name}),
-
-      {'type': 'header', 'name': 'MECHANICAL / ELECTRIC'},
-      ...mechanicalElectric.map((name) => {'type': 'bender', 'name': name}),
-    ];
-  }
+  List<Map<String, String>> get _brands => bending_data.getGroupedBenderBrands();
   bending_data.BendingMethod _bendingMethod = bending_data.BendingMethod.arrow; // Uses BendingMethod from bending_data.dart
 
   // --- NEW: Custom Bender State ---
@@ -465,39 +441,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     return _parseInches(cleaned);
   }
   Map<String, String> _getFilteredPipeSizes() {
-    if (_selectedBrand == null) {
-      return bending_data.pipeSizes; // Uses pipeSizes from bending_data.dart
-    }
-
-    final List<String> availableSizes = [];
-    switch (_selectedBrand) {
-      case 'Ideal':
-      case 'Klein':
-      case 'Gardner Bender':
-      // Hand benders usually go up to 1.25"
-        final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.25'); // Uses pipeSizeOrder from bending_data.dart
-        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
-        break;
-      case 'Milwaukee':
-      // Milwaukee hand benders usually go up to 1"
-        final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.0');
-        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
-        break;
-      case 'Greenlee 1818':
-      case 'Greenlee 555':
-      // Mechanical/Electric benders go up to 2"
-        final int maxIndex = bending_data.pipeSizeOrder.indexOf('2.0');
-        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
-        break;
-      default:
-      // For custom benders or others, show all sizes
-        availableSizes.addAll(bending_data.pipeSizeOrder);
-        break;
-    }
-
-    return Map.fromEntries(
-      bending_data.pipeSizes.entries.where((entry) => availableSizes.contains(entry.key)),
-    );
+    return bending_data.getFilteredPipeSizes(_selectedBrand);
   }
 
   void calculate() {
@@ -1079,6 +1023,22 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                   if (_isBenderSetupComplete) ...[
                     const SizedBox(height: 14),
 
+                    // Bender Model Row
+                    _inlineField(
+                      'Bender Model',
+                      TextEditingController(
+                        text: bending_data.benderDatabase.firstWhereOrNull(
+                              (b) => b.brand == _selectedBrand &&
+                                  b.conduitSize == _selectedPipeSize &&
+                                  b.conduitType == (
+                                  _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
+                                  bending_data.ConduitType.rigid
+                                  ),
+                        )?.model ?? 'Custom',
+                      ),
+                      onTap: null, // Read-only
+                    ),
+                    const SizedBox(height: 12),
 
                     const SizedBox(height: 14),
 

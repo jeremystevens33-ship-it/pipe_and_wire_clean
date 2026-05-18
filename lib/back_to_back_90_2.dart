@@ -148,34 +148,16 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
   void _updateBrandDropdown() {
     setState(() {
-      // Dynamically build the initial list from benderDatabase
-      final List<Map<String, String>> defaultBrands = [];
-      final Set<String> handBenderBrands = {};
-      final Set<String> mechanicalElectricBenderBrands = {};
-
-      for (final bender in bending_data.benderDatabase) {
-        if (bending_data.mechanicalElectricBenderBrands.contains(bender.brand)) {
-          mechanicalElectricBenderBrands.add(bender.brand);
-        } else {
-          handBenderBrands.add(bender.brand);
-        }
-      }
-
-      if (handBenderBrands.isNotEmpty) {
-        defaultBrands.add({'type': 'header', 'name': 'HAND BENDERS'});
-        defaultBrands.addAll(handBenderBrands.map((brand) => {'type': 'bender', 'name': brand}));
-      }
-      if (mechanicalElectricBenderBrands.isNotEmpty) {
-        defaultBrands.add({'type': 'header', 'name': 'MECHANICAL / ELECTRIC'});
-        defaultBrands.addAll(mechanicalElectricBenderBrands.map((brand) => {'type': 'bender', 'name': brand}));
-      }
-
       _allBrands = [
-        ...defaultBrands,
+        ...bending_data.getGroupedBenderBrands(),
         {'type': 'header', 'name': 'SAVED BENDERS'},
         ..._customBenders.map((b) => {'type': 'bender', 'name': b.brand}),
       ];
     });
+  }
+
+  Map<String, String> _getFilteredPipeSizes() {
+    return bending_data.getFilteredPipeSizes(_selectedBrand);
   }
 
   void _updateCalculateButtonState() {
@@ -418,37 +400,6 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
     }
   }
 
-  Map<String, String> _getFilteredPipeSizes() {
-    if (_selectedBrand == null) {
-      return bending_data.pipeSizes;
-    }
-
-    final List<String> availableSizes = [];
-    switch (_selectedBrand) {
-      case 'Ideal':
-      case 'Klein':
-      case 'Gardner Bender':
-        final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.25');
-        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
-        break;
-      case 'Milwaukee':
-        final int maxIndex = bending_data.pipeSizeOrder.indexOf('1.0');
-        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
-        break;
-      case 'Greenlee 1818':
-      case 'Greenlee 555':
-        final int maxIndex = bending_data.pipeSizeOrder.indexOf('2.0');
-        availableSizes.addAll(bending_data.pipeSizeOrder.sublist(0, maxIndex + 1));
-        break;
-      default:
-        availableSizes.addAll(bending_data.pipeSizeOrder);
-        break;
-    }
-
-    return Map.fromEntries(
-      bending_data.pipeSizes.entries.where((entry) => availableSizes.contains(entry.key)),
-    );
-  }
   double _selectedPipeOD() {
     if (_selectedPipeSize == null) return 0.0;
 
@@ -1182,6 +1133,23 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
 
                   if (_isBenderSetupComplete) ...[
                     const SizedBox(height: 14),
+
+                    // Bender Model Row
+                    _inlineField(
+                      'Bender Model',
+                      TextEditingController(
+                        text: bending_data.benderDatabase.firstWhereOrNull(
+                              (b) => b.brand == _selectedBrand &&
+                                  b.conduitSize == _selectedPipeSize &&
+                                  b.conduitType == (
+                                  _selectedConduitType == bending_data.ConduitType.emt ? bending_data.ConduitType.emt :
+                                  bending_data.ConduitType.rigid
+                                  ),
+                        )?.model ?? 'Custom',
+                      ),
+                      onTap: null, // Read-only
+                    ),
+                    const SizedBox(height: 12),
 
                     if (_showTravelField) ...[
                       _inlineField('90° Travel', travelCtrl),
