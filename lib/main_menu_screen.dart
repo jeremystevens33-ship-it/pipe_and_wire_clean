@@ -15,6 +15,7 @@ import 'package:pipe_and_wire_clean/load_calculator2.dart';
 import 'package:pipe_and_wire_clean/segmented_90_plus_radius_screen.dart'; // Added import for new screen
 import 'package:pipe_and_wire_clean/radius_arc_finder_screen.dart';
 import 'offset_starting_point_screen.dart';
+import 'package:pipe_and_wire_clean/saddle_bend_screen.dart';
 
 class MainMenuScreen extends StatelessWidget {
   const MainMenuScreen({super.key});
@@ -62,13 +63,14 @@ class MainMenuScreen extends StatelessWidget {
             collapsedIconColor: Colors.white,
             children: [
               _buildMenuButton(context, 'Kick 90', () => const Kick90Screen()),
+              _buildMenuButton(context, 'Back to Back 90', () => const BackToBack90ScreenV2()),
               _buildMenuButton(
                 context,
                 'Offset',
-                    () => const OffsetStartingPointScreen(),
+                () => const OffsetStartingPointScreen(),
               ),
-              _buildMenuButton(context, 'Back to Back 90', () => const BackToBack90ScreenV2()), // Uses BackToBack90ScreenV2 from back_to_back_90_2.dart
-              _buildMenuButton(context, 'Segmented 90 + Radius', () => const Segmented90PlusRadiusScreen()), // Added new screen
+              _buildMenuButton(context, 'Saddles', () => const SaddleBendScreen()),
+              _buildMenuButton(context, 'Segmented 90 + Radius', () => const Segmented90PlusRadiusScreen()),
               _buildMenuButton(context, 'Rack Builder', () {
                 // This screen needs its own provider, which is fine
                 return ChangeNotifierProvider(

@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-enum BendingMethod { arrow, centerline }
+enum BendingMethod { notch, centerline }
 enum ConduitType { emt, imc, rigid, pvc }
 enum MarkBMethod { pushThrough, reverseBender }
 
@@ -87,34 +87,34 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Gardner Bender', model: '962 Big Ben', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 5.81, deduct: 8.0, gain: 3.66),
   const Bender(brand: 'Gardner Bender', model: '962 Big Ben', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 5.81, deduct: 8.0, gain: 3.54),
 
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.375, deduct: 7.625, gain: 2.584),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 8.5, gain: 3.228),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 11.0, gain: 3.953),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 7.84375, deduct: 13.0, gain: 4.877),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.375, deduct: 13.5, gain: 5.336),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.65625, deduct: 15.5, gain: 6.342),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.375, deduct: 7.625, gain: 2.584),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 8.5, gain: 3.228),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 11.0, gain: 3.953),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 7.84375, deduct: 13.0, gain: 4.877),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.375, deduct: 13.5, gain: 5.336),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.65625, deduct: 15.5, gain: 6.342),
 
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 7.75, gain: 2.718),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 5.3125, deduct: 9.0, gain: 3.330),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 6.21875, deduct: 11.0, gain: 3.984),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.71875, deduct: 12.75, gain: 4.973),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.234375, deduct: 13.5, gain: 5.435),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.453125, deduct: 15.75, gain: 6.432),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 7.75, gain: 2.718),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 5.3125, deduct: 9.0, gain: 3.330),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 6.21875, deduct: 11.0, gain: 3.984),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.71875, deduct: 12.75, gain: 4.973),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.234375, deduct: 13.5, gain: 5.435),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.453125, deduct: 15.75, gain: 6.432),
 
   // ===== GARDNER BENDER SIDEWINDER (MECHANICAL) =====
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.25, deduct: 6.5, gain: 2.53),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 7.875, gain: 3.228),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.75, deduct: 10.75, gain: 4.059),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 8.75, deduct: 13.0, gain: 5.266),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.28125, deduct: 13.0, gain: 5.29),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.1875, deduct: 15.0, gain: 6.145),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.25, deduct: 6.5, gain: 2.53),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 7.875, gain: 3.228),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.75, deduct: 10.75, gain: 4.059),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 8.75, deduct: 13.0, gain: 5.266),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.28125, deduct: 13.0, gain: 5.29),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.1875, deduct: 15.0, gain: 6.145),
 
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 5.0625, gain: 2.718),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 4.5, deduct: 7.5, gain: 2.981),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 5.75, deduct: 8.125, gain: 3.783),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.25, deduct: 13.0, gain: 4.768),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.25, deduct: 15.0, gain: 5.441),
-  const Bender(brand: 'Gardner Bender Sidewinder', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.5, deduct: 16.25, gain: 6.452),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 5.0625, gain: 2.718),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 4.5, deduct: 7.5, gain: 2.981),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 5.75, deduct: 8.125, gain: 3.783),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.25, deduct: 13.0, gain: 4.768),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.25, deduct: 15.0, gain: 5.441),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.5, deduct: 16.25, gain: 6.452),
 
   // ===== GREENLEE =====
   // Site-Rite® Hand Benders (Formula: Gain90 = (0.4292 * CLR) + OD)
@@ -178,9 +178,8 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Milwaukee', model: '48-22-4080', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.5, deduct: 5.0, gain: 2.637),
   const Bender(brand: 'Milwaukee', model: '48-22-4081', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.25, deduct: 6.0, gain: 3.175),
   const Bender(brand: 'Milwaukee', model: '48-22-4081', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 5.25, deduct: 6.0, gain: 3.093),
-  const Bender(brand: 'Milwaukee', model: '48-22-4082', conduitSize: '1.0', conduitType: ConduitSize.emt, clr: 6.5, deduct: 8.0, gain: 3.953),
+  const Bender(brand: 'Milwaukee', model: '48-22-4082', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 8.0, gain: 3.953),
   const Bender(brand: 'Milwaukee', model: '48-22-4082', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 6.5, deduct: 8.0, gain: 3.840),
-];
 ];
 
 // This helper function calculate 90° gain based on CLR and OD.
@@ -312,3 +311,1466 @@ double calculateBtbMarkBPushThrough(double markA, double d, double g) {
 double calculateBtbMarkBReverseBender(double cutLength, double s2, double t) {
   return cutLength - (s2 - t);
 }
+// =============================================================================
+// KICK 90 FORMULAS
+// =============================================================================
+//
+// Field Meaning:
+//
+// A Kick 90 uses:
+//
+// Mark A = 90° bend mark
+// Mark B = kick bend mark
+// Mark C = cut length / overall length
+//
+// All Kick 90 calculations should be centralized here so
+// Kick90, Rack Builder, and future rack tools use the same math.
+//
+// =============================================================================
+// ANGLE HELPERS
+// =============================================================================
+
+double degreesToRadians(double degrees) {
+  return degrees * math.pi / 180.0;
+}
+
+double calculateCosecant(double angleDeg) {
+  final radians = degreesToRadians(angleDeg);
+  final sine = math.sin(radians);
+  if (sine == 0) return 0.0;
+  return 1.0 / sine;
+}
+
+double calculateTangentHalfAngle(double angleDeg) {
+  return math.tan(degreesToRadians(angleDeg / 2.0));
+}
+
+// =============================================================================
+// KICK 90 DISTANCE BETWEEN BENDS
+// =============================================================================
+//
+// Field Meaning:
+//
+// Distance from the back of the 90 to the center
+// of the kick bend.
+//
+// Formula:
+//
+// Distance = Kick Height × Cosecant(angle)
+//
+// Example:
+//
+// 5" kick @ 30°
+// Distance = 5 × 2 = 10"
+//
+// Used For:
+//
+// Mark B
+//
+double calculateKickDistanceBetweenBends({
+  required double kickHeight,
+  required double angleDeg,
+}) {
+  return kickHeight * calculateCosecant(angleDeg);
+}
+
+// =============================================================================
+// KICK 90 SHRINK
+// =============================================================================
+//
+// Field Meaning:
+//
+// Shrink created by the kick bend.
+//
+// Formula:
+//
+// Shrink = Kick Height × tan(angle / 2)
+//
+// Example:
+//
+// 5" kick @ 30°
+// Shrink = 5 × .268
+// Shrink ≈ 1.34"
+//
+// Used For:
+//
+// Mark C / Cut Length
+//
+double calculateKickShrink({
+  required double kickHeight,
+  required double angleDeg,
+}) {
+  return kickHeight * calculateTangentHalfAngle(angleDeg);
+}
+
+// =============================================================================
+// KICK 90 MARK A
+// =============================================================================
+//
+// Field Meaning:
+//
+// 90° bend location.
+//
+// Formula:
+//
+// Mark A = Stub - Take Up
+//
+double calculateKick90MarkA({
+  required double stub,
+  required double takeUp,
+}) {
+  return stub - takeUp;
+}
+
+// =============================================================================
+// KICK 90 ARROW TO CENTER ADJUSTMENT
+// =============================================================================
+//
+// Field Meaning:
+//
+// Distance from the bender arrow to the true
+// center of the bend.
+//
+// Formula:
+//
+// Arrow Adjustment = π × CLR × (Angle / 2) ÷ 180
+//
+// In field terms:
+//
+// This is the arc length from the start of the bend
+// to the center of the bend.
+//
+// Used For:
+//
+// Arrow Method Mark B
+//
+// Note:
+//
+// This is still experimental until we field-test
+// and calibrate it per bender.
+//
+// =============================================================================
+// KICK 90 CENTERLINE MARK B
+// =============================================================================
+//
+// Field Meaning:
+//
+// True center-of-bend location.
+//
+// Formula:
+//
+// Mark B =
+// (Stub - Gain)
+// + Distance Between Bends
+// + (Pipe OD / 2)
+//
+// Used For:
+//
+// Centerline bending
+//
+double calculateKick90CenterlineMarkB({
+  required double stub,
+  required double kickHeight,
+  required double angleDeg,
+  required double gain90,
+  required double pipeOD,
+}) {
+  final centerOf90 = stub - gain90;
+
+  final distanceBetweenBends =
+  calculateKickDistanceBetweenBends(
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+  );
+
+  return centerOf90 +
+      distanceBetweenBends +
+      (pipeOD / 2.0);
+}
+
+// =============================================================================
+// KICK 90 FINAL MARK B
+// =============================================================================
+//
+// Field Meaning:
+//
+// Returns the actual Mark B used in the field.
+//
+// Centerline Method:
+//
+// Uses the true center-of-bend location.
+//
+// Arrow Method:
+//
+// Uses the bender arrow and applies the
+// arrow-to-center adjustment.
+//
+// Note:
+//
+// Centerline is currently the field-tested
+// and recommended method.
+//
+double calculateKick90MarkB({
+  required double stub,
+  required double kickHeight,
+  required double angleDeg,
+  required double gain90,
+  required double pipeOD,
+  required double clr,
+  required BendingMethod method,
+}) {
+  final centerlineMarkB =
+  calculateKick90CenterlineMarkB(
+    stub: stub,
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+    gain90: gain90,
+    pipeOD: pipeOD,
+  );
+
+  if (method == BendingMethod.centerline) {
+    return centerlineMarkB;
+  }
+
+// BendingMethod.notch is now used as:
+// USE NOTCH
+//
+// Pipe & Wire calculates the true centerline mark,
+// then translates that mark to the 45° notch / teardrop mark.
+  return convertCenterMarkTo45NotchMark(
+    centerMark: centerlineMarkB,
+    clr: clr,
+    angleDeg: angleDeg,
+  );
+}
+
+// =============================================================================
+// KICK 90 CUT LENGTH / MARK C
+// =============================================================================
+//
+// Field Meaning:
+//
+// Final cut length of the conduit.
+//
+// Formula:
+//
+// Cut Length =
+// Stub + Leg + Shrink - Gain
+//
+// Used For:
+//
+// Mark C
+//
+double calculateKick90CutLength({
+  required double stub,
+  required double leg,
+  required double kickHeight,
+  required double angleDeg,
+  required double gain90,
+}) {
+  final shrink = calculateKickShrink(
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+  );
+
+  return stub + leg + shrink - gain90;
+}
+// =============================================================================
+// KICK 90 FORWARD RACK MARK B
+// =============================================================================
+//
+// Field Meaning:
+//
+// Used when a rack of Kick 90s all kick forward in the same direction.
+//
+// In this layout:
+//
+// - Mark A stays the same
+// - Mark C / Cut Length stays the same
+// - Mark B shifts back toward the 90 side for each pipe
+//
+// Real-World Measuring:
+//
+// The tape is started from the 90 / stub side.
+// Because each next pipe must stay parallel while kicking forward,
+// the kick mark moves closer to Mark A.
+//
+// Formula:
+//
+// Mark B = Base Mark B - (Rack Spacing Offset × tan(angle / 2))
+//
+// Example:
+//
+// 2" center-to-center spacing @ 30°
+// Shift = 2 × tan(15°)
+// Shift ≈ 9/16"
+//
+// Pipe 1 Mark B = 14 15/16"
+// Pipe 2 Mark B = 14 3/8"
+// Pipe 3 Mark B = 13 13/16"
+//
+// Used For:
+//
+// Forward Kick 90 rack layout
+//
+double calculateKick90ForwardMarkB({
+  required double baseMarkB,
+  required double spacingOffset,
+  required double angleDeg,
+}) {
+  final markBShift =
+      spacingOffset * calculateTangentHalfAngle(angleDeg);
+
+  return baseMarkB - markBShift;
+}
+// =============================================================================
+// KICK 90 SAME ANGLE PLANE-CHANGE RACK FORMULAS
+// =============================================================================
+//
+// Field Meaning:
+//
+// Used when a rack of Kick 90s changes plane, and every conduit uses
+// the same kick angle.
+//
+// Real-World Layout:
+//
+// - Every pipe uses the same angle.
+// - Stub height increases by rack spacing.
+// - Kick height increases by rack spacing.
+// - Distance between bends increases.
+// - Mark A moves because the stub gets taller.
+// - Mark B moves because both the stub and kick distance increase.
+// - Mark C / cut length increases because stub and shrink increase.
+//
+// Formula:
+//
+// Pipe Stub = Base Stub + Spacing Offset
+//
+// Pipe Kick Height = Base Kick Height + Spacing Offset
+//
+// Distance Between Bends = Pipe Kick Height × Cosecant(angle)
+//
+// Shrink = Pipe Kick Height × tan(angle / 2)
+//
+// Mark A = Pipe Stub - Take Up
+//
+// Mark B =
+// (Pipe Stub - Gain)
+// + Distance Between Bends
+// + (Pipe OD / 2)
+//
+// Cut Length = Pipe Stub + Leg + Shrink - Gain
+//
+// Example:
+//
+// 1/2" EMT
+// Milwaukee 48-22-4080
+// Base Stub = 7 1/4"
+// Leg = 30"
+// Take Up = 5"
+// Gain = 2.637"
+// Pipe OD = 0.706"
+// Pipe OD / 2 = 0.353"
+//
+// Base Kick Height = 5"
+// Rack Spacing = 2" center-to-center
+// Chosen Kick Angle = 30°
+// 30° Cosecant = 2
+// tan(15°) = 0.268
+//
+// Pipe 1:
+//
+// Pipe Stub = 7 1/4"
+// Pipe Kick Height = 5"
+// Distance Between Bends = 5 × 2 = 10"
+// Mark A = 7.25 - 5 = 2.25" ≈ 2 1/4"
+// Mark B = (7.25 - 2.637) + 10 + 0.353 = 14.966" ≈ 15"
+// Shrink = 5 × 0.268 = 1.340"
+// Mark C = 7.25 + 30 + 1.340 - 2.637 = 35.953" ≈ 36"
+//
+// Pipe 2:
+//
+// Pipe Stub = 7 1/4" + 2" = 9 1/4"
+// Pipe Kick Height = 5" + 2" = 7"
+// Distance Between Bends = 7 × 2 = 14"
+// Mark A = 9.25 - 5 = 4.25" ≈ 4 1/4"
+// Mark B = (9.25 - 2.637) + 14 + 0.353 = 20.966" ≈ 21"
+// Shrink = 7 × 0.268 = 1.876"
+// Mark C = 9.25 + 30 + 1.876 - 2.637 = 38.489" ≈ 38 1/2"
+//
+// Pipe 3:
+//
+// Pipe Stub = 7 1/4" + 4" = 11 1/4"
+// Pipe Kick Height = 5" + 4" = 9"
+// Distance Between Bends = 9 × 2 = 18"
+// Mark A = 11.25 - 5 = 6.25" ≈ 6 1/4"
+// Mark B = (11.25 - 2.637) + 18 + 0.353 = 26.966" ≈ 27"
+// Shrink = 9 × 0.268 = 2.412"
+// Mark C = 11.25 + 30 + 2.412 - 2.637 = 41.025" ≈ 41"
+//
+// Floor-Test Marks:
+//
+// Pipe 1: A = 2 1/4"   B = 15"   C = 36"
+// Pipe 2: A = 4 1/4"   B = 21"   C = 38 1/2"
+// Pipe 3: A = 6 1/4"   B = 27"   C = 41"
+//
+// Pattern:
+//
+// Mark A advances by rack spacing.
+//
+// Mark A Advance = 2"
+//
+// Mark B advances by:
+//
+// Rack Spacing + (Rack Spacing × Cosecant(angle))
+//
+// Mark B Advance = 2 + (2 × 2)
+// Mark B Advance = 6"
+//
+// Mark C advances by:
+//
+// Rack Spacing + (Rack Spacing × tan(angle / 2))
+//
+// Mark C Advance = 2 + (2 × 0.268)
+// Mark C Advance = 2.536"
+// Mark C Advance ≈ 2 1/2"
+//
+// Used For:
+//
+// Parallel Kick 90 racks where all conduits use the same angle
+// while changing planes.
+//
+class Kick90SameAnglePlaneChangeResult {
+  const Kick90SameAnglePlaneChangeResult({
+    required this.pipeIndex,
+    required this.spacingOffset,
+    required this.stub,
+    required this.kickHeight,
+    required this.angleDeg,
+    required this.distanceBetweenBends,
+    required this.shrink,
+    required this.markA,
+    required this.markB,
+    required this.markC,
+  });
+
+  final int pipeIndex;
+  final double spacingOffset;
+  final double stub;
+  final double kickHeight;
+  final double angleDeg;
+  final double distanceBetweenBends;
+  final double shrink;
+  final double markA;
+  final double markB;
+  final double markC;
+}
+
+Kick90SameAnglePlaneChangeResult calculateKick90SameAnglePlaneChange({
+  required int pipeIndex,
+  required double baseStub,
+  required double baseKickHeight,
+  required double spacingOffset,
+  required double angleDeg,
+  required double leg,
+  required double takeUp,
+  required double gain90,
+  required double pipeOD,
+}) {
+  final pipeStub = baseStub + spacingOffset;
+  final pipeKickHeight = baseKickHeight + spacingOffset;
+
+  final distanceBetweenBends = calculateKickDistanceBetweenBends(
+    kickHeight: pipeKickHeight,
+    angleDeg: angleDeg,
+  );
+
+  final shrink = calculateKickShrink(
+    kickHeight: pipeKickHeight,
+    angleDeg: angleDeg,
+  );
+
+  final markA = calculateKick90MarkA(
+    stub: pipeStub,
+    takeUp: takeUp,
+  );
+
+  final markB = (pipeStub - gain90) +
+      distanceBetweenBends +
+      (pipeOD / 2.0);
+
+  final markC = pipeStub + leg + shrink - gain90;
+
+  return Kick90SameAnglePlaneChangeResult(
+    pipeIndex: pipeIndex,
+    spacingOffset: spacingOffset,
+    stub: pipeStub,
+    kickHeight: pipeKickHeight,
+    angleDeg: angleDeg,
+    distanceBetweenBends: distanceBetweenBends,
+    shrink: shrink,
+    markA: markA,
+    markB: markB,
+    markC: markC,
+  );
+}
+// =============================================================================
+// KICK 90 SAME START PLANE-CHANGE RACK FORMULAS
+// =============================================================================
+//
+// Field Meaning:
+//
+// Used when a rack of Kick 90s changes plane, and every conduit uses
+// the same start run from the 90 toward the kick.
+//
+// Real-World Layout:
+//
+// - Every pipe uses the same same-start run.
+// - Stub height increases by rack spacing.
+// - Kick height increases by rack spacing.
+// - Each pipe gets its own calculated angle.
+// - Each pipe gets its own hypotenuse / distance between bends.
+// - Mark A moves because the stub gets taller.
+// - Mark B moves because the hypotenuse changes.
+// - Mark C / cut length changes because stub and shrink both change.
+//
+// This bend looks simple in the field, but it is not a constant-multiplier bend.
+// The app solves the triangle separately for each conduit.
+//
+// Formula:
+//
+// Pipe Stub = Base Stub + Spacing Offset
+//
+// Pipe Kick Height = Base Kick Height + Spacing Offset
+//
+// Angle = atan(Pipe Kick Height / Same Start Run)
+//
+// Distance Between Bends / Hypotenuse =
+// sqrt((Same Start Run × Same Start Run) +
+//      (Pipe Kick Height × Pipe Kick Height))
+//
+// Shrink = Pipe Kick Height × tan(angle / 2)
+//
+// Mark A = Pipe Stub - Take Up
+//
+// Mark B =
+// (Pipe Stub - Gain)
+// + Distance Between Bends
+// + (Pipe OD / 2)
+//
+// Cut Length = Pipe Stub + Leg + Shrink - Gain
+//
+// Example:
+//
+// 1/2" EMT
+// Milwaukee 48-22-4080
+// Base Stub = 7 1/4"
+// Leg = 30"
+// Take Up = 5"
+// Gain = 2.637"
+// Pipe OD = 0.706"
+// Pipe OD / 2 = 0.353"
+//
+// Base Kick Height = 2"
+// Kick Height Spacing = 2"
+// Same Start Run = 12"
+//
+// Pipe 1:
+//
+// Pipe Stub = 7 1/4"
+// Pipe Kick Height = 2"
+// Angle = atan(2 / 12) = 9.46° ≈ 9 1/2°
+// Distance Between Bends = sqrt(12² + 2²) = 12.166" ≈ 12 3/16"
+// Mark A = 7.25 - 5 = 2.25" ≈ 2 1/4"
+// Mark B = (7.25 - 2.637) + 12.166 + 0.353 = 17.132" ≈ 17 1/8"
+// Shrink = 2 × tan(9.46° / 2) = 0.166"
+// Mark C = 7.25 + 30 + 0.166 - 2.637 = 34.779" ≈ 34 3/4"
+//
+// Pipe 2:
+//
+// Pipe Stub = 7 1/4" + 2" = 9 1/4"
+// Pipe Kick Height = 2" + 2" = 4"
+// Angle = atan(4 / 12) = 18.43° ≈ 18 1/2°
+// Distance Between Bends = sqrt(12² + 4²) = 12.649" ≈ 12 5/8"
+// Mark A = 9.25 - 5 = 4.25" ≈ 4 1/4"
+// Mark B = (9.25 - 2.637) + 12.649 + 0.353 = 19.615" ≈ 19 5/8"
+// Shrink = 4 × tan(18.43° / 2) = 0.649"
+// Mark C = 9.25 + 30 + 0.649 - 2.637 = 37.262" ≈ 37 1/4"
+//
+// Pipe 3:
+//
+// Pipe Stub = 7 1/4" + 4" = 11 1/4"
+// Pipe Kick Height = 2" + 4" = 6"
+// Angle = atan(6 / 12) = 26.57° ≈ 26 1/2°
+// Distance Between Bends = sqrt(12² + 6²) = 13.416" ≈ 13 7/16"
+// Mark A = 11.25 - 5 = 6.25" ≈ 6 1/4"
+// Mark B = (11.25 - 2.637) + 13.416 + 0.353 = 22.382" ≈ 22 3/8"
+// Shrink = 6 × tan(26.57° / 2) = 1.416"
+// Mark C = 11.25 + 30 + 1.416 - 2.637 = 40.029" ≈ 40"
+//
+// Floor-Test Marks:
+//
+// Pipe 1: A = 2 1/4"   B = 17 1/8"   C = 34 3/4"   Angle ≈ 9 1/2°
+// Pipe 2: A = 4 1/4"   B = 19 5/8"   C = 37 1/4"   Angle ≈ 18 1/2°
+// Pipe 3: A = 6 1/4"   B = 22 3/8"   C = 40"       Angle ≈ 26 1/2°
+//
+// Pattern:
+//
+// Mark A advances evenly by rack spacing.
+//
+// Mark B does not advance evenly because the hypotenuse changes.
+//
+// Mark C does not advance evenly because shrink changes.
+//
+// Used For:
+//
+// Plane-change Kick 90 racks where the start run is fixed,
+// but every conduit has a different kick height and calculated angle.
+//
+class Kick90SameStartPlaneChangeResult {
+  const Kick90SameStartPlaneChangeResult({
+    required this.pipeIndex,
+    required this.spacingOffset,
+    required this.stub,
+    required this.kickHeight,
+    required this.sameStartRun,
+    required this.angleDeg,
+    required this.distanceBetweenBends,
+    required this.shrink,
+    required this.markA,
+    required this.markB,
+    required this.markC,
+    required this.isPossible,
+  });
+
+  final int pipeIndex;
+  final double spacingOffset;
+  final double stub;
+  final double kickHeight;
+  final double sameStartRun;
+  final double angleDeg;
+  final double distanceBetweenBends;
+  final double shrink;
+  final double markA;
+  final double markB;
+  final double markC;
+  final bool isPossible;
+}
+
+Kick90SameStartPlaneChangeResult calculateKick90SameStartPlaneChange({
+  required int pipeIndex,
+  required double baseStub,
+  required double baseKickHeight,
+  required double spacingOffset,
+  required double sameStartRun,
+  required double leg,
+  required double takeUp,
+  required double gain90,
+  required double pipeOD,
+}) {
+  final pipeStub = baseStub + spacingOffset;
+  final pipeKickHeight = baseKickHeight + spacingOffset;
+
+  final markA = calculateKick90MarkA(
+    stub: pipeStub,
+    takeUp: takeUp,
+  );
+
+  if (sameStartRun <= 0 || pipeKickHeight <= 0) {
+    return Kick90SameStartPlaneChangeResult(
+      pipeIndex: pipeIndex,
+      spacingOffset: spacingOffset,
+      stub: pipeStub,
+      kickHeight: pipeKickHeight,
+      sameStartRun: sameStartRun,
+      angleDeg: 0.0,
+      distanceBetweenBends: 0.0,
+      shrink: 0.0,
+      markA: markA,
+      markB: 0.0,
+      markC: pipeStub + leg - gain90,
+      isPossible: false,
+    );
+  }
+
+  final angleRad = math.atan(pipeKickHeight / sameStartRun);
+  final angleDeg = angleRad * 180.0 / math.pi;
+
+  final distanceBetweenBends = math.sqrt(
+    (sameStartRun * sameStartRun) +
+        (pipeKickHeight * pipeKickHeight),
+  );
+
+  final shrink = calculateKickShrink(
+    kickHeight: pipeKickHeight,
+    angleDeg: angleDeg,
+  );
+
+  final markB = (pipeStub - gain90) +
+      distanceBetweenBends +
+      (pipeOD / 2.0);
+
+  final markC = pipeStub + leg + shrink - gain90;
+
+  return Kick90SameStartPlaneChangeResult(
+    pipeIndex: pipeIndex,
+    spacingOffset: spacingOffset,
+    stub: pipeStub,
+    kickHeight: pipeKickHeight,
+    sameStartRun: sameStartRun,
+    angleDeg: angleDeg,
+    distanceBetweenBends: distanceBetweenBends,
+    shrink: shrink,
+    markA: markA,
+    markB: markB,
+    markC: markC,
+    isPossible: true,
+  );
+}
+// =============================================================================
+// DEVELOPED LENGTH / TRAVEL
+// =============================================================================
+//
+// Field Meaning:
+//
+// Developed Length (Travel) is the amount of conduit consumed by the bend.
+//
+// Formula:
+//
+// Developed Length = CLR × Angle Multiplier
+//
+// Common Angle Multipliers:
+//
+// 10°  = 0.174
+// 15°  = 0.262
+// 20°  = 0.349
+// 22.5° = 0.393
+// 25°  = 0.436
+// 30°  = 0.524
+// 35°  = 0.611
+// 40°  = 0.698
+// 45°  = 0.785
+// 60°  = 1.047
+// 90°  = 1.571
+//
+// Example:
+//
+// CLR = 5"
+//
+// 25° bend:
+//
+// Developed Length = 5 × 0.436
+// Developed Length = 2.18"
+//
+// 90° bend:
+//
+// Developed Length = 5 × 1.571
+// Developed Length = 7.85"
+//
+// =============================================================================
+// RADIUS ADJUSTMENT / CENTER OF BEND
+// =============================================================================
+//
+// Field Meaning:
+//
+// Radius Adjustment is the distance from the start (or end)
+// of the bend to the center of the bend.
+//
+// Formula:
+//
+// Radius Adjustment = Developed Length ÷ 2
+//
+// Example:
+//
+// CLR = 5"
+//
+// 25° bend:
+//
+// Developed Length = 2.18"
+// Radius Adjustment = 1.09"
+//
+// 90° bend:
+//
+// Developed Length = 7.85"
+// Radius Adjustment = 3.93"
+//
+// Note:
+//
+// Radius Adjustment is simply half of the developed length.
+//
+// =============================================================================
+// KICK 90 SAME ANGLE SAME-PLANE RACK FORMULAS
+// =============================================================================
+//
+// Field Meaning:
+//
+// Used when a rack of Kick 90s stays in the same plane, and every conduit uses
+// the same kick angle and same kick height.
+//
+// Real-World Layout:
+//
+// This is basically parallel 90s with the same kick added to each pipe.
+//
+// - Every pipe uses the same kick height.
+// - Every pipe uses the same kick angle.
+// - Stub height increases by rack spacing.
+// - Leg length increases by rack spacing.
+// - Mark A moves by rack spacing.
+// - Mark B moves by rack spacing.
+// - Mark C / cut length increases by double the rack spacing.
+// - Angle stays the same for every pipe.
+//
+// Formula:
+//
+// Pipe Stub = Base Stub + Spacing Offset
+//
+// Pipe Leg = Base Leg + Spacing Offset
+//
+// Distance Between Bends = Kick Height × Cosecant(angle)
+//
+// Shrink = Kick Height × tan(angle / 2)
+//
+// Mark A = Pipe Stub - Take Up
+//
+// Mark B =
+// (Pipe Stub - Gain)
+// + Distance Between Bends
+// + (Pipe OD / 2)
+//
+// Cut Length = Pipe Stub + Pipe Leg + Shrink - Gain
+//
+// Important:
+//
+// If USE NOTCH is selected, Pipe & Wire first calculates the true centerline
+// Mark B, then translates that mark to the 45° notch / teardrop mark.
+//
+// That means Mark B may not match a plain centerline hand calculation, but it
+// should still advance by rack spacing from pipe to pipe.
+//
+// Example:
+//
+// Base Stub = 8"
+// Base Leg = 66"
+// Kick Height = 3"
+// Kick Angle = 15°
+// Rack Spacing = 2" center-to-center
+//
+// Pipe 1:
+// Mark A = 3"
+// Mark B = 18 1/2" using notch method
+// Mark C = 71 3/4"
+// Angle = 15°
+//
+// Pipe 2:
+// Mark A = 5"
+// Mark B = 20 1/2"
+// Mark C = 75 3/4"
+// Angle = 15°
+//
+// Pipe 3:
+// Mark A = 7"
+// Mark B = 22 1/2"
+// Mark C = 79 3/4"
+// Angle = 15°
+//
+// Used For:
+//
+// Same Plane - Same Angle Kick 90 rack layout
+//
+class Kick90SameAngleSamePlaneResult {
+  const Kick90SameAngleSamePlaneResult({
+    required this.pipeIndex,
+    required this.spacingOffset,
+    required this.stub,
+    required this.leg,
+    required this.kickHeight,
+    required this.angleDeg,
+    required this.markA,
+    required this.markB,
+    required this.markC,
+  });
+
+  final int pipeIndex;
+  final double spacingOffset;
+  final double stub;
+  final double leg;
+  final double kickHeight;
+  final double angleDeg;
+  final double markA;
+  final double markB;
+  final double markC;
+}
+
+Kick90SameAngleSamePlaneResult calculateKick90SameAngleSamePlane({
+  required int pipeIndex,
+  required double baseStub,
+  required double baseLeg,
+  required double kickHeight,
+  required double spacingOffset,
+  required double angleDeg,
+  required double takeUp,
+  required double gain90,
+  required double pipeOD,
+  required double clr,
+  required BendingMethod method,
+}) {
+  final pipeStub = baseStub + spacingOffset;
+  final pipeLeg = baseLeg + spacingOffset;
+
+  final markA = calculateKick90MarkA(
+    stub: pipeStub,
+    takeUp: takeUp,
+  );
+
+  final markB = calculateKick90MarkB(
+    stub: pipeStub,
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+    gain90: gain90,
+    pipeOD: pipeOD,
+    clr: clr,
+    method: method,
+  );
+
+  final markC = calculateKick90CutLength(
+    stub: pipeStub,
+    leg: pipeLeg,
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+    gain90: gain90,
+  );
+
+  return Kick90SameAngleSamePlaneResult(
+    pipeIndex: pipeIndex,
+    spacingOffset: spacingOffset,
+    stub: pipeStub,
+    leg: pipeLeg,
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+    markA: markA,
+    markB: markB,
+    markC: markC,
+  );
+}
+// =============================================================================
+// KICK 90 SAME START / MATCH BEND SAME-PLANE RACK FORMULAS
+// =============================================================================
+//
+// Field Meaning:
+//
+// Used when a rack of Kick 90s stays in the same plane, and every conduit
+// kicks to the same height but matches a farther bend location as the rack grows.
+//
+// Real-World Layout:
+//
+// This is like parallel 90s with a kick after the 90, but instead of using the
+// same kick angle on every pipe, the user gives the first 90-to-match-bend
+// distance.
+//
+// - Every pipe uses the same kick height.
+// - Stub height increases by rack spacing.
+// - Leg length increases by rack spacing.
+// - Distance between bends increases by rack spacing.
+// - Mark A moves by rack spacing.
+// - Mark B moves by stub spacing plus the added bend distance.
+// - Mark C / cut length increases by stub spacing + leg spacing, with shrink
+//   changing because the angle changes.
+// - Angle changes for each pipe.
+//
+// Formula:
+//
+// Pipe Stub = Base Stub + Spacing Offset
+//
+// Pipe Leg = Base Leg + Spacing Offset
+//
+// Pipe Distance Between Bends = Base Match Bend Distance + Spacing Offset
+//
+// Angle = asin(Kick Height / Pipe Distance Between Bends)
+//
+// Shrink = Kick Height × tan(angle / 2)
+//
+// Mark A = Pipe Stub - Take Up
+//
+// Mark B =
+// (Pipe Stub - Gain)
+// + Pipe Distance Between Bends
+// + (Pipe OD / 2)
+//
+// Cut Length = Pipe Stub + Pipe Leg + Shrink - Gain
+//
+// Important:
+//
+// If Kick Height is greater than the pipe distance between bends, the geometry
+// is impossible because asin() cannot calculate that angle.
+//
+// If USE NOTCH is selected, Pipe & Wire first calculates the true centerline
+// Mark B, then translates that mark to the 45° notch / teardrop mark.
+//
+// Used For:
+//
+// Same Plane - 90 to Match Bend Kick 90 rack layout
+//
+
+double calculateKick90NotchMarkFromCenterline({
+  required double centerlineMark,
+  required double angleDeg,
+  required double clr,
+}) {
+  if (clr <= 0 || angleDeg <= 0) {
+    return centerlineMark;
+  }
+
+  final notchAngleOffset = 45.0 - (angleDeg / 2.0);
+  final arcAdjustment =
+      clr * 2 * math.pi * (notchAngleOffset / 360.0);
+
+  return centerlineMark - arcAdjustment;
+}
+double calculateKick90MarkBFromDistanceBetweenBends({
+  required double stub,
+  required double distanceBetweenBends,
+  required double angleDeg,
+  required double gain90,
+  required double pipeOD,
+  required double clr,
+  required BendingMethod method,
+}) {
+  final centerlineMarkB =
+      (stub - gain90) + distanceBetweenBends + (pipeOD / 2);
+
+  if (method == BendingMethod.centerline) {
+    return centerlineMarkB;
+  }
+
+  return calculateKick90NotchMarkFromCenterline(
+    centerlineMark: centerlineMarkB,
+    angleDeg: angleDeg,
+    clr: clr,
+  );
+}
+class Kick90SameStartSamePlaneResult {
+  const Kick90SameStartSamePlaneResult({
+    required this.pipeIndex,
+    required this.spacingOffset,
+    required this.stub,
+    required this.leg,
+    required this.kickHeight,
+    required this.distanceBetweenBends,
+    required this.angleDeg,
+    required this.markA,
+    required this.markB,
+    required this.markC,
+  });
+
+  final int pipeIndex;
+  final double spacingOffset;
+  final double stub;
+  final double leg;
+  final double kickHeight;
+  final double distanceBetweenBends;
+  final double angleDeg;
+  final double markA;
+  final double markB;
+  final double markC;
+}
+
+Kick90SameStartSamePlaneResult calculateKick90SameStartSamePlane({
+  required int pipeIndex,
+  required double baseStub,
+  required double baseLeg,
+  required double kickHeight,
+  required double baseMatchBendDistance,
+  required double spacingOffset,
+  required double takeUp,
+  required double gain90,
+  required double pipeOD,
+  required double clr,
+  required BendingMethod method,
+}) {
+  final pipeStub = baseStub + spacingOffset;
+  final pipeLeg = baseLeg + spacingOffset;
+  final pipeDistanceBetweenBends =
+      baseMatchBendDistance + spacingOffset;
+
+  if (pipeDistanceBetweenBends <= 0 ||
+      kickHeight > pipeDistanceBetweenBends) {
+    return Kick90SameStartSamePlaneResult(
+      pipeIndex: pipeIndex,
+      spacingOffset: spacingOffset,
+      stub: pipeStub,
+      leg: pipeLeg,
+      kickHeight: kickHeight,
+      distanceBetweenBends: pipeDistanceBetweenBends,
+      angleDeg: 0,
+      markA: 0,
+      markB: 0,
+      markC: 0,
+    );
+  }
+
+  final angleRad =
+  math.asin(kickHeight / pipeDistanceBetweenBends);
+  final angleDeg = angleRad * 180 / math.pi;
+
+  final markA = calculateKick90MarkA(
+    stub: pipeStub,
+    takeUp: takeUp,
+  );
+
+  final markB = calculateKick90MarkBFromDistanceBetweenBends(
+    stub: pipeStub,
+    distanceBetweenBends: pipeDistanceBetweenBends,
+    angleDeg: angleDeg,
+    gain90: gain90,
+    pipeOD: pipeOD,
+    clr: clr,
+    method: method,
+  );
+
+  final markC = calculateKick90CutLength(
+    stub: pipeStub,
+    leg: pipeLeg,
+    kickHeight: kickHeight,
+    angleDeg: angleDeg,
+    gain90: gain90,
+  );
+
+  return Kick90SameStartSamePlaneResult(
+    pipeIndex: pipeIndex,
+    spacingOffset: spacingOffset,
+    stub: pipeStub,
+    leg: pipeLeg,
+    kickHeight: kickHeight,
+    distanceBetweenBends: pipeDistanceBetweenBends,
+    angleDeg: angleDeg,
+    markA: markA,
+    markB: markB,
+    markC: markC,
+  );
+}
+// =============================================================================
+// 45° NOTCH / TEARDROP METHOD
+// =============================================================================
+//
+// Field Meaning:
+//
+// Uses the bender's 45° notch, teardrop, or saved 45° mark
+// instead of the arrow.
+//
+// Formula:
+//
+// Notch Correction =
+//
+// Radius Adjustment (45°)
+//
+// minus
+//
+// Radius Adjustment (Desired Angle)
+//
+// Angles Less Than 45°
+//
+// ADD correction to center mark.
+//
+// Angles Greater Than 45°
+//
+// SUBTRACT correction from center mark.
+//
+// Example:
+//
+// CLR = 5"
+//
+// 45° Radius Adjustment:
+//
+// 5 × 0.785 ÷ 2
+// = 1.96"
+//
+// 25° Radius Adjustment:
+//
+// 5 × 0.436 ÷ 2
+// = 1.09"
+//
+// Correction:
+//
+// 1.96 - 1.09
+// = 0.87"
+//
+// Therefore:
+//
+// A 25° bend using the 45° notch
+// requires a mark approximately 7/8"
+// beyond the true center mark.
+//
+// ============================================================================
+// =============================================================================
+// DEVELOPED LENGTH / RADIUS ADJUSTMENT / 45° NOTCH HELPERS
+// =============================================================================
+
+double calculateDevelopedLength({
+  required double clr,
+  required double angleDeg,
+}) {
+  return clr * degreesToRadians(angleDeg);
+}
+
+double calculateRadiusAdjustment({
+  required double clr,
+  required double angleDeg,
+}) {
+  return calculateDevelopedLength(
+    clr: clr,
+    angleDeg: angleDeg,
+  ) /
+      2.0;
+}
+
+double calculate45NotchCorrection({
+  required double clr,
+  required double angleDeg,
+}) {
+  final radiusAdjustment45 = calculateRadiusAdjustment(
+    clr: clr,
+    angleDeg: 45.0,
+  );
+
+  final radiusAdjustmentDesired = calculateRadiusAdjustment(
+    clr: clr,
+    angleDeg: angleDeg,
+  );
+
+  return (radiusAdjustment45 - radiusAdjustmentDesired).abs();
+}
+
+double convertCenterMarkTo45NotchMark({
+  required double centerMark,
+  required double clr,
+  required double angleDeg,
+  bool reverse = false,
+}) {
+  final correction = calculate45NotchCorrection(
+    clr: clr,
+    angleDeg: angleDeg,
+  );
+
+  if (angleDeg < 45.0) {
+    return reverse ? centerMark - correction : centerMark + correction;
+  }
+
+  if (angleDeg > 45.0) {
+    return reverse ? centerMark + correction : centerMark - correction;
+  }
+
+  return centerMark;
+}
+
+// =============================================================================
+// 3-POINT SADDLE CALCULATIONS (PUSH-THROUGH METHOD)
+// =============================================================================
+
+// =============================================================================
+// 3-POINT SADDLE DISTANCE BETWEEN MARKS
+// =============================================================================
+//
+// Field Meaning:
+//
+// This is the distance between your center mark and your outside marks.
+// We add the pipe width to this measurement to make sure the saddle
+// clears the corners of the obstruction and to account for the
+// bender facing the same direction for all three bends.
+//
+// Formula:
+//
+// Distance Between Marks = (Obstruction Height × Multiplier) + Pipe OD
+//
+// Multipliers for common angles:
+// - 22.5 degrees = 2.6
+// - 30 degrees = 2.0
+// - 45 degrees = 1.4
+//
+// Example:
+//
+// If you have a 2 inch obstruction and you are using 30 degree
+// outside angles:
+// (2 inches × 2.0) + Pipe OD = 4 inches + Pipe OD.
+//
+// Used For:
+//
+// Finding the locations of Mark A and Mark C relative to Mark B.
+//
+double calculateSaddle3PointGap({
+  required double height,
+  required double angleDeg,
+  required double pipeOD,
+}) {
+  final cosecant = 1.0 / math.sin(angleDeg * math.pi / 180.0);
+  return (height * cosecant) + pipeOD;
+}
+
+// =============================================================================
+// 3-POINT SADDLE SHRINK PER OFFSET
+// =============================================================================
+//
+// Field Meaning:
+//
+// This is how much the pipe will shorten during the first half of the saddle
+// (getting to the top of the obstruction). This must be added to your 
+// distance measurement to find the true center mark.
+//
+// Formula:
+//
+// Shrink = Obstruction Height × tan(Outside Angle / 2)
+//
+// Used For:
+//
+// Mark B (Center Mark)
+//
+double calculateSaddle3PointShrinkPerOffset({
+  required double height,
+  required double angleDeg,
+}) {
+  return height * math.tan((angleDeg / 2.0) * math.pi / 180.0);
+}
+
+// =============================================================================
+// 3-POINT SADDLE TOTAL SHRINK
+// =============================================================================
+//
+// Field Meaning:
+//
+// This is the combined shrink from both halves of the saddle.
+//
+// Formula:
+//
+// Total Shrink = 2 × (Obstruction Height × tan(Outside Angle / 2))
+//
+// Used For:
+//
+// Mark D (Cut Length)
+//
+double calculateSaddle3PointTotalShrink({
+  required double height,
+  required double angleDeg,
+}) {
+  final individualShrink = calculateSaddle3PointShrinkPerOffset(height: height, angleDeg: angleDeg);
+  return individualShrink * 2.0;
+}
+
+// =============================================================================
+// 3-POINT SADDLE MARKS (PUSH-THROUGH)
+// =============================================================================
+//
+// Field Meaning:
+//
+// These are the three marks on your pipe where you will place
+// your bender notch.
+//
+// Step 1: Mark B is the Center of Bend (Distance + Shrink).
+// Step 2: Outside Marks are placed at Mark B +/- the Gap.
+//
+// Pro Method (Push-Through):
+//
+// Use the NOTCH on your bender for all three marks.
+// Bend Mark A (1st Bend) to the outside angle.
+// Push the pipe forward through the bender and bend Mark B (2nd Bend) to double that angle.
+// Push the pipe forward through the bender and bend Mark C (3rd Bend) to the outside angle.
+//
+// The app automatically determines which mark (Nearest or Furthest) 
+// should be Mark A to maximize your leverage on the pipe.
+//
+double calculateSaddle3PointMark({
+  required double centerDistance,
+  required double height,
+  required double angleDeg,
+  required double pipeOD,
+  required double clr,
+  required String markType, // 'A', 'B', or 'C'
+  bool reverse = false,
+  BendingMethod method = BendingMethod.notch,
+}) {
+  final individualShrink = calculateSaddle3PointShrinkPerOffset(height: height, angleDeg: angleDeg);
+  final gap = calculateSaddle3PointGap(height: height, angleDeg: angleDeg, pipeOD: pipeOD);
+
+  final centerlineMarkB = centerDistance + individualShrink;
+  double centerlineMark = 0.0;
+
+  if (markType == 'A') {
+    centerlineMark = centerlineMarkB - gap;
+  } else if (markType == 'B') {
+    centerlineMark = centerlineMarkB;
+  } else {
+    centerlineMark = centerlineMarkB + gap;
+  }
+
+  if (method == BendingMethod.centerline) {
+    return centerlineMark;
+  }
+
+  // Always translate to the notch for push-through convenience
+  // Mark B uses the center angle (double the outside angle)
+  final targetAngle = (markType == 'B') ? (angleDeg * 2.0) : angleDeg;
+
+  return convertCenterMarkTo45NotchMark(
+    centerMark: centerlineMark,
+    clr: clr,
+    angleDeg: targetAngle,
+    reverse: reverse,
+  );
+}
+
+// =============================================================================
+// 3-POINT SADDLE CUT LENGTH / MARK D
+// =============================================================================
+//
+// Field Meaning:
+//
+// This is the total length of pipe you need to cut before bending.
+//
+// Formula:
+//
+// Cut Length = Total Run Length + Total Shrink
+//
+class Saddle3PointResult {
+  final double markA;
+  final double markB;
+  final double markC;
+  final double cutLength;
+  Saddle3PointResult({required this.markA, required this.markB, required this.markC, required this.cutLength});
+}
+
+Saddle3PointResult calculateSaddle3Point({
+  required double centerDistance,
+  required double height,
+  required double angleDeg,
+  required double pipeOD,
+  required double clr,
+  required double runLength,
+  BendingMethod method = BendingMethod.notch,
+}) {
+  // Leverage-First Logic:
+  // If the center is more than half the pipe length away, 
+  // we start at the furthest mark and push back toward the start.
+  final bool isLong = centerDistance > (runLength / 2.0);
+
+  double mA, mC;
+  if (isLong) {
+    mA = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'C', reverse: true, method: method);
+    mC = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'A', reverse: true, method: method);
+  } else {
+    mA = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'A', reverse: false, method: method);
+    mC = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'C', reverse: false, method: method);
+  }
+
+  final mB = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'B', reverse: isLong, method: method);
+  final mD = calculateSaddle3PointCutLength(runLength: runLength, height: height, angleDeg: angleDeg);
+
+  return Saddle3PointResult(markA: mA, markB: mB, markC: mC, cutLength: mD);
+}
+
+double calculateSaddle3PointCutLength({
+  required double runLength,
+  required double height,
+  required double angleDeg,
+}) {
+  final totalShrink = calculateSaddle3PointTotalShrink(height: height, angleDeg: angleDeg);
+  return runLength + totalShrink;
+}
+
