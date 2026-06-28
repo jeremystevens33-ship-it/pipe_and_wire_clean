@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'code_screen.dart';
+import 'main_menu_screen.dart';
 import 'dart:async';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,15 +29,18 @@ class BoxLayoutModeScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: Colors.white,
-        title: const Text('Box Layout'),
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.home),
           onPressed: () {
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            }
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (context) => MainMenuScreen()),
+              (route) => false,
+            );
           },
         ),
+        title: const Text('Box Layout'),
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),
@@ -44,45 +48,89 @@ class BoxLayoutModeScreen extends StatelessWidget {
               showDialog(
                 context: context,
                 builder: (context) => AlertDialog(
-                  backgroundColor: Colors.black,
+                  backgroundColor: const Color(0xFF212121),
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Colors.white24),
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
                   ),
                   title: const Text(
-                    "How to Use",
+                    "Box Layout Tool",
                     style: TextStyle(
                       color: Colors.white,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 22,
                     ),
                   ),
                   content: const SingleChildScrollView(
-                    child: Text(
-                      "1. Select pipe type (EMT or RMC).\n\n"
-                          "2. Enter number of conduits.\n\n"
-                          "3. Enter pipe size.\n\n"
-                          "4. Enter spacing or box size.\n\n"
-                          "5. Tap Space to calculate layout.\n\n"
-                          "6. Tap Space again to switch to center-to-center spacing.\n\n"
-                          "7. Press and hold Space to fine-tune spacing.\n\n"
-                          "Tip:\n"
-                          "Use hold-to-edit to quickly tighten or spread conduits when space is limited.",
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 15,
-                        height: 1.4,
-                      ),
+                    child: ListBody(
+                      children: [
+                        Text(
+                          "Use this tool to precisely disperse conduits across a set distance. It is optimized for junction boxes, trapeze hangers, and strut racks.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          "Two Ways to Start:",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "• START WITH PIPES: Select pipe type and sizes first. The app will calculate the minimum width needed for the run.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          "• OR START WITH BOX: Tap 'Box' to enter a fixed width. The app will then distribute your conduits evenly across that space.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          "Reading the Results:",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "The results represent a single tape measure pull starting from the left edge.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "• Top Row: Left edge to pipe center. Tap 'Space' to toggle center-to-center.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "• Bottom Row: Face of strut up to pipe center.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          "Pro Features:",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "• Accounts for physical footprint of Locknuts, Myers Hubs, or Grounding Bushings.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "• Long-press 'Space' to manually override even spacing.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                      ],
                     ),
                   ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
                       child: const Text(
-                        "OK",
+                        "Close",
                         style: TextStyle(
-                          color: Colors.redAccent,
-                          fontWeight: FontWeight.w600,
+                          color: Color(0xFFE53935),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
@@ -92,13 +140,20 @@ class BoxLayoutModeScreen extends StatelessWidget {
             },
           ),
           TextButton(
-            child: const Text("NEC"),
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const CodeScreen()),
+                MaterialPageRoute(builder: (context) => const CodeScreen(initialCategory: CodeCategory.boxes)),
               );
             },
+            child: const Text(
+              "NEC",
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
         ],
       ),
@@ -214,11 +269,11 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   late final Animation<double> _pulseAnim;
 
   // ===== Visual constants =====
-  static const double kOuterPad = 10;
+  static const double kOuterPad = 8;
   static const double kInnerPad = 6;
   static const double kGridSpacing = 6;
   static const double kRadius = 6;
-  static const double kButtonH = 44;
+  static const double kButtonH = 48;
   static const double kCircleSize = 40;
   static const int kVisibleSlots = 6;
   static const double kMinWorkableSpacingIn = 0.25;
@@ -425,21 +480,21 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     if (!isSuccess) {
       switch (_step) {
         case WorkflowStep.typeSelect:
-          return "Toggle pipe type EMT / RMC or tap Box size to start.";
+          return "Select pipe type or tap Box to start. Tap ✓ to proceed.";
         case WorkflowStep.fittingSelect:
           return _type == BoxLayoutConduitType.emt
-              ? "Toggle fitting: Locknut / Grounding Bushing"
-              : "Toggle fitting: Locknut / Myers Hub / Grounding Bushing";
+              ? "Select fitting. Tap ✓ to proceed."
+              : "Select fitting. Tap ✓ to proceed.";
         case WorkflowStep.boxWidth:
-          return "Enter total box width";
+          return "Enter total box width. Tap ✓ to confirm.";
         case WorkflowStep.pipeCount:
-          return "Enter pipe count";
+          return "Enter pipe count. Tap ✓ to confirm.";
         case WorkflowStep.pipeSizes:
-          return "Enter pipe size";
+          return "Enter pipe size. Tap ✓ to confirm.";
         case WorkflowStep.spacing:
-          return "Enter spacing between conduits";
+          return "Enter spacing between conduits. Tap ✓ to confirm.";
         case WorkflowStep.done:
-          return "Enter total box width";
+          return "Enter total box width. Tap ✓ to confirm.";
       }
     }
     return "Top row = left edge ➜ pipe centers.\nTap Space for center-to-center.";
@@ -492,6 +547,8 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
       case WorkflowStep.fittingSelect:
         return true;
       case WorkflowStep.boxWidth:
+        // Stay green if starting fresh with a box to guide the user
+        if (_pipes.isEmpty) return true;
         return _parseInches(_currentInput) > 0;
       case WorkflowStep.pipeCount:
         final c = int.tryParse(_currentInput.trim());
@@ -515,7 +572,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   bool get _fittingActive =>
       !_showErrorBanner && _step == WorkflowStep.fittingSelect;
 
-  bool get _boxActive => !_showErrorBanner && _step == WorkflowStep.boxWidth;
+  bool get _boxActive => !_showErrorBanner && (_step == WorkflowStep.boxWidth || (_step == WorkflowStep.typeSelect && _boxWidth.isEmpty));
 
   bool get _countActive =>
       !_showErrorBanner && _step == WorkflowStep.pipeCount;
@@ -632,10 +689,12 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                 HapticFeedback.lightImpact();
                 setState(() {
                   if (_type == BoxLayoutConduitType.emt) {
+                    // EMT: Skip Myers Hub
                     _fitting = (_fitting == FittingType.lock)
                         ? FittingType.bush
                         : FittingType.lock;
                   } else {
+                    // RMC: Include Myers Hub
                     if (_fitting == FittingType.lock) {
                       _fitting = FittingType.hub;
                     } else if (_fitting == FittingType.hub) {
@@ -1082,10 +1141,22 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                 bottomLabel = _formatToSixteenth(_strutDistancesIn[i]);
               }
 
+              final isLastPipe = i == _pipes.length - 1;
+
               return GestureDetector(
                 onTap: () {
                   HapticFeedback.lightImpact();
                   setState(() {
+                    if (isError && isLastPipe && _pipes.length > 1) {
+                      _pipes.removeAt(i);
+                      _recomputeLayout();
+                      if (!isError) {
+                        _step = WorkflowStep.done;
+                        _hasCompletedOnce = true;
+                      }
+                      return;
+                    }
+
                     if (_showErrorBanner) {
                       _errorAcknowledged = true;
                     }
@@ -1126,10 +1197,12 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: (_activePipeIndex == i)
-                                ? Colors.redAccent
-                                : Colors.grey.shade300,
-                            width: (_activePipeIndex == i) ? 3.0 : 2.2,
+                            color: (isError && isLastPipe)
+                                ? const Color(0xFFE24E47)
+                                : (_activePipeIndex == i)
+                                    ? Colors.redAccent
+                                    : Colors.grey.shade300,
+                            width: ((isError && isLastPipe) || _activePipeIndex == i) ? 3.0 : 2.2,
                           ),
                           color: Colors.black,
                         ),
@@ -1139,7 +1212,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                             child: Padding(
                               padding: const EdgeInsets.all(4.0),
                               child: Text(
-                                label == "--" ? label : '$label"',
+                                (isError && isLastPipe) ? "-" : (label == "--" ? label : '$label"'),
                                 textAlign: TextAlign.center,
                                 softWrap: false,
                                 style: const TextStyle(
@@ -1621,7 +1694,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
       final clearance = boxW - totalRackW;
 
       if (clearance < 0) {
-        _fitWarning = "Layout does not fit in the box.";
+        _fitWarning = "Layout does not fit in the box.\nAdjust box, spacing, or remove a pipe.";
       } else if (clearance < 1.0) {
         _fitWarning = "Clearance is tight (< 1 inch).";
       }

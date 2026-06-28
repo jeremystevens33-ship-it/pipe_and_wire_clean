@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:fraction/fraction.dart';
+import 'main_menu_screen.dart';
 import 'dart:ui';
 
 class TriangleCalculatorScreen extends StatelessWidget {
@@ -51,18 +52,16 @@ class TriangleDiagram extends StatelessWidget {
   final String? hypValue;
   final String? angleValue;
 
-  static const double _height = 100;
-  static const double _labelOffset = 10; // 🔧 ONLY tuning knob
+  static const double _height = 200;
+  static const double _labelOffset = 6; // 🔧 ONLY tuning knob
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      child: SizedBox(
-        height: _height,
-        width: double.infinity,
-        child: CustomPaint(
-          painter: _TriangleDiagramPainter(
+    return SizedBox(
+      height: _height,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: _TriangleDiagramPainter(
             selectedField: selectedField,
             labelOffset: _labelOffset,
             adjValue: adjValue,
@@ -71,8 +70,7 @@ class TriangleDiagram extends StatelessWidget {
             angleValue: angleValue,
           ),
         ),
-      ),
-    );
+      );
   }
 }
 
@@ -110,16 +108,16 @@ class _TriangleDiagramPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..color = Colors.white;
 
-    // --- Triangle geometry (scaled 80%, centered) ---
-    final double scale = 0.8;
+    final double scale = 0.92; // Back to a larger size to match calculator width
     final double triangleWidth = size.width * scale;
-    final double triangleHeight = triangleWidth * 0.45;
+    final double triangleHeight = triangleWidth * 0.42;
 
     final double hStart = (size.width - triangleWidth) / 2;
-    final double vStart = size.height - triangleHeight;
+    // Vertically center the triangle in the available height
+    final double vStart = (size.height - triangleHeight) / 2; 
 
-    final A = Offset(hStart + triangleWidth, size.height);
-    final B = Offset(hStart, size.height);
+    final A = Offset(hStart + triangleWidth, vStart + triangleHeight);
+    final B = Offset(hStart, vStart + triangleHeight);
     final C = Offset(hStart + triangleWidth, vStart);
 
     final path = Path()
@@ -134,37 +132,36 @@ class _TriangleDiagramPainter extends CustomPainter {
     // --- Labels & Values (linked for easy adjustment) ---
     // Note: Adjust the 'basePosition' line for each group to move them together.
 
-    // --- ADJ (Centered) ---
-    final adjBasePos = (A + B) / 2 + Offset(20, -labelOffset - 20);
-    _drawLabel(canvas, 'ADJ', adjBasePos + const Offset(35, 0)); // The Label
+    // --- ADJ (Inside/Above Line) ---
+    final adjBasePos = (A + B) / 2 + Offset(40, -7 - labelOffset);
+    _drawLabel(canvas, 'ADJ', adjBasePos); // The Label
     if (adjValue != null && adjValue!.isNotEmpty) {
       _drawLabel(canvas, adjValue!,
-          adjBasePos + const Offset(35,15)); // The Value
+          adjBasePos - const Offset(0, 15)); // The Value
     }
 
-    // --- OPP (Right-Aligned) ---
-    // This base position is now the top-right anchor for the whole group.
-    final oppBasePos = (A + C) / 2 + const Offset(-5, -5);
+    // --- OPP (Inside Triangle) ---
+    // Moved left to be inside the vertical right side
+    final oppBasePos = (A + C) / 2 + Offset(-8 - labelOffset, 5);
     _drawLabelRightAligned(canvas, 'OPP', oppBasePos);
     if (oppValue != null && oppValue!.isNotEmpty) {
       _drawLabelRightAligned(canvas, oppValue!, oppBasePos + const Offset(0, 15));
     }
 
     // --- HYP (Right-Aligned) ---
-    final hypBasePos = (B + C) / 2 +
-        const Offset(0, -25); // This is now the top-right anchor
+    final hypBasePos = (B + C) / 2 + Offset(-8 - labelOffset, -3 - labelOffset);
     _drawLabelRightAligned(canvas, 'HYP', hypBasePos);
     if (hypValue != null && hypValue!.isNotEmpty) {
       _drawLabelRightAligned(
           canvas, hypValue!, hypBasePos + const Offset(0, 15));
     }
 
-    // --- Angle (Centered Label, Value to Right) ---
-    final angleBasePos = B + const Offset(12 - 20, -12);
+    // --- Angle (Moved Right & Aligned with ADJ) ---
+    final angleBasePos = Offset(B.dx + 70, adjBasePos.dy);
     if (angleValue != null && angleValue!.isNotEmpty) {
-      _drawLabel(canvas, angleValue!, angleBasePos + const Offset(70, 0));
+      _drawLabel(canvas, angleValue!, angleBasePos);
     } else {
-      _drawLabel(canvas, '∠θ', angleBasePos + const Offset(70, 0));
+      _drawLabel(canvas, '∠θ', angleBasePos);
     }
   }
 
@@ -719,12 +716,15 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: Colors.white,
         title: const Text('Triangle Calculator'),
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.home),
           onPressed: () {
-            if (Navigator.canPop(context)) {
-              Navigator.pop(context);
-            }
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+              (route) => false,
+            );
           },
         ),
         actions: [
@@ -755,70 +755,66 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
         ],
       ),
       body: SafeArea(
-        child: Center(
-          child: SizedBox(
-            width: MediaQuery.of(context).size.width - 20,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TriangleDiagram(
-                    selectedField: _selectedField,
-                    adjValue: _adjForDiagram,
-                    oppValue: _oppForDiagram,
-                    hypValue: _hypForDiagram,
-                    angleValue: _angleForDiagram,
-                  ),
-
-                  Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: const Color(0x88FF3B30),
-                        width: 2,
-                      ),
-                    ),
-                    clipBehavior: Clip.hardEdge,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 8),
-                        _TriangleTopBar(
-                          onFieldSelected: _onTriangleFieldSelect,
-                          selectedField: _selectedField,
-                        ),
-                        const SizedBox(height: 4),
-                        RulerPad(key: _padKey, onKey: _handleKeyPress),
-                        const SizedBox(height: 4),
-                        _OperatorBar(
-                          onKey: _handleKeyPress,
-                          onLongKey: _handleKeyLongPress,
-                          isCheckmarkGreen: _isCheckmarkGreen,
-                        ),
-                        const SizedBox(height: 4),
-                        _BottomDisplayBar(
-                          value: isTriangleResult
-                              ? null
-                              : (_triDisplay.isEmpty ? '​' : _triDisplay),
-                          isTriangleResult: isTriangleResult,
-                          triAngle: _triAngleStr,
-                          triOpp: _triOppStr,
-                          triAdj: _triAdjStr,
-                          triHyp: _triHypStr,
-                          triShrink: _triShrinkStr,
-                          flashResult: _flashTriangleResult,
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                    ),
-                  ),
-                ],
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TriangleDiagram(
+                selectedField: _selectedField,
+                adjValue: _adjForDiagram,
+                oppValue: _oppForDiagram,
+                hypValue: _hypForDiagram,
+                angleValue: _angleForDiagram,
               ),
-            ),
+
+              const SizedBox(height: 8),
+
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: const Color(0x88FF3B30),
+                    width: 2,
+                  ),
+                ),
+                clipBehavior: Clip.hardEdge,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 6),
+                    _TriangleTopBar(
+                      onFieldSelected: _onTriangleFieldSelect,
+                      selectedField: _selectedField,
+                    ),
+                    const SizedBox(height: 6),
+                    RulerPad(key: _padKey, onKey: _handleKeyPress),
+                    const SizedBox(height: 6),
+                    _OperatorBar(
+                      onKey: _handleKeyPress,
+                      onLongKey: _handleKeyLongPress,
+                      isCheckmarkGreen: _isCheckmarkGreen,
+                    ),
+                    const SizedBox(height: 6),
+                    _BottomDisplayBar(
+                      value: isTriangleResult
+                          ? null
+                          : (_triDisplay.isEmpty ? '​' : _triDisplay),
+                      isTriangleResult: isTriangleResult,
+                      triAngle: _triAngleStr,
+                      triOpp: _triOppStr,
+                      triAdj: _triAdjStr,
+                      triHyp: _triHypStr,
+                      triShrink: _triShrinkStr,
+                      flashResult: _flashTriangleResult,
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -864,7 +860,7 @@ class _TriangleTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double kOuterPad = 10;
+    const double kOuterPad = 6;
     const double kInnerPad = 6;
     const double kGridSpacing = 6;
     const double kRadius = 6;
@@ -948,7 +944,7 @@ class _OperatorBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const kOuterPad = 10.0;
+    const kOuterPad = 6.0;
     const kInnerPad = 6.0;
     const kGridSpacing = 6.0;
     const kRadius = 6.0;
@@ -1219,7 +1215,7 @@ class _BottomDisplayBar extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
       child: AnimatedSize(
         duration: const Duration(milliseconds: 200),
         child: Container(
@@ -1260,7 +1256,7 @@ class _RulerPadState extends State<RulerPad> {
     });
   }
 
-  static const double kOuterPad = 10;
+  static const double kOuterPad = 6;
   static const double kInnerPad = 6;
   static const double kGridSpacing = 6;
   static const double kRadius = 6;

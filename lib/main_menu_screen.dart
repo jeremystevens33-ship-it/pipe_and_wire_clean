@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:pipe_and_wire_clean/rack_state.dart';
-import 'package:pipe_and_wire_clean/feeder_calculator.dart';
-import 'package:pipe_and_wire_clean/fraction_calculator_1.dart';
+import 'package:pipe_and_wire_clean/pipe_and_box_fill.dart';
+import 'package:pipe_and_wire_clean/feet_inch_fraction_calculator.dart';
 import 'package:pipe_and_wire_clean/triangle_calculator.dart';
 import 'package:pipe_and_wire_clean/box_layout_mode.dart';
 import 'package:pipe_and_wire_clean/kick_90.dart';
@@ -44,11 +44,11 @@ class MainMenuScreen extends StatelessWidget {
             children: [
               _buildMenuButton(context, 'Triangle + Shrink', () => const TriangleCalculator()),
               _buildMenuButton(context, 'Box Layout', () => const BoxLayoutModeScreen()),
-              _buildMenuButton(context, 'Feet - Inch - Fraction', () => const FractionCalculator()),
+              _buildMenuButton(context, 'Feet - Inch - Fraction', () => const FeetInchFractionCalculator()),
               _buildMenuButton(
                 context,
                 'Pipe + Box Fill',
-                () => const UnifiedFeederCalculator(),
+                () => const PipeAndBoxFill(),
                 subtitle: 'Derate + V Drop',
               ),
               _buildMenuButton(context, 'Load Calculator', () => const LoadCalculator()), // Corrected class name

@@ -6,6 +6,7 @@ import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
 import 'package:flutter/services.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'code_screen.dart';
 import 'main_menu_screen.dart';
 
 void main() async {
@@ -86,6 +87,7 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
   String markBOut = '';
   String markCOut = '';
   String markDOut = '';
+  String cutLengthOut = '';
 
   // Keypad State
   bool _isKeypadVisible = false;
@@ -130,7 +132,7 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
 
   // Dual-Angle Sync Logic
   void _onOutsideAngleChanged() {
-    if (_activeController != measurement3Ctrl) return;
+    if (_activeController != measurement3Ctrl || _selectedSaddleType != SaddleType.threePoint) return;
     final val = _parseInches(measurement3Ctrl.text);
     if (val > 0) {
       measurement4Ctrl.text = '${(val * 2).toString().replaceAll('.0', '')}°';
@@ -138,7 +140,7 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
   }
 
   void _onCenterAngleChanged() {
-    if (_activeController != measurement4Ctrl) return;
+    if (_activeController != measurement4Ctrl || _selectedSaddleType != SaddleType.threePoint) return;
     final val = _parseInches(measurement4Ctrl.text);
     if (val > 0) {
       measurement3Ctrl.text = '${(val / 2).toString().replaceAll('.0', '')}°';
@@ -316,9 +318,9 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
         ? bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]
         : bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
     final clr = _parseInches(radiusCtrl.text);
+    final runLength = measurement5Ctrl.text.isEmpty ? 120.0 : _parseInches(measurement5Ctrl.text);
 
     if (_selectedSaddleType == SaddleType.threePoint) {
-      final runLength = measurement5Ctrl.text.isEmpty ? 120.0 : _parseInches(measurement5Ctrl.text);
       _isStartOnRight = dist > (runLength / 2.0);
 
       final result = bending_data.calculateSaddle3Point(
@@ -330,12 +332,39 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
         runLength: runLength,
         method: _bendingMethod,
       );
-      
+
       setState(() {
         markAOut = fmtInches(result.markA);
         markBOut = fmtInches(result.markB);
         markCOut = fmtInches(result.markC);
-        markDOut = fmtInches(result.cutLength);
+        markDOut = ''; // Not used for 3-point
+        cutLengthOut = fmtInches(result.cutLength);
+        _currentStep = 3;
+        _isResultsExpanded = true;
+        _isMeasurementsExpanded = false;
+      });
+    } else if (_selectedSaddleType == SaddleType.fourPoint) {
+      final obstructionLength = _parseInches(measurement4Ctrl.text);
+      final centerOfSaddle = dist + (obstructionLength / 2.0);
+      _isStartOnRight = centerOfSaddle > (runLength / 2.0);
+
+      final result = bending_data.calculateSaddle4Point(
+        distToCenter: dist,
+        height: height,
+        angleDeg: angle,
+        obstructionLength: obstructionLength,
+        pipeOD: pipeOD,
+        clr: clr,
+        runLength: runLength,
+        method: _bendingMethod,
+      );
+
+      setState(() {
+        markAOut = fmtInches(result.markA);
+        markBOut = fmtInches(result.markB);
+        markCOut = fmtInches(result.markC);
+        markDOut = fmtInches(result.markD);
+        cutLengthOut = fmtInches(result.cutLength);
         _currentStep = 3;
         _isResultsExpanded = true;
         _isMeasurementsExpanded = false;
@@ -416,7 +445,24 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
           ),
         ]),
         title: const Text('Saddle Bends', style: TextStyle(fontWeight: FontWeight.w700)),
-        actions: [IconButton(icon: const Icon(Icons.info_outline), onPressed: () => _showHelpDialog(context))],
+        actions: [
+          IconButton(icon: const Icon(Icons.info_outline), onPressed: () => _showHelpDialog(context)),
+          TextButton(
+            onPressed: () =>
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const CodeScreen(initialCategory: CodeCategory.raceways)),
+                ),
+            child: const Text(
+              'NEC',
+              style: TextStyle(
+                color: kLight,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
       body: Column(children: [
         Expanded(child: Padding(padding: const EdgeInsets.fromLTRB(4, 10, 4, 0), child: ListView(children: [
@@ -478,14 +524,16 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
 
   Widget _buildMeasurementsSection() {
     final bool canOpen = _selectedBrand != null && _selectedPipeSize != null && _selectedSaddleType != null;
+    final bool is3Point = _selectedSaddleType == SaddleType.threePoint;
+
     return _buildGroupContainer(child: Column(children: [
       _buildSilverButton(label: '2. MEASUREMENTS', fontSize: 19, height: 60, isActive: _isMeasurementsExpanded,
         onTap: canOpen ? () => setState(() { _currentStep = 1; _isMeasurementsExpanded = !_isMeasurementsExpanded; if (_isMeasurementsExpanded) { _isBenderExpanded = false; _isResultsExpanded = false; _showBendingMethodCard = false; } }) : null),
       if (_isMeasurementsExpanded) Padding(padding: const EdgeInsets.only(top: 6), child: Column(children: [
         _inlineField('Obstruction Height', measurement2Ctrl, onTap: () => _showKeypad(measurement2Ctrl), suffix: '"'),
         _inlineField('Distance to Center', measurement1Ctrl, onTap: () => _showKeypad(measurement1Ctrl), suffix: '"'),
-        _inlineField('Center Bend Angle', measurement4Ctrl, onTap: () => _showKeypad(measurement4Ctrl), suffix: '°'),
-        _inlineField('Outside Bend Angle', measurement3Ctrl, onTap: () => _showKeypad(measurement3Ctrl), suffix: '°'),
+        _inlineField(is3Point ? 'Center Bend Angle' : 'Obstruction Length', measurement4Ctrl, onTap: () => _showKeypad(measurement4Ctrl), suffix: is3Point ? '°' : '"'),
+        _inlineField(is3Point ? 'Outside Bend Angle' : 'Bend Angle (All 4)', measurement3Ctrl, onTap: () => _showKeypad(measurement3Ctrl), suffix: '°'),
         _inlineField('Total Pipe Length (Optional)', measurement5Ctrl, onTap: () => _showKeypad(measurement5Ctrl), suffix: '"'),
         if (_isCalculateReady) ...[ const SizedBox(height: 10), _buildSilverButton(label: 'Continue', height: 40, isActive: true, onTap: () { _hideKeypad(); setState(() { _isMeasurementsExpanded = false; _showBendingMethodCard = true; _bendingMethodCardExpanded = true; }); }) ]
       ]))
@@ -517,28 +565,61 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
 
   Widget _buildResultsSection() {
     final bool canOpen = _currentStep >= 3;
+    final bool is3Point = _selectedSaddleType == SaddleType.threePoint;
+
     return _buildGroupContainer(child: Column(children: [
       _buildSilverButton(label: '4. RESULTS', fontSize: 20, height: 60, isActive: _currentStep == 3,
         onTap: canOpen ? () => setState(() { _currentStep = 3; _isResultsExpanded = !_isResultsExpanded; if (_isResultsExpanded) { _isBenderExpanded = false; _isMeasurementsExpanded = false; } }) : null),
       if (_isResultsExpanded) Padding(padding: const EdgeInsets.only(top: 6, bottom: 4), child: Column(children: [
-        _resultRow('Mark A (1st Bend)', markAOut), _resultRow('Mark B (2nd Bend)', markBOut), _resultRow('Mark C (3rd Bend)', markCOut), _resultRow('Mark D (Pipe Stick)', markDOut),
+        _resultRow('Mark A (1st Bend)', markAOut, overallLength: _parseInches(cutLengthOut)),
+        _resultRow('Mark B (2nd Bend)', markBOut, overallLength: _parseInches(cutLengthOut)),
+        _resultRow('Mark C (3rd Bend)', markCOut, overallLength: _parseInches(cutLengthOut)),
+        if (!is3Point) _resultRow('Mark D (4th Bend)', markDOut, overallLength: _parseInches(cutLengthOut)),
+        _resultRow('Overall Pipe Length', cutLengthOut, isHighlight: true),
         const SizedBox(height: 6),
         Row(children: [ Expanded(child: _buildSilverButton(label: 'Start New Bend', height: 40, onTap: _startNewBend)), const SizedBox(width: 8), Expanded(child: _buildSilverButton(label: 'Option', height: 40, onTap: () {})) ]),
         const SizedBox(height: 6),
         SizedBox(height: _resultsGraphicBlockHeight, child: Column(children: [
           SizedBox(height: _topGraphicPlaceholderHeight, child: ClipRect(child: OverflowBox(maxWidth: double.infinity, maxHeight: double.infinity, child: Transform.translate(offset: const Offset(0, 20), child: Image.asset('assets/conduits/emt/pipe_1.png', width: MediaQuery.of(context).size.width, fit: BoxFit.contain, filterQuality: FilterQuality.high))))),
           const SizedBox(height: 1),
-          SizedBox(height: _bottomMeasurementGraphicHeight, child: _StarterResultGraphic(markA: markAOut, markB: markBOut, markC: markCOut, isStartOnRight: _isStartOnRight)),
+          SizedBox(height: _bottomMeasurementGraphicHeight, child: _StarterResultGraphic(
+            markA: markAOut,
+            markB: markBOut,
+            markC: markCOut,
+            markD: is3Point ? null : markDOut,
+            isStartOnRight: _isStartOnRight,
+          )),
         ]))
       ]))
     ]));
   }
 
-  Widget _resultRow(String label, String value) {
-    return Container(margin: const EdgeInsets.symmetric(vertical: 2), padding: const EdgeInsets.fromLTRB(12, 8, 8, 8), decoration: BoxDecoration(color: Colors.black.withAlpha(145), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFC0C0C0), width: 1.1)),
+  Widget _resultRow(String label, String value, {bool isHighlight = false, double? overallLength}) {
+    final double val = _parseInches(value);
+    final bool isTooLong = isHighlight && val > 120.0;
+    
+    // Warning if mark is too close to either end (within 3 inches)
+    bool isTooClose = false;
+    if (!isHighlight && overallLength != null && val > 0) {
+      if (val < 3.0 || val > (overallLength - 3.0)) {
+        isTooClose = true;
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withAlpha(145),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isTooLong ? kRed : (isTooClose ? Colors.orangeAccent : const Color(0xFFC0C0C0)),
+          width: (isTooLong || isTooClose) ? 2.0 : 1.1
+        )
+      ),
       child: Row(children: [
-        Expanded(child: Text(label, style: const TextStyle(fontSize: 15, color: Colors.white70, fontWeight: FontWeight.w600))),
-        SizedBox(width: 132, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF8A1010), Color(0xFFD12A2A)]), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFB0B0B0), width: 1)),
+        Expanded(child: Text(label, style: TextStyle(fontSize: 15, color: isTooLong ? kRed : (isTooClose ? Colors.orangeAccent : Colors.white70), fontWeight: FontWeight.w600))),
+        SizedBox(width: 132, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(gradient: LinearGradient(colors: isTooLong ? [const Color(0xFFB71C1C), const Color(0xFFEF5350)] : [const Color(0xFF8A1010), const Color(0xFFD12A2A)]), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFB0B0B0), width: 1)),
           child: Text(value.isEmpty ? '—' : value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 19, color: Colors.white, fontWeight: FontWeight.w800))))
       ]));
   }
@@ -777,7 +858,12 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> {
     String message;
     if (_isResultsExpanded) {
       final dist = _parseInches(measurement1Ctrl.text);
-      if (dist > 72) {
+      final runLength = measurement5Ctrl.text.isEmpty ? 120.0 : _parseInches(measurement5Ctrl.text);
+      final obstructionLength = _selectedSaddleType == SaddleType.fourPoint ? _parseInches(measurement4Ctrl.text) : 0.0;
+      final centerOfSaddle = _selectedSaddleType == SaddleType.fourPoint ? (dist + (obstructionLength / 2.0)) : dist;
+      final isLong = centerOfSaddle > (runLength / 2.0);
+
+      if (isLong) {
         message = 'Push-Through Method: Hook Mark A (Furthest) first. Point hook AWAY from start end and push pipe FORWARD through bender. Use the Notch for all bends.';
       } else {
         message = 'Push-Through Method: Hook Mark A (Nearest) first. Point hook TOWARD start end and push pipe FORWARD through bender. Use the Notch for all bends.';
@@ -810,32 +896,33 @@ class _StarterResultGraphic extends StatelessWidget {
   static const double _marksTopPosition = 7.0;
   static const double _resultPipeBottomOffset = 15.0;
   static const double _resultMeasureTextBottomOffset = 2.0;
-  const _StarterResultGraphic({required this.markA, required this.markB, required this.markC, this.isStartOnRight = false});
+  const _StarterResultGraphic({required this.markA, required this.markB, required this.markC, this.markD, this.isStartOnRight = false});
   final String markA, markB, markC;
+  final String? markD;
   final bool isStartOnRight;
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth;
+      final bool is4Point = markD != null;
       
       // Horizontal positioning logic:
-      // If distance > 50% (isStartOnRight), cluster favors the Left side.
-      // If distance <= 50% (!isStartOnRight), cluster favors the Right side.
       final double centerPos = isStartOnRight ? width * 0.25 : width * 0.75;
-      final double gapPos = width * 0.12;
+      final double riserGap = width * 0.07; // Closer A-B and C-D pairs
+      final double flatTopGap = width * 0.15; // Larger separation between B and C
 
-      // Swap A and C order based on leverage direction:
-      // Long distance (isStartOnRight): A is Furthest (Left), C is Nearest (Right).
-      // Short distance (!isStartOnRight): A is Nearest (Right), C is Furthest (Left).
-      final double posA = isStartOnRight ? (centerPos - gapPos) : (centerPos + gapPos);
-      final double posB = centerPos;
-      final double posC = isStartOnRight ? (centerPos + gapPos) : (centerPos - gapPos);
+      final double posB = is4Point ? (centerPos - flatTopGap * 0.5) : centerPos;
+      final double posC = is4Point ? (centerPos + flatTopGap * 0.5) : (isStartOnRight ? (centerPos + riserGap) : (centerPos - riserGap));
+      
+      final double posA = is4Point ? (posB - riserGap) : (isStartOnRight ? (centerPos - riserGap) : (centerPos + riserGap));
+      final double posD = is4Point ? (posC + riserGap) : 0;
 
       return Stack(alignment: Alignment.topLeft, clipBehavior: Clip.none, children: [
         Positioned(bottom: _resultPipeBottomOffset, left: -17, right: -23, child: Image.asset('assets/conduits/emt/pipe_5_ol.png', fit: BoxFit.contain, filterQuality: FilterQuality.high)),
         _downMark(posA, _marksTopPosition, 'A', markA),
         _downMark(posB, _marksTopPosition, 'B', markB),
         _downMark(posC, _marksTopPosition, 'C', markC),
+        if (is4Point) _downMark(posD, _marksTopPosition, 'D', markD!),
         
         const Positioned(
             bottom: _resultMeasureTextBottomOffset,

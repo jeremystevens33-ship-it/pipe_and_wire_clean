@@ -1448,6 +1448,161 @@ Kick90SameStartSamePlaneResult calculateKick90SameStartSamePlane({
     markC: markC,
   );
 }
+// ============================================================
+// RADIUS ADJUSTMENT (CENTER OF BEND)
+// ============================================================
+//
+// Radius Adjustment is the distance from the beginning of a bend
+// to the center of the bend, measured along the bend itself.
+//
+// It is simply one-half of the developed length for the selected
+// bend angle and bender centerline radius (CLR).
+//
+// Formula:
+//
+//   Developed Length = CLR × Angle × π / 180
+//
+//   Radius Adjustment = Developed Length ÷ 2
+//
+// or:
+//
+//   Radius Adjustment = CLR × Angle × π / 360
+//
+// This value has two primary uses:
+//
+// 1. Geometry / Layout
+//    Used when positioning the center of a bend relative to an
+//    obstruction (offsets, kicks, saddles, segmented bends, etc.).
+//    It ensures the center of the bend lands at the intended
+//    location rather than the beginning of the bend.
+//
+// 2. Bending Method Translation
+//    Used to translate center-of-bend measurements to another
+//    reference mark on the bender, such as the 45° notch/teardrop.
+//
+// Radius Adjustment is independent of the bending method.
+// It always represents the true center of the bend.
+//
+// ------------------------------------------------------------
+// Example
+// ------------------------------------------------------------
+//
+// Bender CLR = 4.5"
+// Bend Angle = 30°
+//
+// Developed Length
+//
+//   = 4.5 × 30 × π ÷ 180
+//   = 2.356"
+//
+// Radius Adjustment
+//
+//   = 2.356 ÷ 2
+//   = 1.178"
+//
+// Therefore:
+//
+// The center of the bend is located 1.178" from the beginning
+// of the bend (measured along the arc). This value is then used
+// either:
+//
+// • to correctly position the bend around an obstruction
+//   (geometry/layout), or
+//
+// • to translate the center-of-bend measurement to the selected
+//   bending reference (such as the 45° notch/teardrop).
+
+// =============================================================================
+// FRONT OF HOOK ADJUSTMENT
+// =============================================================================
+
+// Field Meaning:
+//
+// Used for mechanical, electric, and future hydraulic benders that reference
+// the FRONT OF THE HOOK instead of the hand-bender 45° notch / teardrop.
+//
+// Pipe & Wire first calculates the true center-of-bend mark, then translates
+// that center mark to the correct FRONT OF HOOK mark.
+//
+// This section is intentionally separate from the 45° notch / teardrop method
+// so it can be field-tested and adjusted without changing the hand-bender logic.
+//
+// =============================================================================
+// THEORY
+// =============================================================================
+//
+// The bender's deduct / take-up mark is based on the outside of the finished 90.
+// To find the true start of bend from that reference:
+//
+// Start Adjustment = Deduct - (CLR + Pipe OD / 2)
+//
+// where:
+//
+// CLR = Centerline Radius of the bender
+// Pipe OD / 2 = Outside radius of the conduit
+//
+// Once the true start of bend is known, the center of any bend is found by using
+// the Radius Adjustment:
+//
+// Radius Adjustment = Developed Length / 2
+//
+// Developed Length = CLR × Angle × π / 180
+//
+// So:
+//
+// Front Hook Adjustment = Start Adjustment + Radius Adjustment
+//
+// For this first version, Pipe & Wire places the front-of-hook mark AFTER the
+// true center mark:
+//
+// Front Hook Mark = Center Mark + Front Hook Adjustment
+//
+// User instruction:
+//
+// Place the FRONT OF THE HOOK on the calculated mark.
+//
+// =============================================================================
+// EXAMPLE
+// =============================================================================
+//
+// Greenlee / Chicago 1818
+// 1" Rigid
+//
+// CLR = 5 7/8" = 5.875"
+// Deduct = 10 1/4" = 10.25"
+// Pipe OD = 1.315"
+// Angle = 45°
+//
+// Start Adjustment:
+//
+//   10.25 - (5.875 + 1.315 / 2)
+//   10.25 - (5.875 + 0.6575)
+//   10.25 - 6.5325
+//   3.7175"
+//   ≈ 3 11/16"
+//
+// Radius Adjustment for 45°:
+//
+//   Developed Length = 5.875 × 45 × π / 180
+//   Developed Length ≈ 4.614"
+//
+//   Radius Adjustment = 4.614 / 2
+//   Radius Adjustment ≈ 2.307"
+//   ≈ 2 5/16"
+//
+// Front Hook Adjustment:
+//
+//   3.7175 + 2.307
+//   6.0245"
+//   ≈ 6"
+//
+// If the true center mark is 25":
+//
+//   Front Hook Mark = 25 + 6
+//   Front Hook Mark = 31"
+//
+// The user marks 31" on the pipe and places the FRONT OF THE HOOK on that mark.
+//
 // =============================================================================
 // 45° NOTCH / TEARDROP METHOD
 // =============================================================================
@@ -1728,6 +1883,15 @@ double calculateSaddle3PointMark({
 //
 // Cut Length = Total Run Length + Total Shrink
 //
+double calculateSaddle3PointCutLength({
+  required double runLength,
+  required double height,
+  required double angleDeg,
+}) {
+  final totalShrink = calculateSaddle3PointTotalShrink(height: height, angleDeg: angleDeg);
+  return runLength + totalShrink;
+}
+
 class Saddle3PointResult {
   final double markA;
   final double markB;
@@ -1746,7 +1910,7 @@ Saddle3PointResult calculateSaddle3Point({
   BendingMethod method = BendingMethod.notch,
 }) {
   // Leverage-First Logic:
-  // If the center is more than half the pipe length away, 
+  // If the center is more than half the pipe length away,
   // we start at the furthest mark and push back toward the start.
   final bool isLong = centerDistance > (runLength / 2.0);
 
@@ -1765,12 +1929,159 @@ Saddle3PointResult calculateSaddle3Point({
   return Saddle3PointResult(markA: mA, markB: mB, markC: mC, cutLength: mD);
 }
 
-double calculateSaddle3PointCutLength({
-  required double runLength,
+// =============================================================================
+// 4-POINT SADDLE CALCULATIONS (PUSH-THROUGH METHOD)
+// =============================================================================
+
+// =============================================================================
+// 4-POINT SADDLE RISER DISTANCE
+// =============================================================================
+//
+// Field Meaning:
+//
+// This is the distance between the two marks on each side of the saddle.
+// It is the hypotenuse of the riser triangle.
+//
+// Formula:
+//
+// Riser Distance = Obstruction Height × Cosecant(Angle)
+//
+// Used For:
+//
+// Finding the locations of Mark A (relative to B) and Mark D (relative to C).
+//
+double calculateSaddle4PointRiserDistance({
   required double height,
   required double angleDeg,
 }) {
-  final totalShrink = calculateSaddle3PointTotalShrink(height: height, angleDeg: angleDeg);
-  return runLength + totalShrink;
+  final cosecant = 1.0 / math.sin(angleDeg * math.pi / 180.0);
+  return height * cosecant;
 }
+
+// =============================================================================
+// 4-POINT SADDLE SHRINK
+// =============================================================================
+//
+// Field Meaning:
+//
+// This is how much the pipe will shorten to reach the top of the obstruction.
+// This must be added to your center distance to find the "True Center" mark.
+//
+// Formula:
+//
+// Shrink = Obstruction Height × tan(Angle / 2)
+//
+// Used For:
+//
+// Finding the True Center of the saddle on the straight pipe.
+//
+double calculateSaddle4PointShrinkPerOffset({
+  required double height,
+  required double angleDeg,
+}) {
+  return height * math.tan((angleDeg / 2.0) * math.pi / 180.0);
+}
+
+// =============================================================================
+// 4-POINT SADDLE MARKS (PUSH-THROUGH)
+// =============================================================================
+//
+// Field Meaning:
+//
+// These are the four marks on your pipe where you will place
+// your bender notch.
+//
+// Step 1: Find True Center = Distance to Center + Shrink.
+// Step 2: Offset marks B and C from center by (Half Width + Radius Adjustment).
+// Step 3: Offset marks A and D from B and C by the Riser Distance.
+//
+// Radius Adjustment:
+//
+// We add the Radius Adjustment to move the centers of bends B and C 
+// slightly outside the edges of the box. This ensures the "flat" part 
+// of the riser clears the corners of the obstruction perfectly.
+//
+// Pro Method:
+//
+// Use the NOTCH on your bender for all four marks.
+// Bend A, push to B, push to C, push to D.
+//
+// Example (Textbook):
+//
+// 14" Height, 24" Width, 30° Angle, 60" to Center, 4" Radius Adjustment.
+// Shrink = 14 × 0.268 = 3.75"
+// Riser = 14 × 2.0 = 28"
+// True Center = 60 + 3.75 = 63.75"
+// Half Width + Rad Adj = 12 + 4 = 16"
+//
+// Mark B = 63.75 - 16 = 47.75"
+// Mark C = 63.75 + 16 = 79.75"
+// Mark A = 47.75 - 28 = 19.75"
+// Mark D = 79.75 + 28 = 107.75"
+//
+class Saddle4PointResult {
+  final double markA;
+  final double markB;
+  final double markC;
+  final double markD;
+  final double cutLength;
+  Saddle4PointResult({required this.markA, required this.markB, required this.markC, required this.markD, required this.cutLength});
+}
+
+Saddle4PointResult calculateSaddle4Point({
+  required double distToCenter,
+  required double height,
+  required double angleDeg,
+  required double obstructionLength,
+  required double pipeOD,
+  required double clr,
+  required double runLength,
+  BendingMethod method = BendingMethod.notch,
+}) {
+  final shrink = calculateSaddle4PointShrinkPerOffset(height: height, angleDeg: angleDeg);
+  final riser = calculateSaddle4PointRiserDistance(height: height, angleDeg: angleDeg);
+  final radAdj = calculateRadiusAdjustment(clr: clr, angleDeg: angleDeg);
+
+  final trueCenter = distToCenter + shrink;
+  final halfWidthOffset = (obstructionLength / 2.0) + radAdj;
+
+  final centerlineB = trueCenter - halfWidthOffset;
+  final centerlineC = trueCenter + halfWidthOffset;
+  final centerlineA = centerlineB - riser;
+  final centerlineD = centerlineC + riser;
+
+  // Leverage Logic
+  // If the center is more than half the pipe length away,
+  // we start at the furthest mark and push forward (reverse=true).
+  final bool isLong = distToCenter > (runLength / 2.0);
+
+  double rA, rB, rC, rD;
+  if (isLong) {
+    // START AT THE FURTHEST MARK (centerlineD) and push forward through C, B, A
+    rA = convertCenterMarkTo45NotchMark(centerMark: centerlineD, clr: clr, angleDeg: angleDeg, reverse: true);
+    rB = convertCenterMarkTo45NotchMark(centerMark: centerlineC, clr: clr, angleDeg: angleDeg, reverse: true);
+    rC = convertCenterMarkTo45NotchMark(centerMark: centerlineB, clr: clr, angleDeg: angleDeg, reverse: true);
+    rD = convertCenterMarkTo45NotchMark(centerMark: centerlineA, clr: clr, angleDeg: angleDeg, reverse: true);
+  } else {
+    // START AT THE NEAREST MARK (centerlineA) and push forward through B, C, D
+    rA = convertCenterMarkTo45NotchMark(centerMark: centerlineA, clr: clr, angleDeg: angleDeg, reverse: false);
+    rB = convertCenterMarkTo45NotchMark(centerMark: centerlineB, clr: clr, angleDeg: angleDeg, reverse: false);
+    rC = convertCenterMarkTo45NotchMark(centerMark: centerlineC, clr: clr, angleDeg: angleDeg, reverse: false);
+    rD = convertCenterMarkTo45NotchMark(centerMark: centerlineD, clr: clr, angleDeg: angleDeg, reverse: false);
+  }
+
+  if (method == BendingMethod.centerline) {
+    if (isLong) {
+      rA = centerlineD; rB = centerlineC; rC = centerlineB; rD = centerlineA;
+    } else {
+      rA = centerlineA; rB = centerlineB; rC = centerlineC; rD = centerlineD;
+    }
+  }
+
+  final totalShrink = shrink * 2.0;
+  final cutLength = runLength + totalShrink;
+
+  return Saddle4PointResult(markA: rA, markB: rB, markC: rC, markD: rD, cutLength: cutLength);
+}
+
 

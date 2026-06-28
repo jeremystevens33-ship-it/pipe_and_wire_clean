@@ -35,8 +35,11 @@ const Color kPanelOuter = Color(0xFF0B0B0D);
 const Color kPanelInner = Color(0xFF121214);
 const Color kRowBg = Color(0xFF17171A);
 
+enum CodeCategory { conductors, raceways, boxes, equipment, grounding, loads, voltage }
+
 class CodeScreen extends StatefulWidget {
-  const CodeScreen({super.key});
+  final CodeCategory? initialCategory;
+  const CodeScreen({super.key, this.initialCategory});
 
   @override
   State<CodeScreen> createState() => _CodeScreenState();
@@ -50,6 +53,24 @@ class _CodeScreenState extends State<CodeScreen> {
   final _groundingCtrl = ExpansionTileController();
   final _loadsCtrl = ExpansionTileController();
   final _voltageCtrl = ExpansionTileController();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialCategory != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        switch (widget.initialCategory!) {
+          case CodeCategory.conductors: _conductorsCtrl.expand(); break;
+          case CodeCategory.raceways: _racewaysCtrl.expand(); break;
+          case CodeCategory.boxes: _boxesCtrl.expand(); break;
+          case CodeCategory.equipment: _equipmentCtrl.expand(); break;
+          case CodeCategory.grounding: _groundingCtrl.expand(); break;
+          case CodeCategory.loads: _loadsCtrl.expand(); break;
+          case CodeCategory.voltage: _voltageCtrl.expand(); break;
+        }
+      });
+    }
+  }
 
   ExpansionTileController? _openCtrl;
 
