@@ -1,19 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'dart:async';
 import 'package:fraction/fraction.dart';
+import 'main_menu_screen.dart';
 
 // Enum is now simplified to just two modes
 enum InputMode { feet, inches }
 
-class FractionCalculator extends StatefulWidget {
-  const FractionCalculator({super.key});
+class FeetInchFractionCalculator extends StatefulWidget {
+  const FeetInchFractionCalculator({super.key});
 
   @override
-  State<FractionCalculator> createState() => _FractionCalculatorState();
+  State<FeetInchFractionCalculator> createState() => _FeetInchFractionCalculatorState();
 }
 
-class _FractionCalculatorState extends State<FractionCalculator> {
+class _FeetInchFractionCalculatorState extends State<FeetInchFractionCalculator> {
   final GlobalKey<_RulerPadState> _padKey = GlobalKey<_RulerPadState>();
   bool _eqFlash = false;
 
@@ -23,14 +22,14 @@ class _FractionCalculatorState extends State<FractionCalculator> {
   String _inchesInput = '';
   String _fractionInput = '';
 
+  // New: Tracks if the user has used 'Feet' mode at any point in the current session
+  bool _hasUsedFeetMode = false;
+
   // --- State for the new calculation engine ---
-  final List<dynamic> _expression =
-  []; // Holds numbers (as doubles) and operators (as strings)
+  final List<dynamic> _expression = []; // Holds numbers (as doubles) and operators (as strings)
   String _displayString = ''; // The final string shown in the display bar - STARTS EMPTY
-  bool _isResultShown =
-  false; // Flag to know if the display is showing a final answer
-  double?
-  _lastResultInInches; // New: Stores the last calculation result in total inches.
+  bool _isResultShown = false; // Flag to know if the display is showing a final answer
+  double? _lastResultInInches; // New: Stores the last calculation result in total inches.
   bool _isCheckmarkGreen = false; // New: Controls the checkmark color.
 
   // --- Input Handling ---
@@ -102,12 +101,21 @@ class _FractionCalculatorState extends State<FractionCalculator> {
     String str = '';
     for (var item in _expression) {
       if (item is double) {
-        str += '${_formatInches(item)} ';
+        str += '${_formatOutput(item)} ';
       } else {
         str += '$item ';
       }
     }
     return str.trim();
+  }
+
+  /// New: Decides whether to show Feet-Inches or Total Inches based on user history.
+  String _formatOutput(double totalInches) {
+    if (_hasUsedFeetMode) {
+      return _formatInches(totalInches); // Shows e.g. 3' 0"
+    } else {
+      return _formatTotalInches(totalInches); // Shows e.g. 36"
+    }
   }
 
   /// Converts a double (total inches) into a formatted string (e.g., 5' 6 1/2")
@@ -196,6 +204,7 @@ class _FractionCalculatorState extends State<FractionCalculator> {
       _feetInput = '';
       _inchesInput = '';
       _fractionInput = '';
+      _hasUsedFeetMode = false;
       _expression.clear();
       _isResultShown = false;
       _lastResultInInches = null; // Clear the stored result
@@ -307,8 +316,8 @@ class _FractionCalculatorState extends State<FractionCalculator> {
 
         _lastResultInInches = result; // Store the final result.
 
-        // NEW LOGIC: Only show the final answer.
-        _displayString = _formatInches(result);
+        // Use smart formatting based on user mode history
+        _displayString = _formatOutput(result);
 
         // Set the flag for the next calculation
         _isResultShown = true;
@@ -328,7 +337,10 @@ class _FractionCalculatorState extends State<FractionCalculator> {
 
       switch (_inputMode) {
         case InputMode.feet:
-          if (isNumber) _feetInput += key;
+          if (isNumber) {
+            _feetInput += key;
+            _hasUsedFeetMode = true; // Mark that feet were entered
+          }
           break;
         case InputMode.inches:
           if (isNumber) {
@@ -351,24 +363,117 @@ class _FractionCalculatorState extends State<FractionCalculator> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black, // <-- THE ONLY CHANGE IS HERE
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Fraction Calculator'),
+        title: const Text('Feet - Inch - Fraction'),
         backgroundColor: const Color(0xFF1F1F1F),
-        foregroundColor: Colors.white, // <-- AND HERE
+        foregroundColor: Colors.white,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.home),
+          onPressed: () {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+              (route) => false,
+            );
+          },
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (context) => AlertDialog(
+                  backgroundColor: const Color(0xFF212121),
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+                  ),
+                  title: const Text(
+                    "Feet - Inch - Fraction",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 22,
+                    ),
+                  ),
+                  content: const SingleChildScrollView(
+                    child: ListBody(
+                      children: [
+                        Text(
+                          "Combine feet and inches effortlessly. The app remembers your input style.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          "How to Input:",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          "1. Tap 'Feet' and enter your feet value.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "2. Tap 'Inches' and enter your inches/fraction.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "3. Tap an operator (+, -, ×, ÷).",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "4. Repeat steps for the next value.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          "Pro Tip:",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                        SizedBox(height: 4),
+                        Text(
+                          "If you only use 'Inches', the result stays in total inches. If you use 'Feet', the app automatically formats for Feet & Inches.",
+                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                        ),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text(
+                        "Close",
+                        style: TextStyle(
+                          color: Color(0xFFE53935),
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: Center(
         child: SizedBox(
-          width: MediaQuery
-              .of(context)
-              .size
-              .width - 20,
+          width: MediaQuery.of(context).size.width - 2,
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 220),
-            margin: const EdgeInsets.all(10),
+            margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
+            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: Colors.black,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _eqFlash
                     ? const Color(0xFFFF3B30)
@@ -380,25 +485,40 @@ class _FractionCalculatorState extends State<FractionCalculator> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(height: 8),
                 _TopBar(
                   activeMode: _inputMode,
                   onModeSelected: _onInputModeSelected,
                 ),
+                const SizedBox(height: 6),
                 RulerPad(key: _padKey, onKey: _handleKeyPress),
-                const SizedBox(height: 4),
+                const SizedBox(height: 6),
                 _OperatorBar(
                   onKey: _handleKeyPress,
                   onLongKey: _handleKeyLongPress,
                   isCheckmarkGreen: _isCheckmarkGreen,
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 _BottomDisplayBar(
                   value: _displayString,
+                  onConvertCm: _isResultShown ? () {
+                    if (_lastResultInInches != null) {
+                      final totalCm = _lastResultInInches! * 2.54;
+                      String metricStr;
+                      if (totalCm >= 100) {
+                        final meters = totalCm ~/ 100;
+                        final remainingCm = totalCm % 100;
+                        metricStr = '$meters m ${remainingCm.toStringAsFixed(1)} cm';
+                      } else {
+                        metricStr = '${totalCm.toStringAsFixed(1)} cm';
+                      }
+                      setState(() {
+                        _displayString = '${_formatOutput(_lastResultInInches!)} = $metricStr';
+                      });
+                    }
+                  } : null,
                 ),
-                const SizedBox(height: 4),
-                const _InfoBar(),
                 const SizedBox(height: 8),
+                const _InfoBar(),
               ],
             ),
           ),
@@ -417,23 +537,21 @@ class _InfoBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10.0),
-      child: Container(
-        width: double.infinity, // ⭐ FORCE FULL WIDTH
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
-        ),
-        child: const Text(
-          'Press ✓ for answer. Long-press ✓ to convert to inches.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 13,
-          ),
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
+      ),
+      child: const Text(
+        'Press ✓ for answer. Long-press ✓ to convert to inches.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
@@ -451,7 +569,7 @@ class _TopBar extends StatelessWidget {
     final bool isActive = activeMode == mode;
     return Expanded(
       child: Container(
-        height: 44,
+        height: 50,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -486,22 +604,19 @@ class _TopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10.0),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
-        ),
-        child: Row(
-          children: [
-            _buildButton(context, 'Feet', InputMode.feet),
-            const SizedBox(width: 6),
-            _buildButton(context, 'Inches', InputMode.inches),
-          ],
-        ),
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          _buildButton(context, 'Feet', InputMode.feet),
+          const SizedBox(width: 6),
+          _buildButton(context, 'Inches', InputMode.inches),
+        ],
       ),
     );
   }
@@ -565,7 +680,7 @@ class _OperatorBar extends StatelessWidget {
     );
 
     return Container(
-      height: 44,
+      height: 50,
       decoration: decoration,
       child: Material(
         color: Colors.transparent,
@@ -585,7 +700,6 @@ class _OperatorBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const double kOuterPad = 10;
     const double kInnerPad = 6;
     const double kGridSpacing = 6;
 
@@ -627,20 +741,16 @@ class _OperatorBar extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, c) {
         final totalW = c.maxWidth;
-        final contentW = (totalW - (kOuterPad * 2));
         const double centerGutter = kGridSpacing;
-        final gridW = (contentW - centerGutter) / 2;
+        final gridW = (totalW - centerGutter) / 2;
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: kOuterPad),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              buildButtonRow(leftButtons, gridW),
-              const SizedBox(width: centerGutter),
-              buildButtonRow(rightButtons, gridW),
-            ],
-          ),
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            buildButtonRow(leftButtons, gridW),
+            const SizedBox(width: centerGutter),
+            buildButtonRow(rightButtons, gridW),
+          ],
         );
       },
     );
@@ -648,43 +758,65 @@ class _OperatorBar extends StatelessWidget {
 }
 
 class _BottomDisplayBar extends StatelessWidget {
-  const _BottomDisplayBar({this.value});
+  const _BottomDisplayBar({this.value, this.onConvertCm});
 
   final String? value;
+  final VoidCallback? onConvertCm;
 
   @override
   Widget build(BuildContext context) {
     // Increased font size for better readability
     const double fontSize = 22.0;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
-      child: Container(
-        height: 74,
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
-        ),
-        child: Container(
-          height: 54,
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          alignment: Alignment.centerRight,
-          child: Text(
-            value ?? '', // Use a simple empty string
-            maxLines: 1,
-            overflow: TextOverflow.fade,
-            softWrap: false,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: fontSize,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
-              fontFeatures: const [FontFeature.tabularFigures()],
+    return Container(
+      height: 74,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          if (onConvertCm != null)
+            GestureDetector(
+              onTap: onConvertCm,
+              child: Container(
+                width: 50,
+                height: 50,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C3030),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: const Center(
+                  child: Text('cm', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              alignment: Alignment.centerRight,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                physics: const BouncingScrollPhysics(), // Smoother, natural scrolling feel
+                reverse: true,
+                child: Text(
+                  value ?? '',
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -714,7 +846,7 @@ class _RulerPadState extends State<RulerPad> {
     });
   }
 
-  static const double kOuterPad = 10;
+  static const double kOuterPad = 4;
   static const double kInnerPad = 6;
   static const double kGridSpacing = 6;
   static const List<String> _fractions = <String>[
@@ -738,14 +870,14 @@ class _RulerPadState extends State<RulerPad> {
   Widget _textBtn(String label,
       {bool active = false, double font = 15, VoidCallback? onTap}) {
     return Container(
-      height: 44,
+      height: 50,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: active
               ? [const Color(0xFFE24E47), const Color(0xFFD43D37)]
-              : [const Color(0xFF4E4E52), const Color(0xFF2C2C30)],
+              : [const Color(0xFF4E4E52), const Color(0xFF2C3030)],
         ),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(color: const Color(0xFF9E9E9E), width: 1.1),
@@ -802,9 +934,8 @@ class _RulerPadState extends State<RulerPad> {
     return LayoutBuilder(
       builder: (context, c) {
         final totalW = c.maxWidth;
-        final contentW = (totalW - (kOuterPad * 2));
         const double centerGutter = kGridSpacing;
-        final gridW = (contentW - centerGutter) / 2;
+        final gridW = (totalW - centerGutter) / 2;
 
         final numPad = <Widget>[
           for (int i = 1; i <= 14; i++)
@@ -824,16 +955,13 @@ class _RulerPadState extends State<RulerPad> {
                 onTap: () => widget.onKey?.call(f)),
         ];
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: kOuterPad),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _gridBox(width: gridW, children: numPad, rows: 5),
-              const SizedBox(width: centerGutter),
-              _gridBox(width: gridW, children: fracPad, rows: 5),
-            ],
-          ),
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _gridBox(width: gridW, children: numPad, rows: 5),
+            const SizedBox(width: centerGutter),
+            _gridBox(width: gridW, children: fracPad, rows: 5),
+          ],
         );
       },
     );

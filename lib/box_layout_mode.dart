@@ -126,9 +126,9 @@ class BoxLayoutModeScreen extends StatelessWidget {
                     TextButton(
                       onPressed: () => Navigator.pop(context),
                       child: const Text(
-                        "Close",
+                        "OK",
                         style: TextStyle(
-                          color: Color(0xFFE53935),
+                          color: Color(0xFFFF3B30),
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),

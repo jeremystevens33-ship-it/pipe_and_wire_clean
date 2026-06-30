@@ -1661,9 +1661,17 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF212121),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+        ),
         title: const Text(
           'Back to Back 90 Help',
-          style: TextStyle(color: kLight),
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
+          ),
         ),
         content: const SingleChildScrollView(
           child: ListBody(
@@ -1671,73 +1679,58 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
               Text(
                 'Back-to-Back 90 — Pre-Cut Method',
                 style: TextStyle(
-                  color: kLight,
+                  color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 18,
+                  fontSize: 19,
                 ),
               ),
               SizedBox(height: 12),
               Text(
                 'This screen uses a pre-cut method. The cut length is calculated first, so you can usually pull your tape one time, mark the conduit, and then make both bends without stopping to measure off the back of a finished 90.',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
               ),
               SizedBox(height: 16),
               Text(
                 'All bends in this method are made with the arrow.',
                 style: TextStyle(
-                  color: kLight,
+                  color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 18,
                 ),
               ),
-              SizedBox(height: 10),
+              SizedBox(height: 8),
               Text(
                 'That is what makes this method different. Even when using the reverse-bender technique, you do not need the star here because the conduit is already pre-cut to the correct length.',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
               ),
 
               SizedBox(height: 16),
               Text(
                 'Push Through Method',
                 style: TextStyle(
-                  color: kLight,
+                  color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 18,
                 ),
               ),
-              SizedBox(height: 10),
+              SizedBox(height: 8),
               Text(
                 'Push Through works best when the bends are closer together. After the first bend, you keep feeding the conduit through the bender and make the second bend without fully resetting your setup.',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
               ),
               SizedBox(height: 16),
               Text(
                 'Reverse Bender Method',
                 style: TextStyle(
-                  color: kLight,
+                  color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 16,
+                  fontSize: 18,
                 ),
               ),
-              SizedBox(height: 10),
+              SizedBox(height: 8),
               Text(
                 'Reverse Bender is helpful when the second bend is closer to the end of the conduit and there is not enough room to place the bender normally. In that case, you reverse the conduit in the bender and complete the second bend that way.',
-                style: TextStyle(color: Colors.white70),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Why this screen saves time',
-                style: TextStyle(
-                  color: kLight,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              SizedBox(height: 10),
-
-              Text(
-                'Layout your bend marks and cut length in one pull of the tape measure. Make both bends without stopping to re-measure.',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
               ),
             ],
           ),
@@ -1745,7 +1738,14 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close', style: TextStyle(color: kRed)),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
           ),
         ],
       ),

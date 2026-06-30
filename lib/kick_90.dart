@@ -9,6 +9,10 @@ import 'package:pipe_and_wire_clean/keypad_6.dart';
 import 'package:pipe_and_wire_clean/rack_builder_11.dart';
 import 'package:provider/provider.dart';
 import 'package:pipe_and_wire_clean/rack_state.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'main_menu_screen.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -47,6 +51,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   bool _isBenderExpanded = true;
   bool _isMeasurementsExpanded = false;
   bool _isResultsExpanded = false;
+  bool _showBendingMethodCard = false;
+  bool _bendingMethodCardExpanded = false;
   bool _isCalculateReady = false;
   bool get _isBenderSetupComplete =>
       _selectedBrand != null && _selectedPipeSize != null;
@@ -60,7 +66,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   String? _selectedPipeSize;
   String? _selectedBrand;
   List<Map<String, String>> get _brands => bending_data.getGroupedBenderBrands();
-  bending_data.BendingMethod _bendingMethod = bending_data.BendingMethod.arrow; // Uses BendingMethod from bending_data.dart
+  bending_data.BendingMethod _bendingMethod = bending_data.BendingMethod.notch; // Uses BendingMethod from bending_data.dart
 
   // --- NEW: Custom Bender State ---
   bool _isEditMode = false;
@@ -106,6 +112,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   @override
   void initState() {
     super.initState();
+    _loadCustomBenders();
     _updateBrandDropdown();
 
 
@@ -178,9 +185,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     if (isReady != _isCalculateReady) {
       setState(() {
         _isCalculateReady = isReady;
-        if (isReady) {
-          _currentStep = 2;
-        }
+        // Logic removed from here to prevent premature reveal of Step 3
       });
     }
   }
@@ -333,7 +338,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       _selectedBrand = null;
       _selectedPipeSize = null;
       _selectedConduitType = BoxLayoutConduitType.emt;
-      _bendingMethod = bending_data.BendingMethod.arrow;
+      _bendingMethod = bending_data.BendingMethod.notch;
 
       markAOut = '';
       markBOut = '';
@@ -462,22 +467,30 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
     if (stub == 0 || kickHeight == 0 || angleDeg == 0 || pipeOD == 0) return;
 
-    final markA = stub - takeUp;
-    final hypotenuse = kickHeight * _csc(angleDeg);
-    final centerlineHypotenuse = hypotenuse - (pipeOD / 2.0);
-    final centerKick = (stub - gain90) + centerlineHypotenuse;
+    final clr = _parseInches(radiusCtrl.text);
 
-    final double markB;
-    if (_bendingMethod == bending_data.BendingMethod.arrow) {
-      final arcLength = _hookCenterFor(angleDeg);
-      markB = centerKick - arcLength;
-    } else {
-      markB = centerKick;
-    }
+    final markA = bending_data.calculateKick90MarkA(
+      stub: stub,
+      takeUp: takeUp,
+    );
 
-    final shrink = kickHeight * _tanHalf(angleDeg);
-    final olVal = stub + leg - gain90 + shrink;
+    final markB = bending_data.calculateKick90MarkB(
+      stub: stub,
+      kickHeight: kickHeight,
+      angleDeg: angleDeg,
+      gain90: gain90,
+      pipeOD: pipeOD,
+      clr: clr,
+      method: _bendingMethod,
+    );
 
+    final olVal = bending_data.calculateKick90CutLength(
+      stub: stub,
+      leg: leg,
+      kickHeight: kickHeight,
+      angleDeg: angleDeg,
+      gain90: gain90,
+    );
     setState(() {
       _rawMarkA = markA;
       _rawMarkB = markB;
@@ -511,7 +524,12 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       return;
     }
     if (_activeController == legCtrl) {
-      calculate();
+      _hideKeypad(); // Closes the keypad
+      setState(() {
+        _isMeasurementsExpanded = false; // Collapses Step 2
+        _showBendingMethodCard = true; // Reveals Method choice
+        _bendingMethodCardExpanded = true;
+      });
       return;
     }
 
@@ -540,25 +558,27 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     final controller = _activeController!;
     final text = controller.text;
 
-    if (value == '⌫') {
-      if (text.isNotEmpty) {
-        controller.text = text.substring(0, text.length - 1);
-      }
-    } else if (value == '✔') {
-      if (controller.text.isNotEmpty) {
-        final decimalValue = _parseInches(controller.text);
-        controller.text = fmtInches(decimalValue, addInchMark: false); // Changed to always false
-      }
-      _advanceKeypadFocus(); // Advance focus after '✔'
-    } else {
-      if (value.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
-        final lastChar = text.characters.last;
-        if (lastChar != ' ' && int.tryParse(lastChar) != null) {
-          controller.text += ' ';
+    setState(() { // Added setState to keep symbols in sync live
+      if (value == '⌫') {
+        if (text.isNotEmpty) {
+          controller.text = text.substring(0, text.length - 1);
         }
+      } else if (value == '✔') {
+        if (controller.text.isNotEmpty) {
+          final decimalValue = _parseInches(controller.text);
+          controller.text = fmtInches(decimalValue, addInchMark: false);
+        }
+        _advanceKeypadFocus();
+      } else {
+        if (value.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
+          final lastChar = text.characters.last;
+          if (lastChar != ' ' && int.tryParse(lastChar) != null) {
+            controller.text += ' ';
+          }
+        }
+        controller.text += value;
       }
-      controller.text += value;
-    }
+    });
   }
   void _onNameKeyTap(String value) {
     if (value == '⌫') {
@@ -590,6 +610,54 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     }
   }
 
+
+  Future<void> _loadCustomBenders() async {
+    final prefs = await SharedPreferences.getInstance();
+    // This key matches the one used in Rack Builder 11
+    final raw = prefs.getString('rack_custom_benders');
+
+    if (raw == null || raw.isEmpty) return;
+
+    final List decoded = jsonDecode(raw);
+
+    setState(() {
+      _customBenders.clear();
+      _customBenders.addAll(decoded.map((item) {
+        return bending_data.Bender(
+          brand: item['brand'],
+          model: item['model'] ?? item['brand'],
+          conduitSize: item['conduitSize'],
+          conduitType: item['conduitType'] == 'rigid'
+              ? bending_data.ConduitType.rigid
+              : bending_data.ConduitType.emt,
+          clr: (item['clr'] as num).toDouble(),
+          deduct: (item['deduct'] as num).toDouble(),
+          gain: (item['gain'] as num).toDouble(),
+        );
+      }));
+      _updateBrandDropdown();
+    });
+  }
+
+
+  Future<void> _saveCustomBendersToDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_customBenders.map((b) =>
+    {
+      'brand': b.brand,
+      'model': b.model,
+      'conduitSize': b.conduitSize,
+      'conduitType': b.conduitType == bending_data.ConduitType.rigid
+          ? 'rigid'
+          : 'emt',
+      'clr': b.clr,
+      'deduct': b.deduct,
+      'gain': b.gain,
+    }).toList());
+
+    await prefs.setString('rack_custom_benders', encoded);
+  }
+
   void _finishSaveCustomBender() {
     final name = _customBenderName.trim();
     if (name.isEmpty) return;
@@ -608,6 +676,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
     setState(() {
       _customBenders.add(newBender);
+      _saveCustomBendersToDevice(); // ADD THIS LINE HERE
       _updateBrandDropdown();
       _selectedBrand = newBender.model;
 
@@ -619,6 +688,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     _updateBenderData();
     _hideKeypad();
   }
+
 
   void _showKeypad(TextEditingController controller) {
     if (controller.text.isNotEmpty) {
@@ -681,22 +751,72 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
   @override
   Widget build(BuildContext context) {
+
     return Scaffold(
       backgroundColor: kBlack,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
-        title: const Text('Kick 90'),
         foregroundColor: kLight,
+        centerTitle: true,
+        leadingWidth: 100,
+        // Balanced for Home + Back Arrow
+        leading: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.home),
+              onPressed: () {
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const MainMenuScreen()),
+                      (route) => false,
+                );
+              },
+            ),
+            IconButton(
+              icon: const RotatedBox(
+                quarterTurns: 2,
+                child: Text(
+                  "➜",
+                  style: TextStyle(
+                    color: kLight,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              onPressed: () {
+                if (_currentStep > 0) {
+                  setState(() {
+                    _currentStep -= 1;
+                    _isBenderExpanded = _currentStep == 0;
+                    _isMeasurementsExpanded = _currentStep == 1;
+                    _isResultsExpanded = _currentStep == 3;
+                    _showBendingMethodCard = false;
+                  });
+                } else {
+                  // Furthest back: Clears the vendor/screen instead of exiting
+                  _startNewBend();
+                }
+              },
+            ),
+          ],
+        ),
+        title: const Text(
+          'Kick 90',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.info_outline),
             onPressed: () => _showHelpDialog(context),
           ),
           TextButton(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const CodeScreen()),
-            ),
+            onPressed: () =>
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const CodeScreen(initialCategory: CodeCategory.raceways)),
+                ),
             child: const Text(
               'NEC',
               style: TextStyle(
@@ -712,18 +832,22 @@ class _Kick90ScreenState extends State<Kick90Screen> {
         children: [
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
               child: ListView(
                 children: [
                   if (!_isResultsExpanded) ...[
                     _buildBenderSection(),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
 
                     _buildMeasurementsSection(),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
+                    if (_showBendingMethodCard) ...[
+                      _buildBendingMethodCard(),
+                      const SizedBox(height: 4),
+                    ],
 
                     _buildCalculateSection(),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                   ],
 
                   _buildResultsSection(),
@@ -987,6 +1111,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       ),
     );
   }
+
   Widget _buildBenderSection() {
     return _buildGroupContainer(
       child: Column(
@@ -1009,78 +1134,73 @@ class _Kick90ScreenState extends State<Kick90Screen> {
           ),
           if (_isBenderExpanded)
             Padding(
-              padding: const EdgeInsets.only(top: 12.0),
+              padding: const EdgeInsets.only(top: 6.0),
               child: Column(
                 children: [
                   _buildBrandSelector(),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 6),
 
                   _buildConduitTypeSelector(),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 6),
 
                   _buildPipeSizeSelector(),
+                  const SizedBox(height: 6),
 
-                  if (_isBenderSetupComplete) ...[
-                    const SizedBox(height: 14),
+                  // MODIFIED: This button now disappears once a bender is selected
+                  // It only shows if NO selection is made, or if we are actively editing
+                  if (!_isEditMode && !_isBenderSetupComplete)
+                    _buildSilverButton(
+                        label: 'Create / Edit Custom Bender',
+                        height: 40,
+                        onTap: _toggleEditMode
+                    ),
 
-                    // Bender Model Row
-                    _inlineField(
-                      'Bender Model',
-                      TextEditingController(
-                        text: bending_data.benderDatabase.firstWhereOrNull(
-                              (b) => b.brand == _selectedBrand &&
-                                  b.conduitSize == _selectedPipeSize &&
-                                  b.conduitType == (
-                                  _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
-                                  bending_data.ConduitType.rigid
-                                  ),
-                        )?.model ?? 'Custom',
+                  if (_isBenderSetupComplete || _isEditMode) ...[
+                    const SizedBox(height: 10),
+
+                    if (!_isEditMode)
+                      _inlineField(
+                        'Bender Model',
+                        TextEditingController(
+                          text: bending_data.benderDatabase
+                              .firstWhereOrNull(
+                                (b) =>
+                            b.brand == _selectedBrand &&
+                                b.conduitSize == _selectedPipeSize &&
+                                b.conduitType == (
+                                    _selectedConduitType ==
+                                        BoxLayoutConduitType.emt ? bending_data
+                                        .ConduitType.emt :
+                                    bending_data.ConduitType.rigid
+                                ),
+                          )
+                              ?.model ?? 'Custom',
+                        ),
+                        onTap: null,
                       ),
-                      onTap: null, // Read-only
-                    ),
-                    const SizedBox(height: 12),
 
-                    const SizedBox(height: 14),
-
-                    if (_showTravelField) ...[
+                    if (_showTravelField)
                       _inlineField('90° Travel', travelCtrl, suffix: '"'),
-                      const SizedBox(height: 12),
-                    ],
 
-                    _inlineField(
-                      'Take Up',
-                      takeUpCtrl,
-                      onTap: _isEditMode ? () => _showKeypad(takeUpCtrl) : null,
-                      suffix: '"',
-                    ),
-                    const SizedBox(height: 12),
-
-                    _inlineField(
-                      'Gain90',
-                      gainCtrl,
-                      onTap: _isEditMode ? () => _showKeypad(gainCtrl) : null,
-                      suffix: '"',
-                    ),
-                    const SizedBox(height: 12),
-
+                    _inlineField('Take Up', takeUpCtrl, onTap: _isEditMode
+                        ? () => _showKeypad(takeUpCtrl)
+                        : null, suffix: '"'),
+                    _inlineField('Gain90', gainCtrl,
+                        onTap: _isEditMode ? () => _showKeypad(gainCtrl) : null,
+                        suffix: '"'),
                     _inlineField('Setback', setbackCtrl, suffix: '"'),
-                    const SizedBox(height: 12),
+                    _inlineField('Radius / CLR', radiusCtrl, onTap: _isEditMode
+                        ? () => _showKeypad(radiusCtrl) : null, suffix: '"'),
 
-                    _inlineField(
-                      'Radius / CLR',
-                      radiusCtrl,
-                      onTap: _isEditMode ? () => _showKeypad(radiusCtrl) : null,
-                      suffix: '"',
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 10),
 
-                    if (_isEditMode) ...[
+                    if (_isEditMode)
                       Row(
                         children: [
                           Expanded(
                             child: _buildSilverButton(
                               label: 'Save Custom Bender',
-                              height: 44,
+                              height: 40,
                               isActive: true,
                               onTap: () {
                                 setState(() {
@@ -1092,32 +1212,93 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                               },
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 6),
                           Expanded(
-                            child: _buildSilverButton(
-                              label: 'Cancel',
-                              height: 44,
-                              onTap: _cancelEditMode,
-                            ),
+                            child: _buildSilverButton(label: 'Cancel',
+                                height: 40,
+                                onTap: _cancelEditMode),
                           ),
                         ],
-                      ),
-                    ] else ...[
+                      )
+                    else
                       _buildSilverButton(
-                        label: 'Create / Edit Custom Bender',
-                        height: 44,
-                        onTap: _toggleEditMode,
+                        label: 'Done',
+                        height: 40,
+                        isActive: true,
+                        isCheckmark: true,
+                        onTap: () {
+                          setState(() {
+                            _isBenderExpanded = false;
+                            _currentStep = 1;
+                            _isMeasurementsExpanded = true;
+                          });
+                        },
                       ),
-                    ],
-                    const SizedBox(height: 12),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMeasurementsSection() {
+    final bool canOpen = _selectedBrand != null && _selectedPipeSize != null;
+
+    return _buildGroupContainer(
+      child: Column(
+        children: [
+          _buildSilverButton(
+            label: '2. MEASUREMENTS',
+            fontSize: 19,
+            height: 60,
+            isActive: _isMeasurementsExpanded,
+            // Turns gray immediately when collapsed
+            onTap: canOpen
+                ? () {
+              setState(() {
+                _currentStep = 1;
+                _isMeasurementsExpanded = !_isMeasurementsExpanded;
+
+                if (_isMeasurementsExpanded) {
+                  _isBenderExpanded = false;
+                  _isResultsExpanded = false;
+                  _showBendingMethodCard =
+                  false; // Hide Method choice if re-opening data
+                }
+              });
+            }
+                : null,
+          ),
+          if (_isMeasurementsExpanded)
+            Padding(
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Column(
+                children: [
+                  _inlineField('Stub Height', stubCtrl,
+                      onTap: () => _showKeypad(stubCtrl), suffix: '"'),
+                  _inlineField('Kick Height', kickCtrl,
+                      onTap: () => _showKeypad(kickCtrl), suffix: '"'),
+                  _inlineField('Kick Angle', angleCtrl,
+                      onTap: () => _showKeypad(angleCtrl), suffix: '°'),
+                  _inlineField(
+                      'Leg Length', legCtrl, onTap: () => _showKeypad(legCtrl),
+                      suffix: '"'),
+
+                  if (_isCalculateReady) ...[
+                    const SizedBox(height: 10),
                     _buildSilverButton(
-                      label: 'Done',
-                      height: 44,
+                      label: 'Continue',
+                      height: 40,
+                      isActive: true,
                       onTap: () {
+                        _hideKeypad();
                         setState(() {
-                          _isBenderExpanded = false;
-                          _currentStep = 1;
-                          _isMeasurementsExpanded = true;
+                          _isMeasurementsExpanded = false; // Collapses Step 2
+                          _showBendingMethodCard =
+                          true; // Reveals Method choice
+                          _bendingMethodCardExpanded = true;
                         });
                       },
                     ),
@@ -1129,84 +1310,101 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       ),
     );
   }
-  Widget _buildMeasurementsSection() {
-    final bool canOpen = _selectedBrand != null && _selectedPipeSize != null;
 
+  Widget _buildBendingMethodCard() {
     return _buildGroupContainer(
       child: Column(
         children: [
-          _buildSilverButton(
-            label: '2. MEASUREMENTS',
-            fontSize: 20,
-            height: 60,
-            isActive: _currentStep == 1,
-            onTap: canOpen
-                ? () {
+          GestureDetector(
+            onTap: () {
               setState(() {
-                _currentStep = 1;
-                _isMeasurementsExpanded = !_isMeasurementsExpanded;
-
-                if (_isMeasurementsExpanded) {
-                  _isBenderExpanded = false;
-                  _isResultsExpanded = false;
-                }
+                _bendingMethodCardExpanded = !_bendingMethodCardExpanded;
               });
-            }
-                : null,
-          ),
-          if (_isMeasurementsExpanded)
-            Padding(
-              padding: const EdgeInsets.only(top: 12.0),
-              child: Column(
+            },
+            child: Container(
+              height: 34,
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Row(
                 children: [
-                  _inlineField(
-                    'Stub Height',
-                    stubCtrl,
-                    onTap: () => _showKeypad(stubCtrl),
-                    suffix: '"',
+                  const Expanded(
+                    child: Text(
+                      'BENDING METHOD',
+                      style: TextStyle(
+                        color: kLight,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
-                  _inlineField(
-                    'Kick Height',
-                    kickCtrl,
-                    onTap: () => _showKeypad(kickCtrl),
-                    suffix: '"',
+                  Text(
+                    _bendingMethodCardExpanded ? '⌃' : '⌄',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                  _inlineField(
-                    'Kick Angle',
-                    angleCtrl,
-                    onTap: () => _showKeypad(angleCtrl),
-                    suffix: '°',
-                  ),
-                  _inlineField(
-                    'Leg Length',
-                    legCtrl,
-                    onTap: () => _showKeypad(legCtrl),
-                    suffix: '"',
-                  ),
-                  const SizedBox(height: 12),
                 ],
               ),
             ),
+          ),
+          if (_bendingMethodCardExpanded) ...[
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildSilverButton(
+                    label: 'USE NOTCH',
+                    height: 40,
+                    isActive: _bendingMethod ==
+                        bending_data.BendingMethod.notch,
+                    onTap: () {
+                      setState(() {
+                        _bendingMethod = bending_data.BendingMethod.notch;
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildSilverButton(
+                    label: 'USE CENTERLINE',
+                    height: 40,
+                    isActive: _bendingMethod ==
+                        bending_data.BendingMethod.centerline,
+                    onTap: () {
+                      setState(() {
+                        _bendingMethod =
+                            bending_data.BendingMethod.centerline;
+                      });
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 
+
   Widget _buildCalculateSection() {
     return _buildGroupContainer(
       child: _buildSilverButton(
         label: '3. CALCULATE',
-        isActive: _currentStep == 2,
-        isCheckmark: _isCalculateReady,
+        isActive: _showBendingMethodCard,
+        // ONLY turns red when the transition happens
+        isCheckmark: _showBendingMethodCard,
         height: 60,
         fontSize: 20,
-        onTap: _isCalculateReady
+        onTap: _showBendingMethodCard
             ? () {
+          _hideKeypad();
           setState(() {
-            _currentStep = 2;
-            _isBenderExpanded = false;
-            _isMeasurementsExpanded = false;
-            _isResultsExpanded = false;
+            _currentStep = 3;
+            _showBendingMethodCard = false;
+            _bendingMethodCardExpanded = false;
           });
           calculate();
         }
@@ -1247,18 +1445,16 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
           if (_isResultsExpanded)
             Padding(
-              padding: const EdgeInsets.only(top: 10.0, bottom: 6.0),
+              padding: const EdgeInsets.only(top: 6.0, bottom: 6.0),
               child: Column(
                 children: [
-                  _buildResultModeButtons(),
 
-                  const SizedBox(height: 6),
 
                   _resultRow('Mark A — Bend A', markAOut),
                   _resultRow('Mark B — Bend B', markBOut),
                   _resultRow('Mark C — Cut Length', markCOut),
 
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
 
                   Row(
                     children: [
@@ -1343,19 +1539,19 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     );
   }
   Widget _buildResultModeButtons() {
-    final bool useArrow =
-        _bendingMethod == bending_data.BendingMethod.arrow;
+    final bool useNotch =
+        _bendingMethod == bending_data.BendingMethod.notch;
 
     return Row(
       children: [
         Expanded(
           child: _buildSilverButton(
-            label: 'Use Arrow',
+            label: 'Use Notch',
             height: 40,
-            isActive: useArrow,
+            isActive: useNotch,
             onTap: () {
               setState(() {
-                _bendingMethod = bending_data.BendingMethod.arrow;
+                _bendingMethod = bending_data.BendingMethod.notch;
               });
 
               if (_isCalculateReady) calculate();
@@ -1367,7 +1563,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
           child: _buildSilverButton(
             label: 'Use Centerline',
             height: 40,
-            isActive: !useArrow,
+            isActive: !useNotch,
             onTap: () {
               setState(() {
                 _bendingMethod = bending_data.BendingMethod.centerline;
@@ -1501,104 +1697,228 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   Widget _buildConduitTypeSelector() {
     return Row(
       children: [
-        Expanded(child: _buildSilverButton(label: 'EMT',
+        Expanded(
+          child: _buildSilverButton(
+            label: 'EMT',
             height: 40,
             isActive: _selectedConduitType == BoxLayoutConduitType.emt,
             onTap: () {
               setState(() => _selectedConduitType = BoxLayoutConduitType.emt);
               _updateBenderData();
-            })),
-        const SizedBox(width: 10),
-        Expanded(child: _buildSilverButton(label: 'Rigid',
+            },
+          ),
+        ),
+        const SizedBox(width: 6.0), // Center gap now matches border gap
+        Expanded(
+          child: _buildSilverButton(
+            label: 'Rigid',
             height: 40,
             isActive: _selectedConduitType == BoxLayoutConduitType.grc,
             onTap: () {
               setState(() => _selectedConduitType = BoxLayoutConduitType.grc);
               _updateBenderData();
-            })),
+            },
+          ),
+        ),
       ],
     );
   }
 
 
-  Widget _buildBrandSelector() {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4),
-      decoration: BoxDecoration(color: kBlack.withAlpha(128),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.white54)),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedBrand,
-          isExpanded: true,
-          hint: const Text(
-              'Select Bender Brand', style: TextStyle(color: Colors.white70)),
-          dropdownColor: const Color(0xFF333333),
-          style: const TextStyle(color: kLight, fontSize: 18),
-          items: _allBrands.map((brandData) {
-            final type = brandData['type']!;
-            final name = brandData['name']!;
+  void _showBrandPicker() {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withAlpha(220),
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF151515),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFFC8C8C8),
+                width: 1.6,
+              ),
+            ),
+            child: ListView(
+              shrinkWrap: true,
+              children: _allBrands.map((brandData) {
+                final type = brandData['type']!;
+                final name = brandData['name']!;
 
-            if (type == 'header') {
-              return DropdownMenuItem<String>(
-                value: 'header_$name',
-                enabled: false,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0, bottom: 4.0),
-                      child: Text(
-                        name,
-                        style: const TextStyle(
-                            color: kLight, fontWeight: FontWeight.bold),
+                if (type == 'header') {
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            color: kLight,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Container(
+                          height: 1,
+                          color: Colors.white54,
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                final bool selected = name == _selectedBrand;
+
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: _BeveledButton(
+                    active: selected,
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      setState(() => _selectedBrand = name);
+                      _updateBenderData();
+                    },
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 14),
+                        child: Text(
+                          name,
+                          style: const TextStyle(
+                            color: kLight,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
                     ),
-                    const Divider(color: Colors.white54, height: 1),
-                  ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBrandSelector() {
+    return GestureDetector(
+      onTap: _showBrandPicker,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111111),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFFC0C0C0), // Changed to stay silver
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                _selectedBrand ?? 'Select Bender Brand',
+                style: TextStyle(
+                  color: _selectedBrand == null ? Colors.white70 : kLight,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
                 ),
-              );
-            }
-            return DropdownMenuItem<String>(
-              value: name,
-              child: Text(name),
-            );
-          }).toList(),
-          onChanged: (newValue) {
-            if (newValue != null && !newValue.startsWith('header_')) {
-              setState(() => _selectedBrand = newValue);
-              _updateBenderData();
-            }
-          },
+              ),
+            ),
+            const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 28),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildPipeSizeSelector() {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4),
-      decoration: BoxDecoration(color: kBlack.withAlpha(128),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.white54)),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedPipeSize,
-          isExpanded: true,
-          hint: const Text(
-              'Select Pipe Size', style: TextStyle(color: Colors.white70)),
-          dropdownColor: const Color(0xFF333333),
-          style: const TextStyle(color: kLight, fontSize: 18),
-          items: _getFilteredPipeSizes().keys.map((String value) {
-            return DropdownMenuItem<String>(
-                value: value, child: Text(bending_data.pipeSizes[value]!));
-          }).toList(),
-          onChanged: (newValue) {
-            setState(() => _selectedPipeSize = newValue);
-            _updateBenderData();
-          },
+    return Theme(
+      data: Theme.of(context).copyWith(
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+      ),
+      child: PopupMenuButton<String>(
+        offset: const Offset(0, 50),
+        color: const Color(0xFF151515),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFC8C8C8), width: 1.5),
+        ),
+        onSelected: (newValue) {
+          setState(() => _selectedPipeSize = newValue);
+          _updateBenderData();
+        },
+        itemBuilder: (context) {
+          return _getFilteredPipeSizes().keys.map((String value) {
+            final bool selected = value == _selectedPipeSize;
+            return PopupMenuItem<String>(
+              value: value,
+              height: 44,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: selected
+                        ? [const Color(0xFF8A1010), const Color(0xFFD12A2A)]
+                        : [const Color(0xFF3A3A3A), const Color(0xFF1E1E1E)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white24, width: 1),
+                ),
+                child: Text(
+                  bending_data.pipeSizes[value]!,
+                  style: const TextStyle(
+                      color: kLight, fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
+            );
+          }).toList();
+        },
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: const Color(0xFFC0C0C0), // Changed to stay silver
+              width: 1.2,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _selectedPipeSize == null
+                      ? 'Select Pipe Size'
+                      : (bending_data.pipeSizes[_selectedPipeSize] ?? ''),
+                  style: TextStyle(
+                    color: _selectedPipeSize == null ? Colors.white70 : kLight,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Icon(
+                  Icons.arrow_drop_down, color: Colors.white54, size: 28),
+            ],
+          ),
         ),
       ),
     );
@@ -1608,44 +1928,69 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: kBlack,
+        backgroundColor: const Color(0xFF212121),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
         ),
         title: const Text(
-          'Kick 90',
+          'Kick 90 Help',
           style: TextStyle(
-            color: kLight,
-            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 22,
           ),
         ),
         content: const SingleChildScrollView(
-          child: Text(
-            'This tool calculates layout marks for a Kick 90 bend.\n\n'
-                'The main goal is to lay out your cut mark and bend marks in one pull of the tape measure. '
-                'You do not have to bend the 90, lay it down, and re-measure from the back of the 90. '
-                'This eliminates stacked measurement errors and saves time in the field.\n\n'
-                'Use Arrow:\n'
-                'This lets your bender arrow act as the center of bend for the selected angle. '
-                'The app adjusts your bend mark so you can place the arrow directly on the mark without charting centerlines.\n\n'
-                'Use Centerline:\n'
-                'This mode uses true center-of-bend marks. Use this if your bender is charted and you prefer marking the exact center of bend on the shoe.\n\n'
-                'Parallel:\n'
+          child: ListBody(
+            children: [
+              Text(
+                'Lay out your cut mark and bend marks in one pull of the tape measure.',
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Use Notch:',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Pipe & Wire automatically translates center-of-bend measurements of any angle to the notch on your bender.',
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Use Centerline:',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+              ),
+              SizedBox(height: 4),
+              Text(
+                'Choose this if your bender already has center-of-bend markings for the selected angle.',
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+              ),
+              SizedBox(height: 16),
+              Text(
+                'Parallel:',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+              ),
+              SizedBox(height: 4),
+              Text(
                 'Sends your results into Rack Builder so you can build multiple parallel kicks and keep them aligned.',
-            style: TextStyle(
-              color: kLight,
-              fontSize: 16,
-              height: 1.4,
-            ),
+                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+              ),
+            ],
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text(
-              'Close',
-              style: TextStyle(color: kLight),
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
             ),
           ),
         ],
@@ -1657,15 +2002,20 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     String message;
 
     if (_isResultsExpanded) {
-      if (_bendingMethod == bending_data.BendingMethod.arrow) {
-        message =
-        'Use Arrow lets your bender arrow act as the center of bend for the selected angle.';
-      } else {
-        message =
-        'Use Centerline is for bends where you mark and use the actual center of bend on the shoe.';
-      }
+      message =
+      'Kick 90 complete. Marks are measured from one end before bending.\n '
+          'Tap Parallel to send results to Rack Builder for aligned runs.';
+    } else if (_showBendingMethodCard && _bendingMethodCardExpanded) {
+      message =
+      'USE NOTCH:\n'
+          'Pipe & Wire automatically translates center-of-bend measurements '
+          'of any angle to the notch on your bender.\n\n'
+          'USE CENTERLINE:\n'
+          'Choose this if your bender already has center-of-bend markings '
+          'for the selected angle.';
     } else if (_isBenderExpanded) {
-      message = 'Select your bender, conduit type, and pipe size.';
+      message =
+      'Select your bender, conduit type, and pipe size.\nYou can also create and save your own custom bender.';
     } else if (_isMeasurementsExpanded) {
       message = 'Enter stub height, kick height, kick angle, and leg length.';
     } else if (_currentStep == 2) {
@@ -1704,10 +2054,12 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
   Widget _buildGroupContainer({required Widget child}) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
+      padding: const EdgeInsets.all(6.0), // Uniform 6px gap to the border
       margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5)),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5),
+      ),
       child: child,
     );
   }
@@ -1757,45 +2109,66 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       {VoidCallback? onTap, String? suffix}) {
     final bool isActive = _activeController == c;
     final bool isReadOnly = onTap == null;
-    final bool isEditable = !isReadOnly;
+
+    // NEW: Logic to prevent double symbols (°) or (")
+    // If the controller already has the symbol, we hide the suffix logic.
+    final String? cleanSuffix = (suffix != null && c.text.contains(suffix))
+        ? null
+        : suffix;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 1),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 16, color: kLight))),
+          Expanded(
+              child: Text(
+                  label,
+                  style: const TextStyle(fontSize: 16,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600)
+              )
+          ),
           const SizedBox(width: 12),
-          SizedBox(
-            width: 140, height: 48,
-            child: GestureDetector(
-              onTap: isReadOnly ? null : () => _showKeypad(c),
-              child: AbsorbPointer(
-                child: TextField(
-                  controller: c,
-                  readOnly: true,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 18, color: kLight),
-                  decoration: InputDecoration(
-                    suffixText: suffix,
-                    suffixStyle: const TextStyle(fontSize: 18, color: kLight),
-                    isDense: true,
-                    filled: true,
-                    fillColor: kBlack.withAlpha(128),
-                    contentPadding: const EdgeInsets.symmetric(
-                        vertical: 14, horizontal: 10),
-                    border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(4)),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(4),
-                      borderSide: BorderSide(
-                        color: isActive ? kGreen : Colors.white54,
-                        width: isActive ? 2 : 1,
+          GestureDetector(
+            onTap: isReadOnly ? null : () => _showKeypad(c),
+            child: Container(
+              width: 135,
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: kBlack.withAlpha(160),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isActive ? kGreen : Colors.white38,
+                  width: isActive ? 1.8 : 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: AbsorbPointer(
+                      child: TextField(
+                        controller: c,
+                        readOnly: true,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontSize: 18,
+                            color: kLight,
+                            fontWeight: FontWeight.w800),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                          suffixText: cleanSuffix,
+                          // Use the smart suffix here
+                          suffixStyle: const TextStyle(fontSize: 18,
+                              color: kLight,
+                              fontWeight: FontWeight.w500),
+                        ),
                       ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(4),
-                        borderSide: const BorderSide(color: kGreen, width: 2)),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -1804,6 +2177,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     );
   }
 }
+
 class _StarterResultGraphic extends StatelessWidget {
   static const double _resultPipeBottomOffset = 15.0;
   static const double _resultMeasureTextBottomOffset = 2.0;
@@ -1837,16 +2211,16 @@ class _StarterResultGraphic extends StatelessWidget {
               filterQuality: FilterQuality.high,
             ),
           ),
-          _downMark(width * 0.9, 7, 'A', markA),
-          _downMark(width * 0.4, 7, 'B', markB),
-          _downMark(width * 0.11, 7, 'C', markC),
-          const Positioned(
+          _downMark(width * 0.9, 3, 'A', markA),
+          _downMark(width * 0.4, 3, 'B', markB),
+          _downMark(width * 0.11, 3, 'C', markC),
+          Positioned(
             bottom: _resultMeasureTextBottomOffset,
             right: 16,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
+                const Text(
                   'Measure from this end',
                   style: TextStyle(
                     color: kLight,
@@ -1854,8 +2228,15 @@ class _StarterResultGraphic extends StatelessWidget {
                     fontSize: 18,
                   ),
                 ),
-                SizedBox(width: 8),
-                Icon(Icons.arrow_forward, color: kLight, size: 18),
+                const SizedBox(width: 8),
+                const Text(
+                  "➜",
+                  style: TextStyle(
+                    color: kLight,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ],
             ),
           ),
@@ -1887,8 +2268,56 @@ class _StarterResultGraphic extends StatelessWidget {
               ),
             ),
           ),
-          const Icon(Icons.arrow_downward, color: Colors.white70, size: 18),
+          const RotatedBox(
+            quarterTurns: 1,
+            child: Text(
+              "➜",
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _BeveledButton extends StatelessWidget {
+  const _BeveledButton(
+      {this.active = false, required this.onTap, required this.child});
+
+  final bool active;
+  final VoidCallback? onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Container(
+      height: 46,
+      decoration: BoxDecoration(
+          gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: active
+                  ? [const Color(0xFF8A1010), const Color(0xFFD12A2A)]
+                  : enabled
+                  ? [const Color(0xFF4E4E52), const Color(0xFF2C3030)]
+                  : [Colors.grey.shade800, Colors.grey.shade900]
+          ),
+          borderRadius: BorderRadius.circular(12), // Standardized Roundness
+          border: Border.all(color: const Color(0xFF9E9E9E), width: 1.1)
+      ),
+      child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+              borderRadius: BorderRadius.circular(12), // Standardized Roundness
+              onTap: onTap,
+              child: Center(child: child)
+          )
       ),
     );
   }
