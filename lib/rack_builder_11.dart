@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:collection/collection.dart';
 import 'package:provider/provider.dart';
 import 'rack_state.dart';
 import 'keypad_5.dart';
@@ -9,6 +10,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'main_menu_screen.dart';
+import 'bender_picker_dialog.dart';
+import 'box_layout_mode.dart';
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -60,6 +64,13 @@ class RackBuilderScreen extends StatefulWidget {
     this.initialSpacing,
     this.startInOffsetMode = false,
     this.startInRollingOffsetMode = false,
+
+    // Box Layout Integration
+    this.startFromBoxTransition = false,
+    this.boxLayoutPipeSizes,
+    this.boxLayoutSpacing,
+    this.boxLayoutIsCenterToCenter = false,
+    this.boxLayoutConduitType,
   });
 
   final double? initialMarkA;
@@ -77,13 +88,22 @@ class RackBuilderScreen extends StatefulWidget {
   final bool startInOffsetMode;
   final bool startInRollingOffsetMode;
 
+  final bool startFromBoxTransition;
+  final List<String>? boxLayoutPipeSizes;
+  final double? boxLayoutSpacing;
+  final bool boxLayoutIsCenterToCenter;
+  final String? boxLayoutConduitType;
+
 
   @override
   State<RackBuilderScreen> createState() => _RackBuilderScreenState();
 }
 
-class _RackBuilderScreenState extends State<RackBuilderScreen> {
+class _RackBuilderScreenState extends State<RackBuilderScreen> with TickerProviderStateMixin {
   late final RackState rack;
+
+  late final AnimationController _infoAnimCtrl;
+  bool _hasViewedInfo = false;
 
   static const double designW = 1920, designH = 1080;
   static const layers = <String>[
@@ -128,6 +148,8 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
   bool _kickTypeConfirmed = false;
 
   bool _showKickBendingMethodCard = false;
+  bool get _isRackBenderSetupComplete => _selectedRackBenderBrand != null;
+  bool _showTravelField = false;
   bool _kickBendingMethodConfirmed = false;
 
   String _kickDirection = 'right';
@@ -135,6 +157,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
   bending_data.BendingMethod _kickMarkMethod =
       bending_data.BendingMethod.centerline;
   bending_data.Bender? _selectedRackBender;
+  String? _rackBenderMatchError;
   final Map<String, bending_data.Bender> _rackBenderByPipeKey = {};
   final List<String> _rackPipeSizes = [];
   String _rackBenderMemoryKey() {
@@ -148,7 +171,9 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     return 'assets/images/rack_builder/parallel_offset_right.png';
   }
   // --- Custom Bender State ---
+  // --- Custom Bender State ---
   bool _isEditMode = false;
+  bool _isNewBender = false; // Flag to distinguish between Creating and Editing
   final List<bending_data.Bender> _customBenders = [];
   List<Map<String, String>> _allBrands = [];
   bool _isNameEntryMode = false;
@@ -176,6 +201,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
   final TextEditingController radiusCtl = TextEditingController();
   final TextEditingController setbackCtl = TextEditingController();
   final TextEditingController travelCtl = TextEditingController();
+  final TextEditingController distanceFromBoxCtl = TextEditingController();
 
   final TextEditingController rollingVerticalCtl = TextEditingController();
   final TextEditingController rollingHorizontalCtl = TextEditingController();
@@ -213,28 +239,33 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
   bool _clearOnNextInput = false;
   void _sendPipeProgressionOffsetsToRackState() {
     final List<double> offsets = List.generate(_rackPipeCount, (_) => 0.0);
+    final Map<int, double> ods = {};
 
     double running = 0.0;
 
-    for (int i = 1; i < _rackPipeCount; i++) {
-      final enteredSpacing = RackState.parseInches(runC2C.text);
+    for (int i = 0; i < _rackPipeCount; i++) {
+      final String sizeStr = _rackPipeSizes[i];
+      ods[i] = _rackPipeOd(sizeStr);
 
-      double gap;
+      if (i > 0) {
+        final enteredSpacing = RackState.parseInches(runC2C.text);
+        double gap;
 
-      if (_rackSpacingIsCenterToCenter) {
-        gap = enteredSpacing;
-      } else {
-        final leftOd = _rackPipeOd(_rackPipeSizes[i - 1]);
-        final rightOd = _rackPipeOd(_rackPipeSizes[i]);
+        if (_rackSpacingIsCenterToCenter) {
+          gap = enteredSpacing;
+        } else {
+          final leftOd = _rackPipeOd(_rackPipeSizes[i - 1]);
+          final rightOd = _rackPipeOd(_rackPipeSizes[i]);
+          gap = enteredSpacing + (leftOd / 2) + (rightOd / 2);
+        }
 
-        gap = enteredSpacing + (leftOd / 2) + (rightOd / 2);
+        running += gap;
+        offsets[i] = running;
       }
-
-      running += gap;
-      offsets[i] = running;
     }
 
-    rack.setPipeProgressionOffsets(offsets);
+    rack.setPipeODs(ods);
+    rack.setPipeProgressionOffsets(offsets, sizes: _rackPipeSizes);
   }
   @override
   void initState() {
@@ -245,9 +276,45 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
 
     takeUpCtl.addListener(_updateSetback);
     gainCtl.addListener(_updateSetback);
+    gainCtl.addListener(_updateRadiusFromGain);
+    radiusCtl.addListener(_updateGainFromRadius);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+
+      if (widget.startFromBoxTransition) {
+        setState(() {
+          _rackPipeCount = widget.boxLayoutPipeSizes?.length ?? 0;
+          _rackPipeSizes.clear();
+          if (widget.boxLayoutPipeSizes != null) {
+            _rackPipeSizes.addAll(widget.boxLayoutPipeSizes!);
+          }
+          _rackDefaultPipeSize = _rackPipeSizes.isNotEmpty ? _rackPipeSizes.first : '1/2"';
+          
+          final double spacing = widget.boxLayoutSpacing ?? 0.0;
+          runC2C.text = RackState.inchFmt(spacing);
+          _rackSpacingIsCenterToCenter = widget.boxLayoutIsCenterToCenter;
+          _rackConduitType = widget.boxLayoutConduitType ?? 'EMT';
+          
+          rackPipeCountCtl.text = _rackPipeCount.toString();
+          rackDefaultPipeSizeCtl.text = _rackDefaultPipeSize;
+          distanceFromBoxCtl.text = '0"';
+
+          rack.initializeFromBoxLayout(
+            pipeSizes: _rackPipeSizes,
+            spacing: spacing,
+            isCenterToCenter: _rackSpacingIsCenterToCenter,
+            conduitType: _rackConduitType,
+          );
+          
+          _showRackSetupOutput = true;
+          _isRackSetupExpanded = false;
+          _isRackBenderExpanded = true;
+          _isRackBendTypeExpanded = false;
+        });
+        _sendPipeProgressionOffsetsToRackState();
+      }
+
       // Offset Starting Point preload path.
 // Opens Rack Builder directly into Offset mode with values already loaded.
       if (widget.startInOffsetMode || widget.startInRollingOffsetMode) {
@@ -316,6 +383,49 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     legCtl.addListener(() => setState(() {}));
     runC2C.addListener(() => setState(() {}));
     boxC2C.addListener(() => setState(() {}));
+
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _infoAnimCtrl.dispose();
+    rack.removeListener(_onRackStateChanged);
+
+    rackPipeCountCtl.dispose();
+    runC2C.dispose();
+    boxC2C.dispose();
+    stubCtl.dispose();
+    kickStubCtl.dispose();
+    legCtl.dispose();
+
+    kickHeightCtl.dispose();
+    kickAngleCtl.dispose();
+    kickMatchBendCtl.dispose();
+    kickLegCtl.dispose();
+
+    offsetDistanceCtl.dispose();
+    offsetHeightCtl.dispose();
+    offsetOverallCtl.dispose();
+    offsetAngleCtl.dispose();
+    rollingVerticalCtl.dispose();
+    rollingHorizontalCtl.dispose();
+    rollingDistanceCtl.dispose();
+    rollingOverallCtl.dispose();
+    rollingAngleCtl.dispose();
+    rackDefaultPipeSizeCtl.dispose();
+    _customNameCtl.dispose();
+    takeUpCtl.dispose();
+    gainCtl.dispose();
+    radiusCtl.dispose();
+    setbackCtl.dispose();
+    travelCtl.dispose();
+    distanceFromBoxCtl.dispose();
+
+    super.dispose();
   }
   String get _rackSetupInfoText {
     if (_choosingNextBend) {
@@ -323,7 +433,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     }
 
     if (_isRackBenderExpanded) {
-      return 'Select the bender for the highlighted pipe size, or skip bender data if you are only doing offsets for now.';
+      return 'Select a bender for each conduit size. If your bender is not on the list, you can enter a custom bender using the "Add/Edit Custom Bender" tool.';
     }
 
     if (_isRackBendTypeExpanded) {
@@ -577,88 +687,91 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
       );
     }
 
-    return Column(
-      children: [
-        _buildRackSetupSection(),
+    return Expanded(
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 20),
+        children: [
+          if (!_isEditMode) _buildRackSetupSection(),
 
-        if (!_isRackSetupExpanded ||
-            _isRackBenderExpanded ||
-            _isRackBendTypeExpanded) ...[
-          const SizedBox(height: 6),
-          _buildRackBenderSection(),
-        ],
+          if (!_isRackSetupExpanded ||
+              _isRackBenderExpanded ||
+              _isRackBendTypeExpanded) ...[
+            if (!_isEditMode) const SizedBox(height: 6),
+            _buildRackBenderSection(),
+          ],
 
-        if (_isRackBendTypeExpanded) ...[
-          const SizedBox(height: 6),
-
-          if (_choosingNextBend) ...[
-            stepShell(
-              child: _SectionTitleButton(
-                label: '3. BEND TYPE',
-                fontSize: 19,
-                height: 60,
-                isActive: false,
-                onReset: _resetBendType,
-                onTap: () {
-                  setState(() {
-                    _choosingNextBend = false;
-                    _isRackSetupExpanded = false;
-                    _isRackBenderExpanded = false;
-                    _isRackBendTypeExpanded = true;
-                  });
-                },
-              ),
-            ),
-
+          if (_isRackBendTypeExpanded) ...[
             const SizedBox(height: 6),
 
-            stepShell(
-              child: _SectionTitleButton(
-                label: '4. KICK MEASUREMENTS',
-                fontSize: 19,
-                height: 60,
-                isActive: false,
-                onReset: _resetKickMeasurements,
-                onTap: () {
-                  setState(() {
-                    _choosingNextBend = false;
-                    _showRackSetupStart = false;
-                    _isKick90sMode = true;
-                    _showKickMeasurements = true;
-                    _showKickTypeSelector = false;
-                  });
-                },
+            if (_choosingNextBend) ...[
+              stepShell(
+                child: _SectionTitleButton(
+                  label: '3. BEND TYPE',
+                  fontSize: 19,
+                  height: 60,
+                  isActive: false,
+                  onReset: _resetBendType,
+                  onTap: () {
+                    setState(() {
+                      _choosingNextBend = false;
+                      _isRackSetupExpanded = false;
+                      _isRackBenderExpanded = false;
+                      _isRackBendTypeExpanded = true;
+                    });
+                  },
+                ),
               ),
-            ),
 
-            const SizedBox(height: 6),
+              const SizedBox(height: 6),
 
-            stepShell(
-              child: _SectionTitleButton(
-                label: '5. RESULTS',
-                fontSize: 19,
-                height: 60,
-                isActive: false,
-                onTap: () {
-                  setState(() {
-                    _choosingNextBend = false;
-                    _showRackSetupStart = false;
-                    _isKick90sMode = true;
-                    _showKickMeasurements = false;
-                    _showKickTypeSelector = true;
-                  });
-                },
+              stepShell(
+                child: _SectionTitleButton(
+                  label: '4. KICK MEASUREMENTS',
+                  fontSize: 19,
+                  height: 60,
+                  isActive: false,
+                  onReset: _resetKickMeasurements,
+                  onTap: () {
+                    setState(() {
+                      _choosingNextBend = false;
+                      _showRackSetupStart = false;
+                      _isKick90sMode = true;
+                      _showKickMeasurements = true;
+                      _showKickTypeSelector = false;
+                    });
+                  },
+                ),
               ),
-            ),
 
-            const SizedBox(height: 6),
+              const SizedBox(height: 6),
 
-            _buildChooseNextBendSection(),
-          ] else ...[
-            _buildRackBendTypeSection(),
+              stepShell(
+                child: _SectionTitleButton(
+                  label: '5. RESULTS',
+                  fontSize: 19,
+                  height: 60,
+                  isActive: false,
+                  onTap: () {
+                    setState(() {
+                      _choosingNextBend = false;
+                      _showRackSetupStart = false;
+                      _isKick90sMode = true;
+                      _showKickMeasurements = false;
+                      _showKickTypeSelector = true;
+                    });
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 6),
+
+              _buildChooseNextBendSection(),
+            ] else ...[
+              _buildRackBendTypeSection(),
+            ],
           ],
         ],
-      ],
+      ),
     );
   }
 
@@ -900,25 +1013,46 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
       ..._customBenders,
     ];
 
-    final bender = allBenders.firstWhere(
-          (b) =>
-      b.brand == brand &&
-          b.conduitSize == sizeKey &&
-          b.conduitType == conduitType,
-    );
+    bending_data.Bender? found;
+    try {
+      found = allBenders.firstWhere(
+            (b) =>
+        b.brand == brand &&
+            b.conduitSize == sizeKey &&
+            b.conduitType == conduitType,
+      );
+    } catch (_) {
+      found = null;
+    }
 
-    setState(() {
-      _skipRackBenderForNow = false;
-      _selectedRackBenderBrand = brand;
-      _selectedRackBender = bender;
-      _rackBenderByPipeKey[_rackBenderMemoryKey()] = bender;
-      _syncControllersToBender(bender);
-    });
+    if (found != null) {
+      setState(() {
+        _rackBenderMatchError = null;
+        _skipRackBenderForNow = false;
+        _selectedRackBenderBrand = brand;
+        _selectedRackBender = found;
+        _rackBenderByPipeKey[_rackBenderMemoryKey()] = found!;
+        _syncControllersToBender(found);
+        _showTravelField = bending_data.mechanicalElectricBenderBrands.contains(found.brand);
+      });
 
-    rack.setParallel90BenderData(
-      gain: bender.gain,
-      takeup: bender.deduct,
-    );
+      rack.setRackBenderBrand(brand);
+      rack.setParallel90BenderData(
+        gain: found.gain,
+        takeup: found.deduct,
+        brand: brand,
+      );
+    } else {
+      // No entry found for this size/brand combo
+      setState(() {
+        _selectedRackBenderBrand = brand;
+        _selectedRackBender = null;
+        _rackBenderMatchError = 'Bender not found for this size/type';
+        _syncControllersToBender(null);
+      });
+      // Clear mathematical inputs if no bender found
+      rack.setParallel90BenderData(gain: 0, takeup: 0);
+    }
   }
 
   void _clearRackBenderIfPipeChanged() {
@@ -928,12 +1062,21 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
       _selectedRackBender = saved;
       _selectedRackBenderBrand = saved.brand;
       _syncControllersToBender(saved);
+
+      // FORCE STATE SYNC: Push the saved bender's data into the math engine
+      rack.setParallel90BenderData(
+        gain: saved.gain,
+        takeup: saved.deduct,
+      );
       return;
     }
 
     _selectedRackBender = null;
     _selectedRackBenderBrand = null;
     _syncControllersToBender(null);
+
+    // RESET STATE: Clear math engine numbers if no bender is selected
+    rack.setParallel90BenderData(gain: 0, takeup: 0);
   }
 
   void _updateBrandDropdown() {
@@ -942,7 +1085,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
         ...bending_data.getGroupedBenderBrands(),
         {'type': 'header', 'name': 'SAVED BENDERS'},
         ..._customBenders.map((b) => {
-          'type': 'bender',
+          'type': 'custom_bender',
           'name': b.brand,
         }),
       ];
@@ -974,9 +1117,67 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     }
   }
 
+  void _updateRadiusFromGain() {
+    if (!_isEditMode || _activeController != gainCtl) return;
+
+    final gainText = gainCtl.text.trim();
+    if (gainText.isEmpty) {
+      radiusCtl.text = '';
+      return;
+    }
+
+    final gain = RackState.parseInches(gainText);
+    final pipeOD = _rackPipeOd(_selectedRackPipeSizeDisplay());
+
+    if (pipeOD <= 0 || gain <= pipeOD) {
+      radiusCtl.text = '';
+      return;
+    }
+
+    final clr = bending_data.calculateCLRFromGain(gain, pipeOD);
+    radiusCtl.text = RackState.inchFmt(clr);
+
+    // Also update travel
+    travelCtl.text = RackState.inchFmt(bending_data.calculateTravel90(clr));
+  }
+
+  void _updateGainFromRadius() {
+    if (!_isEditMode || _activeController != radiusCtl) return;
+
+    final radiusText = radiusCtl.text.trim();
+    if (radiusText.isEmpty) {
+      gainCtl.text = '';
+      return;
+    }
+
+    final radius = RackState.parseInches(radiusText);
+    final pipeOD = _rackPipeOd(_selectedRackPipeSizeDisplay());
+
+    if (pipeOD <= 0 || radius <= 0) {
+      gainCtl.text = '';
+      return;
+    }
+
+    final gain = bending_data.calculateGain90(radius, pipeOD);
+    gainCtl.text = RackState.inchFmt(gain);
+
+    // Also update travel
+    travelCtl.text = RackState.inchFmt(bending_data.calculateTravel90(radius));
+  }
+
   void _toggleEditMode() {
     setState(() {
       _isEditMode = !_isEditMode;
+      if (_isEditMode) {
+        _isNewBender = true;
+        _selectedRackBenderBrand = null;
+        _selectedRackBender = null;
+        _customBenderName = '';
+        _syncControllersToBender(null);
+        
+        // Guided Flow: Automatically pop keypad for Take Up
+        _showKeypad(takeUpCtl);
+      }
     });
   }
 
@@ -987,30 +1188,10 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     });
   }
   Future<void> _loadCustomBenders() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('rack_custom_benders');
-
-    if (raw == null || raw.isEmpty) return;
-
-    final List decoded = jsonDecode(raw);
-
+    final benders = await bending_data.BenderStore.load();
     setState(() {
-      _customBenders
-        ..clear()
-        ..addAll(decoded.map((item) {
-          return bending_data.Bender(
-            brand: item['brand'],
-            model: item['model'] ?? item['brand'],
-            conduitSize: item['conduitSize'],
-            conduitType: item['conduitType'] == 'rigid'
-                ? bending_data.ConduitType.rigid
-                : bending_data.ConduitType.emt,
-            clr: (item['clr'] as num).toDouble(),
-            deduct: (item['deduct'] as num).toDouble(),
-            gain: (item['gain'] as num).toDouble(),
-          );
-        }));
-
+      _customBenders.clear();
+      _customBenders.addAll(benders);
       _updateBrandDropdown();
     });
   }
@@ -1036,81 +1217,42 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
 
     await prefs.setString('rack_custom_benders', encoded);
   }
+
   void _saveCustomBender() {
     final name = _customBenderName.trim();
     if (name.isEmpty) return;
 
+    final sizeKey = _selectedRackPipeSizeKey();
+    final conduitType = _rackBendingConduitType();
+
     final newBender = bending_data.Bender(
       brand: name,
       model: name,
-      conduitSize: _selectedRackPipeSizeKey(),
-      conduitType: _rackBendingConduitType(),
+      conduitSize: sizeKey,
+      conduitType: conduitType,
       clr: RackState.parseInches(radiusCtl.text),
       deduct: RackState.parseInches(takeUpCtl.text),
       gain: RackState.parseInches(gainCtl.text),
     );
-    Future<void> _loadCustomBenders() async {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('rack_custom_benders');
 
-      if (raw == null || raw.isEmpty) return;
-
-      final List decoded = jsonDecode(raw);
-
-      setState(() {
-        _customBenders
-          ..clear()
-          ..addAll(decoded.map((item) {
-            return bending_data.Bender(
-              brand: item['brand'],
-              model: item['model'] ?? item['brand'],
-              conduitSize: item['conduitSize'],
-              conduitType: item['conduitType'] == 'rigid'
-                  ? bending_data.ConduitType.rigid
-                  : bending_data.ConduitType.emt,
-              clr: (item['clr'] as num).toDouble(),
-              deduct: (item['deduct'] as num).toDouble(),
-              gain: (item['gain'] as num).toDouble(),
-            );
-          }));
-
-        _updateBrandDropdown();
-      });
-    }
-
-    Future<void> _saveCustomBendersToDevice() async {
-      final prefs = await SharedPreferences.getInstance();
-
-      final encoded = jsonEncode(
-        _customBenders.map((b) {
-          return {
-            'brand': b.brand,
-            'model': b.model,
-            'conduitSize': b.conduitSize,
-            'conduitType': b.conduitType == bending_data.ConduitType.rigid
-                ? 'rigid'
-                : 'emt',
-            'clr': b.clr,
-            'deduct': b.deduct,
-            'gain': b.gain,
-          };
-        }).toList(),
-      );
-
-      await prefs.setString('rack_custom_benders', encoded);
-    }
     setState(() {
+      // OVERWRITE LOGIC: Remove any existing bender with same name/size/type
+      _customBenders.removeWhere((b) =>
+          b.brand == name &&
+          b.conduitSize == sizeKey &&
+          b.conduitType == conduitType);
+
       _customBenders.add(newBender);
-      _saveCustomBendersToDevice();
-      _selectedRackBender = newBender;
+      bending_data.BenderStore.save(newBender);
+      _updateBrandDropdown();
+
       _selectedRackBenderBrand = name;
+      _selectedRackBender = newBender;
       _rackBenderByPipeKey[_rackBenderMemoryKey()] = newBender;
 
       _isNameEntryMode = false;
       _isEditMode = false;
       _customBenderName = '';
-
-      _updateBrandDropdown();
       _syncControllersToBender(newBender);
     });
 
@@ -1144,82 +1286,46 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withAlpha(220),
-      builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF151515),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: const Color(0xFFC8C8C8),
-                width: 1.6,
-              ),
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              children: _allBrands.map((brandData) {
-                final type = brandData['type']!;
-                final name = brandData['name']!;
+      builder: (context) => BenderPickerDialog(
+        allBrands: _allBrands,
+        selectedBrand: _selectedRackBenderBrand,
+        onSelected: (name) {
+          _selectRackBender(name);
+        },
+        onDelete: (name) {
+          setState(() {
+            _customBenders.removeWhere((b) => b.brand == name);
+            bending_data.BenderStore.delete(name);
+            _updateBrandDropdown();
+            if (_selectedRackBenderBrand == name) {
+              _selectedRackBenderBrand = null;
+              _selectedRackBender = null;
+              _rackBenderMatchError = null;
+              _syncControllersToBender(null);
+            }
+          });
+        },
+        onEdit: (name) {
+          final bender = _customBenders.firstWhereOrNull((b) => b.brand == name);
+          if (bender != null) {
+            setState(() {
+              _isEditMode = true;
+              _isNewBender = false;
+              _selectedRackBenderBrand = null;
+              _selectedRackBender = null;
+              _rackBenderMatchError = null;
 
-                if (type == 'header') {
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            color: kLight,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Container(
-                          height: 1,
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ),
-                  );
-                }
+              // Force the rack to match the bender being edited
+              _rackConduitType = bender.conduitType == bending_data.ConduitType.rigid ? 'Rigid' : 'EMT';
+              _rackPipeSizes[_selectedRackPipe] = bender.conduitSize;
 
-                final bool selected = name == _selectedRackBenderBrand;
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: _BeveledButton(
-                    active: selected,
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      _selectRackBender(name);
-                    },
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 14),
-                        child: Text(
-                          name,
-                          style: const TextStyle(
-                            color: kLight,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        );
-      },
+              _syncControllersToBender(bender);
+              _customBenderName = bender.brand;
+            });
+            _showKeypad(takeUpCtl);
+          }
+        },
+      ),
     );
   }
   Widget _buildRackBenderSection() {
@@ -1231,22 +1337,12 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
 
     final bender = _selectedRackBender;
     final gain90 = bender == null ? 0.0 : bender.gain;
-    final benderDisplayName = bender == null
-        ? '—'
-        : ((bender.model ?? '').trim().isEmpty
-        ? bender.brand
-        : '${bender.brand} ${bender.model}');
 
     final travel90 = bender == null
         ? 0.0
         : bending_data.calculateTravel90(bender.clr);
 
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5),
-      ),
+    return _buildGroupContainer(
       child: Column(
         children: [
           _SectionTitleButton(
@@ -1268,27 +1364,27 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
 
           if (_isRackBenderExpanded)
             Padding(
-              padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
+              padding: const EdgeInsets.only(top: 6.0),
               child: Column(
                 children: [
-                  _buildRackPreview(),
-                  const SizedBox(height: 8),
-
-
+                  if (!_isEditMode) ...[
+                    _buildRackPreview(),
+                    const SizedBox(height: 4),
+                  ],
 
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.black.withAlpha(180),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: const Color(0xFFC8C8C8),
+                        color: const Color(0xFFC0C0C0),
                         width: 1.2,
                       ),
                     ),
                     child: Text(
-                      'Selected Pipe: $selectedPipeText',
+                      _isEditMode ? 'Defining custom bender for: $selectedPipeText' : 'Selected Pipe: $selectedPipeText',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: kLight,
@@ -1297,66 +1393,63 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
+
+                  const SizedBox(height: 4),
                   GestureDetector(
                     onTap: _showRackBenderPicker,
                     child: Container(
-                      height: 50,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      height: 48,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: _selectedRackBenderBrand == null
-                              ? const [
-                            Color(0xFF3A0D0D),
-                            Color(0xFF1F1F1F),
-                          ]
-                              : const [
-                            Color(0xFF3A3A3A),
-                            Color(0xFF1F1F1F),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
+                        color: const Color(0xFF111111),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: _selectedRackBenderBrand == null
-                              ? kRed
-                              : const Color(0xFF888888),
-                          width: _selectedRackBenderBrand == null ? 2 : 1.3,
+                          color: const Color(0xFFC0C0C0),
+                          width: 1.2,
                         ),
                       ),
                       child: Row(
                         children: [
                           Expanded(
                             child: Text(
-                      _selectedRackBender == null
-                          ? 'Select Bender'
-                              : ((_selectedRackBender!.model ?? '').trim().isEmpty
-                          ? _selectedRackBender!.brand
-                          : '${_selectedRackBender!.brand} ${_selectedRackBender!.model}'),
+                              _isEditMode
+                                  ? (_isNewBender ? 'Custom' : 'Editing: $_customBenderName')
+                                  : (bender == null
+                                      ? 'Select Bender Brand'
+                                      : (bender.model ?? bender.brand)),
                               style: TextStyle(
-                                color: _selectedRackBenderBrand == null
+                                color: (bender == null && !_isEditMode)
                                     ? Colors.white70
                                     : kLight,
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
-                          const Icon(
-                            Icons.arrow_drop_down,
-                            color: kLight,
-                            size: 30,
-                          ),
+                          const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 28),
                         ],
                       ),
                     ),
                   ),
 
-                  if (bender == null) ...[
-                    const SizedBox(height: 8),
-                    _BeveledButton(
-                      active: _skipRackBenderForNow,
+                  if (_rackBenderMatchError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        _rackBenderMatchError!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: kRed,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+
+                  if (bender == null && !_isEditMode) ...[
+                    const SizedBox(height: 4),
+                    _SectionTitleButton(
+                      isActive: _skipRackBenderForNow,
                       onTap: () {
                         setState(() {
                           _skipRackBenderForNow = !_skipRackBenderForNow;
@@ -1366,102 +1459,95 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                           }
                         });
                       },
-                      child: Text(
-                        _skipRackBenderForNow
+                      label: _skipRackBenderForNow
                             ? 'Skipping Bender Data (Offsets)'
                             :'Skip Bender For Now (Offsets)',
-                        style: const TextStyle(
-                          color: kLight,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
                     ),
                   ],
-                  const SizedBox(height: 8),
-                  _rackBenderResultRow(
-                    'Take Up',
-                    _isEditMode ? takeUpCtl.text : (bender == null ? '—' : RackState.inchFmt(bender.deduct)),
-                    onTap: _isEditMode ? () => _showKeypad(takeUpCtl) : null,
-                  ),
-                  const SizedBox(height: 6),
-                  _rackBenderResultRow(
-                    'Gain90',
-                    _isEditMode ? gainCtl.text : (bender == null ? '—' : RackState.inchFmt(gain90)),
-                    onTap: _isEditMode ? () => _showKeypad(gainCtl) : null,
-                  ),
-
-                  const SizedBox(height: 6),
-                  if (!_isEditMode && bender != null &&
-                      bending_data.mechanicalElectricBenderBrands.contains(bender.brand)) ...[
-                    _rackBenderResultRow(
-                      '90° Travel',
-                      RackState.inchFmt(travel90),
-                    ),
-                  ],
-                  const SizedBox(height: 10),
-
-                  if (_isEditMode) ...[
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _BeveledButton(
-                            active: true,
-                            onTap: () {
-                              setState(() {
-                                _isNameEntryMode = true;
-                                _customBenderName = '';
-                                _isKeypadVisible = false;
-                                _activeController = null;
-                              });
-                            },
-                            child: const Text('Save', style: TextStyle(color: kLight, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _BeveledButton(
-                            onTap: _cancelEditMode,
-                            child: const Text('Cancel', style: TextStyle(color: kLight, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ] else if (bender == null) ...[
-                    _BeveledButton(
+                  
+                  if (!_isEditMode && !_isRackBenderSetupComplete) ...[
+                    const SizedBox(height: 4),
+                    _SectionTitleButton(
+                      label: 'Create / Edit Custom Bender',
                       onTap: _toggleEditMode,
-                      child: const Text(
-                        'Create / Edit Custom Bender',
-                        style: TextStyle(
-                          color: kLight,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
                     ),
                   ],
 
-                  const SizedBox(height: 8),
-
-                  _BeveledButton(
-                    active: bender != null || _skipRackBenderForNow,
-                    onTap: (bender == null && !_skipRackBenderForNow)
-                        ? null
-                        : () {
-                      setState(() {
-                        _isRackBenderExpanded = false;
-                        _isRackBendTypeExpanded = true;
-                      });
-                    },
-                    child: const Text(
-                      'Continue',
-                      style: TextStyle(
-                        color: kLight,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
+                  if (_isRackBenderSetupComplete || _isEditMode) ...[
+                    const SizedBox(height: 4),
+                    
+                    if (_showTravelField)
+                      _rackBenderResultRow(
+                        '90° Travel',
+                        RackState.inchFmt(travel90),
                       ),
+
+                    _rackBenderResultRow(
+                      'Take Up',
+                      _isEditMode ? takeUpCtl.text : (bender == null ? '—' : RackState.inchFmt(bender.deduct)),
+                      onTap: _isEditMode ? () => _showKeypad(takeUpCtl) : null,
                     ),
-                  ),
+                    _rackBenderResultRow(
+                      'Gain90',
+                      _isEditMode ? gainCtl.text : (bender == null ? '—' : RackState.inchFmt(gain90)),
+                      onTap: _isEditMode ? () => _showKeypad(gainCtl) : null,
+                    ),
+                    _rackBenderResultRow(
+                      'Setback',
+                      setbackCtl.text,
+                    ),
+                    _rackBenderResultRow(
+                      'Radius / CLR',
+                      _isEditMode ? radiusCtl.text : (bender == null ? '—' : RackState.inchFmt(bender.clr)),
+                      onTap: _isEditMode ? () => _showKeypad(radiusCtl) : null,
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    if (_isEditMode) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _SectionTitleButton(
+                              isActive: true,
+                              onTap: () {
+                                setState(() {
+                                  _isNameEntryMode = true;
+                                  _customBenderName = '';
+                                  _isKeypadVisible = false;
+                                  _activeController = null;
+                                });
+                              },
+                              label: 'Save Custom Bender',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _SectionTitleButton(
+                              onTap: _cancelEditMode,
+                              label: 'Cancel',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+
+                    const SizedBox(height: 4),
+
+                    _SectionTitleButton(
+                      isActive: true,
+                      isCheckmark: true,
+                      onTap: (bender == null && !_skipRackBenderForNow)
+                          ? null
+                          : () {
+                        setState(() {
+                          _isRackBenderExpanded = false;
+                          _isRackBendTypeExpanded = true;
+                        });
+                      },
+                      label: 'Done',
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1470,56 +1556,62 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     );
   }
   Widget _rackBenderResultRow(String label, String value, {VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
-        decoration: BoxDecoration(
-          color: Colors.black.withAlpha(180),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: onTap != null ? kRed : const Color(0xFFC8C8C8),
-            width: onTap != null ? 1.4 : 1.1,
-          ),
+    final bool isActive = _activeController != null && (
+        (_activeController == takeUpCtl && label == 'Take Up') ||
+            (_activeController == gainCtl && label == 'Gain90') ||
+            (_activeController == radiusCtl && label == 'Radius / CLR')
+    );
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      margin: const EdgeInsets.symmetric(vertical: 2.5),
+      decoration: BoxDecoration(
+        color: kBlack.withAlpha(160),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: onTap != null ? Colors.white38 : const Color(0xFFC8C8C8),
+          width: 1.2,
         ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(
-                  color: Color(0xFFE0E0E0),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
               ),
             ),
-            Container(
+          ),
+          GestureDetector(
+            onTap: onTap,
+            child: Container(
               width: 118,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              height: 38,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+              alignment: Alignment.centerRight,
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: onTap != null
-                    ? [const Color(0xFF8A1010), const Color(0xFFD12A2A)]
-                    : [const Color(0xFF5A5A5F), Color(0xFF2C3030)],
+                color: kBlack.withAlpha(160),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: isActive ? kGreen : Colors.white38,
+                  width: isActive ? 1.8 : 1.0,
                 ),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFD0D0D0), width: 1.1),
               ),
               child: Text(
                 value.isEmpty ? '0"' : (value.endsWith('"') ? value : '$value"'),
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: kLight,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1562,6 +1654,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                       Expanded(
                         child: _BeveledButton(
                           onTap: () {
+                            rack.setCalcMode(RackCalcMode.parallel90);
                             setState(() {
                               _showRackSetupStart = false;
 
@@ -1607,6 +1700,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                       Expanded(
                         child: _BeveledButton(
                           onTap: () {
+                            rack.startOffsetUp();
                             setState(() {
                               _offsetStartedFromRackSetup = true;
 
@@ -1711,12 +1805,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     );
   }
   Widget _buildChooseNextBendSection() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5),
-      ),
+    return _buildGroupContainer(
       child: Column(
         children: [
           _SectionTitleButton(
@@ -1821,6 +1910,18 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
       ),
     );
   }
+
+  Widget _buildGroupContainer({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(6.0),
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5),
+      ),
+      child: child,
+    );
+  }
   Widget _rackSetupInfoRow(String label, String value, {VoidCallback? onTap}) {
     final bool isActive =
         (label == 'Pipe Count' && _activeController == rackPipeCountCtl) ||
@@ -1835,8 +1936,8 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
           color: Colors.black.withAlpha(180),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isActive ? kRed : const Color(0xFFC8C8C8),
-            width: isActive ? 1.8 : 1.2,
+            color: const Color(0xFFC8C8C8),
+            width: 1.2,
           ),
         ),
         child: Row(
@@ -1858,7 +1959,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                 color: isActive ? const Color(0xFF1A0A0A) : const Color(0xFF111111),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: isActive ? kRed : Colors.white38,
+                  color: isActive ? kGreen : Colors.white38,
                   width: isActive ? 1.5 : 1.0,
                 ),
               ),
@@ -1881,19 +1982,21 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     final s = displaySize.replaceAll('"', '').trim();
 
     switch (s) {
-      case '1/2':
-        return '0.5';
-      case '3/4':
-        return '0.75';
-      case '1':
-        return '1.0';
-      case '1 1/4':
-        return '1.25';
-      case '1 1/2':
-        return '1.5';
-      case '2':
-        return '2.0';
+      case '1/2': return '0.5';
+      case '3/4': return '0.75';
+      case '1': return '1.0';
+      case '1 1/4': return '1.25';
+      case '1 1/2': return '1.5';
+      case '2': return '2.0';
+      case '2 1/2': return '2.5';
+      case '3': return '3.0';
+      case '3 1/2': return '3.5';
+      case '4': return '4.0';
       default:
+        final d = double.tryParse(s);
+        if (d != null) {
+          return d.toString().contains('.') ? d.toString() : '${d.toString()}.0';
+        }
         return '0.5';
     }
   }
@@ -2099,6 +2202,14 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                     _rackSizeButtonFixed('1 1/2"'),
                     const SizedBox(width: 3),
                     _rackSizeButtonFixed('2"'),
+                    const SizedBox(width: 3),
+                    _rackSizeButtonFixed('2 1/2"'),
+                    const SizedBox(width: 3),
+                    _rackSizeButtonFixed('3"'),
+                    const SizedBox(width: 3),
+                    _rackSizeButtonFixed('3 1/2"'),
+                    const SizedBox(width: 3),
+                    _rackSizeButtonFixed('4"'),
                   ],
                 ),
               ),
@@ -2128,7 +2239,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
         children: [
           Expanded(
             child: Text(
-              hasError ? spacingError : 'Rack Width Needed',
+              hasError ? spacingError : 'Edge to Edge Distance',
               style: const TextStyle(
                 color: Color(0xFFE0E0E0),
                 fontSize: 15,
@@ -2267,43 +2378,6 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    rackPipeCountCtl.dispose();
-    runC2C.dispose();
-    boxC2C.dispose();
-    stubCtl.dispose();
-    kickStubCtl.dispose();
-    legCtl.dispose();
-
-    kickHeightCtl.dispose();
-    kickAngleCtl.dispose();
-    kickMatchBendCtl.dispose();
-    kickLegCtl.dispose();
-
-    offsetDistanceCtl.dispose();
-    offsetHeightCtl.dispose();
-    offsetOverallCtl.dispose();
-    offsetAngleCtl.dispose();
-    rollingVerticalCtl.dispose();
-    rollingHorizontalCtl.dispose();
-    rollingDistanceCtl.dispose();
-    rollingOverallCtl.dispose();
-    rollingAngleCtl.dispose();
-    rackDefaultPipeSizeCtl.dispose();
-    _customNameCtl.dispose();
-    takeUpCtl.dispose();
-    gainCtl.dispose();
-    radiusCtl.dispose();
-    setbackCtl.dispose();
-    travelCtl.dispose();
-    rack.removeListener(_onRackStateChanged);
-    stubCtl.removeListener(() => setState(() {}));
-    legCtl.removeListener(() => setState(() {}));
-    runC2C.removeListener(() => setState(() {}));
-    boxC2C.removeListener(() => setState(() {}));
-    super.dispose();
-  }
   void _onOffsetInputSubmitted() {
     rack.setOffsetInputs(
       distanceToObstruction: RackState.parseInches(offsetDistanceCtl.text),
@@ -2361,101 +2435,73 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
   void _showKeypad(TextEditingController controller) {
     if (_activeController != null && _activeController != controller) {
       final previous = _activeController!;
-      final value = previous.text.trim();
+      final String value = previous.text.trim();
 
       if (value.isNotEmpty) {
+        final parsed = RackState.parseInches(value);
+        final formatted = RackState.inchFmt(parsed);
+
         if (previous == rackPipeCountCtl) {
           final count = int.tryParse(value) ?? 0;
           _rackPipeCount = count.clamp(1, 24);
           rackPipeCountCtl.text = _rackPipeCount.toString();
-
-          _rackPipeSizes
-            ..clear()
-            ..addAll(List.generate(_rackPipeCount, (_) => _rackDefaultPipeSize));
-
+          _rackPipeSizes.clear();
+          for (int i = 0; i < _rackPipeCount; i++) {
+            _rackPipeSizes.add(_rackDefaultPipeSize);
+          }
           _selectedRackPipe = 0;
-        }
-
-        if (previous == rackDefaultPipeSizeCtl) {
-          final parsed = RackState.parseInches(value);
-          final formatted = RackState.inchFmt(parsed);
-
+        } else if (previous == rackDefaultPipeSizeCtl) {
           _rackDefaultPipeSize = formatted;
           rackDefaultPipeSizeCtl.text = formatted;
-
-          _rackPipeSizes
-            ..clear()
-            ..addAll(List.generate(_rackPipeCount, (_) => formatted));
-        }
-
-        if (previous == runC2C) {
-          final parsed = RackState.parseInches(value);
-          final formatted = RackState.inchFmt(parsed);
-
+          _rackPipeSizes.clear();
+          for (int i = 0; i < _rackPipeCount; i++) {
+            _rackPipeSizes.add(formatted);
+          }
+        } else if (previous == runC2C) {
           runC2C.text = formatted;
           rack.setSpacing(parsed);
           _sendPipeProgressionOffsetsToRackState();
-
-          _showRackSetupOutput =
-              _rackPipeCount > 0 && runC2C.text.trim().isNotEmpty;
-        }
-
-        if (previous == stubCtl) {
-          final parsed = RackState.parseInches(value);
-          final formatted = RackState.inchFmt(parsed);
-
+          _showRackSetupOutput = _rackPipeCount > 0 && runC2C.text.trim().isNotEmpty;
+        } else if (previous == stubCtl) {
           stubCtl.text = formatted;
           rack.setStubLength(parsed);
-        }
-
-        if (previous == legCtl) {
-          final parsed = RackState.parseInches(value);
-          final formatted = RackState.inchFmt(parsed);
-
+        } else if (previous == legCtl) {
           legCtl.text = formatted;
           rack.setLegLength(parsed);
-        }
-        if (previous == takeUpCtl) {
-          takeUpCtl.text = RackState.inchFmt(RackState.parseInches(value));
+        } else if (previous == takeUpCtl) {
+          takeUpCtl.text = formatted;
           _updateSetback();
-        }
-
-        if (previous == gainCtl) {
-          gainCtl.text = RackState.inchFmt(RackState.parseInches(value));
+        } else if (previous == gainCtl) {
+          gainCtl.text = formatted;
           _updateSetback();
-        }
-
-        if (previous == radiusCtl) {
-          radiusCtl.text = RackState.inchFmt(RackState.parseInches(value));
-          travelCtl.text = RackState.inchFmt(
-            bending_data.calculateTravel90(
-              RackState.parseInches(radiusCtl.text),
-            ),
-          );
+        } else if (previous == radiusCtl) {
+          radiusCtl.text = formatted;
+          final r = RackState.parseInches(radiusCtl.text);
+          travelCtl.text = RackState.inchFmt(bending_data.calculateTravel90(r));
+        } else if (previous == distanceFromBoxCtl) {
+          distanceFromBoxCtl.text = formatted;
+          rack.setDistanceFromBox(parsed);
         }
       }
     }
 
-
     setState(() {
       _activeController = controller;
       _isKeypadVisible = true;
-
       if (controller == rackPipeCountCtl ||
           controller == rackDefaultPipeSizeCtl ||
           controller == runC2C ||
+          controller == distanceFromBoxCtl ||
           controller == kickStubCtl ||
           controller == kickHeightCtl ||
           controller == kickAngleCtl ||
           controller == kickLegCtl) {
         controller.clear();
-
         if (controller == rackPipeCountCtl ||
             controller == rackDefaultPipeSizeCtl ||
             controller == runC2C) {
           _showRackSetupOutput = false;
         }
-
         _clearOnNextInput = false;
       } else {
         _clearOnNextInput = true;
@@ -2667,6 +2713,14 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
           return;
         }
 
+        if (controller == distanceFromBoxCtl) {
+          final parsed = RackState.parseInches(submissionValue);
+          distanceFromBoxCtl.text = RackState.inchFmt(parsed);
+          rack.setDistanceFromBox(parsed);
+          _hideKeypad();
+          return;
+        }
+
 
 
         if (controller == offsetHeightCtl) {
@@ -2798,6 +2852,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
       takeup: takeup,
       pipeOD: pipeOD,
       clr: clr,
+      size: _selectedRackPipeSizeDisplay(),
       method: _kickMarkMethod,
       style: _selectedKickStyle == 'Across'
           ? Kick90RackStyle.parallel
@@ -3116,6 +3171,8 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
     );
   }
   Widget _buildKickBendingMethodCard() {
+    final bool isMachineBender =
+        bending_data.mechanicalElectricBenderBrands.contains(_selectedRackBenderBrand);
     return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
@@ -3170,15 +3227,19 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
               children: [
                 Expanded(
                   child: _BeveledButton(
-                    active: _kickMarkMethod == bending_data.BendingMethod.notch,
+                    active: isMachineBender
+                        ? _kickMarkMethod == bending_data.BendingMethod.hook
+                        : _kickMarkMethod == bending_data.BendingMethod.notch,
                     onTap: () {
                       setState(() {
-                        _kickMarkMethod = bending_data.BendingMethod.notch;
+                        _kickMarkMethod = isMachineBender
+                            ? bending_data.BendingMethod.hook
+                            : bending_data.BendingMethod.notch;
                       });
                     },
-                    child: const Text(
-                      'USE NOTCH',
-                      style: TextStyle(
+                    child: Text(
+                      isMachineBender ? 'USE HOOK' : 'USE NOTCH',
+                      style: const TextStyle(
                         color: kLight,
                         fontSize: 14,
                         fontWeight: FontWeight.w900,
@@ -3304,6 +3365,46 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
 
           row('Box ℄ to ℄', '${RackState.inchFmt(_kickBoxCenterToCenterDisplay())}"'),
 
+          row('Edge to Edge at Box', '${RackState.inchFmt(rack.totalBoxSpread)}"'),
+
+          const SizedBox(height: 10),
+
+          _BeveledButton(
+            active: true,
+            height: 40,
+            onTap: () {
+              double exportSpacing = rack.centerToCenterSpacing;
+              if (rack.calcMode == RackCalcMode.kick90 &&
+                  (rack.kick90RackStyle == Kick90RackStyle.sameAngle ||
+                      rack.kick90RackStyle == Kick90RackStyle.sameStart)) {
+                // Plane Change / Cross Kick effective spacing calculation
+                final angleRad = rack.kickAngle * math.pi / 180.0;
+                if (math.cos(angleRad).abs() > 0.1) {
+                  exportSpacing = rack.centerToCenterSpacing / math.cos(angleRad);
+                }
+              }
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BoxLayoutModeScreen(
+                    prePopulatedConduits: rack.allConduits,
+                    preCalculatedCenterToCenter: exportSpacing,
+                    preCalculatedCenterMarks: rack.boxCenterMarks, // ADDED
+                    showBackButton: true,
+                  ),
+                ),
+              );
+            },
+            child: const Text(
+              'EXPORT TO BOX LAYOUT',
+              style: TextStyle(
+                color: kLight,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -3346,32 +3447,88 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
   void _showInfoDialog() {
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF2C3030),
-          title: const Text('Parallel 90s Info',
-              style: TextStyle(color: kLight, fontWeight: FontWeight.bold)),
-          content: const SingleChildScrollView(
-            child: Text(
-              '''This screen calculates the measurements for a rack of parallel 90-degree bends.
-
-- **Workflow**: Start by entering the 'Stub' and 'Leg' length for your very first pipe (the one on the inside of the turn). Then, enter the '℄ to ℄ Run' spacing for the rack.
-
-- **Calculations**: The app uses the bender information you selected on the previous screen (take-up and gain) to calculate 'Mark A' and the 'Mark C (cut)' length.
-
-- **Automatic Adjustments**: For each subsequent pipe in the rack (Pipe 2, 3, etc.), the app automatically adds the center-to-center spacing to both the stub and the leg. This ensures all your pipes will be perfectly parallel. The 'Mark A' and 'Mark C' values will update automatically for each pipe you select.
-''',
-              style: TextStyle(color: kLight, height: 1.5),
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+        ),
+        title: const Text(
+          'Rack Builder Help',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: SingleChildScrollView(
+            child: ListBody(
+              children: [
+                const Text(
+                  'Build complex parallel conduit runs with precise alignment.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Workflow:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Start by entering the measurements for your first pipe (the inside of the turn). The app automatically adjusts stubs, legs, and kick heights for subsequent pipes to maintain perfectly parallel spacing.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Use Notch:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Standard for hand benders. Translates center-of-bend measurements to the 45° notch / teardrop.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Use Hook:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Standard for machine benders. Translates center-of-bend measurements to the front edge of the hook.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Use Centerline:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Choose this if you have marked your own center-of-bend lines on the shoe.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+              ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close', style: TextStyle(color: kRed)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
             ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     );
   }
 
@@ -4053,14 +4210,60 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
         foregroundColor: kLight,
         centerTitle: true,
         elevation: 0.5,
-        title: const Text(
-          'Rack Builder',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Rack Builder',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+          ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: _showInfoDialog,
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!_hasViewedInfo)
+                RotationTransition(
+                  turns: _infoAnimCtrl,
+                  child: AnimatedBuilder(
+                    animation: _infoAnimCtrl,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        shaderCallback: (rect) {
+                          return SweepGradient(
+                            colors: [
+                              kLight.withValues(alpha: 0.0),
+                              kLight.withValues(alpha: 0.2 +
+                                  (0.7 *
+                                      (0.5 +
+                                          0.5 *
+                                              math.sin(_infoAnimCtrl.value *
+                                                  2 *
+                                                  math.pi)))),
+                              kLight.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ).createShader(rect);
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: kLight, width: 2.0),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.info_outline, color: kLight),
+                onPressed: () {
+                  setState(() => _hasViewedInfo = true);
+                  _showInfoDialog();
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -4077,8 +4280,6 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                 children: <Widget>[
                   if (_showRackSetupStart && !_isOffsetMode) ...[
                     _buildRackSetupStartScreen(),
-
-                    const Spacer(),
 
                     _RackSetupGuideBar(
                       text: _rackSetupInfoText,
@@ -4224,6 +4425,11 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                               });
                               _sendPipeProgressionOffsetsToRackState();
                             },
+                            isFromBox: rack.isFromBox,
+                            distanceFromBoxCtl: distanceFromBoxCtl,
+                            onDistanceFromBoxTap: () => _showKeypad(distanceFromBoxCtl),
+                            measureToTop: rack.measureToTop,
+                            onToggleStrut: () => setState(() => rack.setMeasureToTop(!rack.measureToTop)),
     ),
 
                           const SizedBox(height: 4),
@@ -4268,7 +4474,9 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                             ),
                             child: Text(
                               _kickBendingMethodConfirmed
-                                  ? 'USE NOTCH:\nPipe & Wire automatically translates center of bend measurements of any angle to the notch on your bender.\n\nUSE CENTERLINE:\nChoose this if your bender already has center-of-bend markings for the selected angle.'
+                                  ? (bending_data.mechanicalElectricBenderBrands.contains(_selectedRackBenderBrand)
+                                      ? 'USE HOOK:\nPipe & Wire automatically translates center of bend measurements of any angle to the front edge of the hook on your bender.\n\nUSE CENTERLINE:\nChoose this if your bender already has center-of-bend markings for the selected angle.'
+                                      : 'USE NOTCH:\nPipe & Wire automatically translates center of bend measurements of any angle to the notch on your bender.\n\nUSE CENTERLINE:\nChoose this if your bender already has center-of-bend markings for the selected angle.')
                                   : _kickTypeConfirmed
                                   ? 'Enter the measurements for the first kick. The next pipes in the rack will be calculated on the results screen.'
                                   : 'Choose a kick type and compare it with the picture, then press Continue to enter measurements.\nTip: Rotate your phone to landscape mode to visualize the conduit layout from a top-down view.',
@@ -4405,6 +4613,11 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
 
                               _sendPipeProgressionOffsetsToRackState();
                             },
+                            isFromBox: rack.isFromBox,
+                            distanceFromBoxCtl: distanceFromBoxCtl,
+                            onDistanceFromBoxTap: () => _showKeypad(distanceFromBoxCtl),
+                            measureToTop: rack.measureToTop,
+                            onToggleStrut: () => setState(() => rack.setMeasureToTop(!rack.measureToTop)),
                           ),
 
                           const SizedBox(height: 8),
@@ -4417,6 +4630,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                                   onTap: () {
                                     setState(() {
                                       _parallel90Direction = 'left';
+                                      rack.setParallel90Direction('left');
                                     });
                                   },
                                   child: const RotatedBox(
@@ -4439,6 +4653,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                                   onTap: () {
                                     setState(() {
                                       _parallel90Direction = 'up';
+                                      rack.setParallel90Direction('up');
                                     });
                                   },
                                   child: const RotatedBox(
@@ -4461,6 +4676,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                                   onTap: () {
                                     setState(() {
                                       _parallel90Direction = 'down';
+                                      rack.setParallel90Direction('down');
                                     });
                                   },
                                   child: const RotatedBox(
@@ -4483,6 +4699,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                                   onTap: () {
                                     setState(() {
                                       _parallel90Direction = 'right';
+                                      rack.setParallel90Direction('right');
                                     });
                                   },
                                   child: const Text(
@@ -4510,6 +4727,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                       isRollingMode: false,
                       needsDirection: false,
                       showResults: false,
+                      isFromBox: rack.isFromBox,
                     ),
                     const SizedBox(height: spacing),
                     _BeveledButton(
@@ -4582,6 +4800,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                         cut: cut,
                         isParallel90s: _isParallel90sMode,
                         parallel90Complete: parallel90Complete,
+                        rack: rack,
                       ),
 
                       const SizedBox(height: 4),
@@ -4783,6 +5002,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                         isRollingMode: false,
                         needsDirection: false,
                         showResults: true,
+                        isFromBox: rack.isFromBox,
                       ),
                     ],
                   ],
@@ -4797,6 +5017,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                       isRollingMode: rack.isRollingMode,
                       needsDirection: _rollingNeedsDirection,
                       showResults: false,
+                      isFromBox: rack.isFromBox,
                     ),
                   ],
 
@@ -4807,6 +5028,7 @@ class _RackBuilderScreenState extends State<RackBuilderScreen> {
                       isRollingMode: rack.isRollingMode,
                       needsDirection: false,
                       showResults: true,
+                      isFromBox: rack.isFromBox,
                     ),
                   ],
                 ],
@@ -5213,19 +5435,21 @@ class _BeveledButton extends StatelessWidget {
     this.redOutline = false,
     required this.onTap,
     required this.child,
+    this.height = 45,
   });
 
   final bool active;
   final VoidCallback? onTap;
   final Widget child;
   final bool redOutline;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     final bool enabled = onTap != null;
 
     return Container(
-      height: 45,
+      height: height,
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -5399,6 +5623,7 @@ class _MarksCard extends StatelessWidget {
     required this.cut,
     this.isParallel90s = false,
     this.parallel90Complete = false,
+    required this.rack,
   });
 
   final String markA;
@@ -5407,6 +5632,7 @@ class _MarksCard extends StatelessWidget {
   final String cut;
   final bool isParallel90s;
   final bool parallel90Complete;
+  final RackState rack;
 
   @override
   Widget build(BuildContext context) {
@@ -5442,6 +5668,45 @@ class _MarksCard extends StatelessWidget {
             'Mark C (Cut)',
             cut,
             valueHot: !isParallel90s || parallel90Complete,
+          ),
+
+          const SizedBox(height: 10),
+
+          _BeveledButton(
+            active: true,
+            height: 40,
+            onTap: () {
+              double exportSpacing = rack.centerToCenterSpacing;
+              if (rack.calcMode == RackCalcMode.kick90 &&
+                  (rack.kick90RackStyle == Kick90RackStyle.sameAngle ||
+                      rack.kick90RackStyle == Kick90RackStyle.sameStart)) {
+                // Plane Change / Cross Kick effective spacing calculation
+                final angleRad = rack.kickAngle * math.pi / 180.0;
+                if (math.cos(angleRad).abs() > 0.1) {
+                  exportSpacing = rack.centerToCenterSpacing / math.cos(angleRad);
+                }
+              }
+
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => BoxLayoutModeScreen(
+                    prePopulatedConduits: rack.allConduits,
+                    preCalculatedCenterToCenter: exportSpacing,
+                    preCalculatedCenterMarks: rack.boxCenterMarks, // ADDED
+                    showBackButton: true,
+                  ),
+                ),
+              );
+            },
+            child: const Text(
+              'EXPORT TO BOX LAYOUT',
+              style: TextStyle(
+                color: kLight,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
           ),
         ],
       ),
@@ -5929,7 +6194,11 @@ class _Kick90RackInputCard extends StatelessWidget {
     required this.onUseNotch,
     required this.onUseCenterline,
     required this.onKickMatchBendTap,
-
+    this.isFromBox = false,
+    this.distanceFromBoxCtl,
+    this.onDistanceFromBoxTap,
+    this.onToggleStrut,
+    this.measureToTop = true,
   });
   final bool isExpanded;
   final VoidCallback onHeaderTap;
@@ -5957,6 +6226,12 @@ class _Kick90RackInputCard extends StatelessWidget {
   final VoidCallback onSpacingTap;
   final VoidCallback onSpaceBetweenTap;
   final VoidCallback onCenterToCenterTap;
+
+  final bool isFromBox;
+  final TextEditingController? distanceFromBoxCtl;
+  final VoidCallback? onDistanceFromBoxTap;
+  final VoidCallback? onToggleStrut;
+  final bool measureToTop;
 
   @override
   Widget build(BuildContext context) {
@@ -6004,6 +6279,38 @@ class _Kick90RackInputCard extends StatelessWidget {
         if (isExpanded) ...[
     const SizedBox(height: 6),
 
+    if (isFromBox && distanceFromBoxCtl != null) ...[
+      _row(
+        'Distance to Strut',
+        distanceFromBoxCtl!,
+        onDistanceFromBoxTap!,
+        activeController == distanceFromBoxCtl,
+        leadingInput: GestureDetector(
+          onTap: onToggleStrut,
+          child: Container(
+            width: 54,
+            height: 28,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF8A1010), Color(0xFFD12A2A)],
+              ),
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: const Color(0xFFC0C0C0), width: 0.8),
+            ),
+            child: Center(
+              child: Text(
+                measureToTop ? 'TOP' : 'BOT',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11),
+              ),
+            ),
+          ),
+        ),
+      ),
+      const SizedBox(height: 6),
+    ],
+
     _row('Stub Height', stubCtl, onStubTap, activeController == stubCtl),
           const SizedBox(height: 6),
 
@@ -6032,14 +6339,15 @@ class _Kick90RackInputCard extends StatelessWidget {
 
           const SizedBox(height: 8),
 
-          _row(
-            'Leg Length',
-            legCtl,
-            onLegTap,
-            activeController == legCtl,
-          ),
-
-          const SizedBox(height: 8),
+          if (!isFromBox) ...[
+            _row(
+              'Leg Length',
+              legCtl,
+              onLegTap,
+              activeController == legCtl,
+            ),
+            const SizedBox(height: 8),
+          ],
 
           SizedBox(
             width: double.infinity,
@@ -6068,6 +6376,7 @@ class _Kick90RackInputCard extends StatelessWidget {
       VoidCallback onTap,
       bool active, {
         String suffix = '"',
+        Widget? leadingInput,
       }) {
     final String value = ctl.text.trim();
 
@@ -6095,8 +6404,12 @@ class _Kick90RackInputCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (leadingInput != null) ...[
+              leadingInput,
+              const SizedBox(width: 8),
+            ],
             Container(
-              width: 116,
+              width: 92,
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: Colors.black,
@@ -6108,10 +6421,8 @@ class _Kick90RackInputCard extends StatelessWidget {
               ),
               child: Text(
                 value.isEmpty
-                    ? ''
-                    : value.endsWith(suffix)
-                    ? value
-                    : '$value$suffix',
+                    ? '0"'
+                    : value,
                 textAlign: TextAlign.right,
                 maxLines: 1,
                 overflow: TextOverflow.fade,
@@ -6144,6 +6455,11 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
 
     required this.onSpaceBetweenTap,
     required this.onCenterToCenterTap,
+    this.isFromBox = false,
+    this.distanceFromBoxCtl,
+    this.onDistanceFromBoxTap,
+    this.onToggleStrut,
+    this.measureToTop = true,
   });
 
   final TextEditingController stubCtl;
@@ -6160,6 +6476,12 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
 
   final VoidCallback onSpaceBetweenTap;
   final VoidCallback onCenterToCenterTap;
+
+  final bool isFromBox;
+  final TextEditingController? distanceFromBoxCtl;
+  final VoidCallback? onDistanceFromBoxTap;
+  final VoidCallback? onToggleStrut;
+  final bool measureToTop;
 
   @override
   Widget build(BuildContext context) {
@@ -6178,6 +6500,38 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
       child: Column(
         children: [
 
+          if (isFromBox && distanceFromBoxCtl != null) ...[
+            _row(
+              'Distance to Strut',
+              distanceFromBoxCtl!,
+              onDistanceFromBoxTap!,
+              activeController == distanceFromBoxCtl,
+              leadingInput: GestureDetector(
+                onTap: onToggleStrut,
+                child: Container(
+                  width: 54,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF8A1010), Color(0xFFD12A2A)],
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFFC0C0C0), width: 0.8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      measureToTop ? 'TOP' : 'BOT',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 11),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
           _row(
             'Stub',
             stubCtl,
@@ -6185,14 +6539,15 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
             activeController == stubCtl,
           ),
 
-          const SizedBox(height: 8),
-
-          _row(
-            'Leg',
-            legCtl,
-            onLegTap,
-            activeController == legCtl,
-          ),
+          if (!isFromBox) ...[
+            const SizedBox(height: 8),
+            _row(
+              'Leg',
+              legCtl,
+              onLegTap,
+              activeController == legCtl,
+            ),
+          ],
 
           const SizedBox(height: 8),
 
@@ -6254,8 +6609,9 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
       String label,
       TextEditingController ctl,
       VoidCallback onTap,
-      bool active,
-      ) {
+      bool active, {
+        Widget? leadingInput,
+      }) {
     return GestureDetector(
       onTap: onTap,
 
@@ -6291,6 +6647,11 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
               ),
             ),
 
+            if (leadingInput != null) ...[
+              leadingInput,
+              const SizedBox(width: 8),
+            ],
+
             Container(
               width: 92,
 
@@ -6313,10 +6674,8 @@ class _Parallel90MeasurementsCard extends StatelessWidget {
               child: Text(
                 ctl.text.isEmpty
                     ? '0"'
-                    : '${ctl.text}"',
-
+                    : ctl.text,
                 textAlign: TextAlign.right,
-
                 style: const TextStyle(
                   color: kLight,
                   fontSize: 18,
@@ -6556,12 +6915,14 @@ class _RackInfoBar extends StatelessWidget {
     required this.isRollingMode,
     required this.needsDirection,
     required this.showResults,
+    this.isFromBox = false,
   });
 
   final bool isOffsetMode;
   final bool isRollingMode;
   final bool needsDirection;
   final bool showResults;
+  final bool isFromBox;
 
   Widget _arrow(int quarterTurns) {
     return RotatedBox(
@@ -6581,23 +6942,53 @@ class _RackInfoBar extends StatelessWidget {
   Widget build(BuildContext context) {
     Widget content;
 
-    if (isOffsetMode && showResults) {
-      content = const Text(
-        'Select each pipe to view its marks. For side offsets, A and B shift outward by pipe spacing.',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: kLight,
-          fontSize: 16,
-          fontWeight: FontWeight.w700,
-          height: 1.5, // Increased line height
-        ),
-      );
+    if (showResults) {
+      if (isOffsetMode) {
+        content = const Text(
+          'Select each pipe to view its marks. For side offsets, A and B shift outward by pipe spacing.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: kLight,
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            height: 1.5,
+          ),
+        );
+      } else {
+        content = RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(
+            style: const TextStyle(
+              color: kLight,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              height: 1.5,
+            ),
+            children: [
+              const TextSpan(
+                text:
+                'Parallel 90 complete. Select pipes above to view each mark. ',
+              ),
+              WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: const _MiniArrowIndicator(isLeft: true),
+              ),
+              const TextSpan(text: ' = next bend, '),
+              WidgetSpan(
+                alignment: PlaceholderAlignment.middle,
+                child: const _MiniArrowIndicator(isLeft: false),
+              ),
+              const TextSpan(text: ' = back to setup.'),
+            ],
+          ),
+        );
+      }
     } else if (isOffsetMode && isRollingMode) {
       content = Wrap(
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 6,
-        runSpacing: 4, // Increased run spacing for Wrap
+        runSpacing: 4,
         children: [
           const Text(
             'Fill measurements, then choose rolling direction:',
@@ -6626,7 +7017,7 @@ class _RackInfoBar extends StatelessWidget {
         alignment: WrapAlignment.center,
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 6,
-        runSpacing: 4, // Increased run spacing for Wrap
+        runSpacing: 4,
         children: [
           const Text(
             'Fill measurements, then choose offset direction:',
@@ -6669,45 +7060,32 @@ class _RackInfoBar extends StatelessWidget {
           ),
         ],
       );
-    } else {
-      content = RichText(
+    } else if (!showResults && isFromBox) {
+      content = const Text(
+        'Enter vertical Stub and distance to first Strut. Use TOP if pipe rests on hardware (adds OD) or BOT if hanging (exact mark). Adjust spacing if needed.',
         textAlign: TextAlign.center,
-        text: TextSpan(
-          style: const TextStyle(
-            color: kLight,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            height: 1.5, // Increased line height to give arrows breathing room
-          ),
-          children: showResults
-              ? [
-                  const TextSpan(
-                    text:
-                        'Parallel 90 complete. Select pipes above to view each mark. ',
-                  ),
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: _MiniArrowIndicator(isLeft: true),
-                  ),
-                  const TextSpan(text: ' = next bend, '),
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.middle,
-                    child: _MiniArrowIndicator(isLeft: false),
-                  ),
-                  const TextSpan(text: ' = back to setup.'),
-                ]
-              : [
-                  const TextSpan(
-                    text:
-                    'Enter stub and leg, adjust spacing or pipe sizes if needed, choose the 90 direction, then press Done.',
-                  ),
-                ],
+        style: TextStyle(
+          color: kLight,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
+          height: 1.3,
+        ),
+      );
+    } else {
+      content = const Text(
+        'Enter stub and leg, adjust spacing or pipe sizes if needed, choose the 90 direction, then press Done.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: kLight,
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          height: 1.5,
         ),
       );
     }
 
     return Container(
-      height: 70, // Shrunk height slightly
+      height: (isFromBox && !showResults) ? 84 : 70,
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       decoration: BoxDecoration(

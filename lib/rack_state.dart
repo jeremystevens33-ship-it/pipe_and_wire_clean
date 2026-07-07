@@ -1,287 +1,281 @@
-import 'package:flutter/foundation.dart';
-import 'dart:math';
+import 'dart:math' as math;
+import 'package:flutter/material.dart';
+import 'package:collection/collection.dart';
 import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
-class Conduit {
-  double markA;
-  double markB;
-  double ol;
-  double angle;
+import 'package:pipe_and_wire_clean/box_layout_mode.dart';
 
-  Conduit({
-    this.markA = 0,
-    this.markB = 0,
-    this.ol = 0,
-    this.angle = 0,
-  });
-}
-enum Kick90RackStyle {
-  parallel,
-  perpendicular,
+enum RackCalcMode { kick90, parallel90, offset, rollingOffset, parallelOffset, parallelRollingOffset }
+enum Kick90RackStyle { parallel, perpendicular, sameAngle, sameStart, sameAngleSamePlane, sameStartSamePlane }
 
-  // Plane-change styles
-  sameAngle,
-  sameStart,
+class ConduitData {
+  String id = UniqueKey().toString();
+  String size = '0.75';
+  BoxLayoutConduitType conduitType = BoxLayoutConduitType.emt;
+  double markA = 0.0;
+  double markB = 0.0;
+  double markC = 0.0;
+  double markD = 0.0;
+  double ol = 0.0;
+  double angle = 30.0;
+  
+  // Bender override for individual pipe results
+  String? benderBrand;
+  double? benderGain;
+  double? benderTakeup;
 
-  // Same-plane styles
-  sameAngleSamePlane,
-  sameStartSamePlane,
-}
-enum RackCalcMode {
-  kick90,
-  parallel90,
-  offset,
-  parallelOffset,
-  rollingOffset,
-  parallelRollingOffset,
+  ConduitData({required this.size, required this.conduitType});
 }
 
 class RackState extends ChangeNotifier {
-  final List<Conduit> _allConduits = List.generate(12, (_) => Conduit());
-  int _currentConduitIndex = 0;
+  final List<ConduitData> _allConduits = [
+    ConduitData(size: '0.5', conduitType: BoxLayoutConduitType.emt),
+  ];
 
-  double _c2cSpacing = 0;
-  double _boxSpacing = 0;
+  List<ConduitData> get allConduits => _allConduits;
 
-// Accumulated real center-to-center distance from Pipe 1.
-// Pipe 1 = 0, Pipe 2 = gap 1, Pipe 3 = gap 1 + gap 2, etc.
-  List<double> _pipeProgressionOffsets =
-  List.generate(12, (_) => 0.0);
+  RackCalcMode _calcMode = RackCalcMode.parallel90;
+  RackCalcMode get calcMode => _calcMode;
+
   Kick90RackStyle _kick90RackStyle = Kick90RackStyle.parallel;
+  Kick90RackStyle get kick90RackStyle => _kick90RackStyle;
 
-  double kickStubLength = 0;
-  double kickHeight = 0;
-  double kickLegLength = 0;
-  double kickAngle = 30;
-  double kickMatchBendDistance = 0;
-  double kickPipeOD = 0;
-  double kickCLR = 0;
-  bending_data.BendingMethod kickBendingMethod =
+  int _selectedPipeIndex = 0;
+  int get selectedPipeIndex => _selectedPipeIndex;
+
+  ConduitData get current => _allConduits[_selectedPipeIndex];
+
+  // Logic states
+  bool _isFromBox = false;
+  bool get isFromBox => _isFromBox;
+  double _distanceFromBox = 0.0;
+  double get distanceFromBox => _distanceFromBox;
+
+  bool _measureToTop = true;
+  bool get measureToTop => _measureToTop;
+
+  int _offsetDirectionSign = 0; // -1: left, 0: up, 1: right
+  int get offsetDirectionSign => _offsetDirectionSign;
+
+  String _parallel90Direction = 'right';
+
+  // Shared inputs
+  double offsetDistance = 0.0;
+  double offsetHeight = 0.0;
+  double offsetHorizontal = 0.0;
+  double overallLength = 0.0;
+  double bendAngle = 30.0;
+  double centerToCenterSpacing = 0.0;
+  double boxSpacing = 0.0;
+
+  // Kick90 specific inputs
+  double kickStubLength = 0.0;
+  double kickHeight = 0.0;
+  double kickAngle = 30.0;
+  double kickLegLength = 0.0;
+  double kickMatchBendDistance = 0.0;
+
+  // Bender Data
+  String? benderBrand;
+  double benderGain = 0.0;
+  double benderTakeup = 0.0;
+  double kickCLR = 0.0;
+  double kickPipeOD = 0.0;
+  String kickSize = '0.5';
+
+  bending_data.BendingMethod bendingMethod =
       bending_data.BendingMethod.notch;
 
-  RackCalcMode _calcMode = RackCalcMode.kick90;
+  // Parallel 90 specific inputs
+  double parallel90Stub = 0.0;
+  double parallel90Leg = 0.0;
 
-  // Parallel 90 inputs
-  double stubLength = 0;
-  double legLength = 0;
-  double benderGain = 2.25;
-  double benderTakeup = 5.0;
+  // Spacing helper
+  List<double> _pipeProgressionOffsets = [0.0];
+  List<double> get pipeProgressionOffsets => _pipeProgressionOffsets;
+  Map<int, double> _pipeODs = {0: 0.706};
 
-  // Offset / rolling offset inputs
-  double offsetHeight = 0;
-  double offsetDistance = 0;
-  double overallLength = 0;
-  double offsetHorizontal = 0;
-  double bendAngle = 30;
-  int offsetDirectionSign = 1; // Right = +1, Left = -1
-
-  List<Conduit> get allConduits => _allConduits;
-  Conduit get current => _allConduits[_currentConduitIndex];
-
-  double get c2cSpacing => _c2cSpacing;
-  double get boxSpacingDisplayValue => _boxSpacing;
-  Kick90RackStyle get kick90RackStyle => _kick90RackStyle;
-  RackCalcMode get calcMode => _calcMode;
+  void setCalcMode(RackCalcMode mode) {
+    _calcMode = mode;
+    _recalculate();
+    notifyListeners();
+  }
 
   void select(int index) {
     if (index >= 0 && index < _allConduits.length) {
-      _currentConduitIndex = index;
+      _selectedPipeIndex = index;
       notifyListeners();
     }
   }
 
-  void setKick90RackStyle(Kick90RackStyle style) {
-    _kick90RackStyle = style;
-    _calcMode = RackCalcMode.kick90;
-    _updateKick90SpacingRelationship();
+  void setSpacing(double val) {
+    centerToCenterSpacing = val;
     _recalculate();
     notifyListeners();
   }
 
-  void setCalcMode(RackCalcMode mode) {
-    _calcMode = mode;
-
-    if (mode == RackCalcMode.parallelOffset ||
-        mode == RackCalcMode.parallelRollingOffset) {
-      offsetDirectionSign = 1;
-    }
-
+  void setBoxSpacing(double val) {
+    boxSpacing = val;
     _recalculate();
     notifyListeners();
   }
 
-  bool get isRollingMode =>
-      _calcMode == RackCalcMode.rollingOffset ||
-          _calcMode == RackCalcMode.parallelRollingOffset;
-
-  void startOffsetUp() {
-    // Up is only for regular offsets, not rolling.
-    offsetDirectionSign = 0;
-    _calcMode = RackCalcMode.offset;
-
+  void setRackBenderBrand(String? brand) {
+    benderBrand = brand;
     _recalculate();
     notifyListeners();
   }
 
-  void startOffsetRight() {
-    offsetDirectionSign = 1;
-    _calcMode = isRollingMode
-        ? RackCalcMode.parallelRollingOffset
-        : RackCalcMode.parallelOffset;
-
-    _recalculate();
-    notifyListeners();
-  }
-
-  void startOffsetLeft() {
-    offsetDirectionSign = -1;
-    _calcMode = isRollingMode
-        ? RackCalcMode.parallelRollingOffset
-        : RackCalcMode.parallelOffset;
-
-    _recalculate();
-    notifyListeners();
-  }
-
-  void startRollingOffset() {
-    // Rolling always needs left or right.
-    // If user was on Up/regular offset, default rolling direction to Right.
-    if (offsetDirectionSign == 0) {
-      offsetDirectionSign = 1;
-    }
-
-    _calcMode = RackCalcMode.parallelRollingOffset;
-
-    _recalculate();
-    notifyListeners();
-  }
-
-  void setSpacing(double spacing) {
-    _c2cSpacing = spacing;
-
-    if (_calcMode == RackCalcMode.kick90) {
-      _updateKick90SpacingRelationship();
-    }
-
-    _recalculate();
-    notifyListeners();
-  }
-  void setPipeProgressionOffsets(List<double> offsets) {
-    for (int i = 0; i < _allConduits.length; i++) {
-      _pipeProgressionOffsets[i] =
-      i < offsets.length ? offsets[i] : 0.0;
-    }
-
-    _recalculate();
-    notifyListeners();
-  }
-  void setBoxSpacing(double spacing) {
-    _boxSpacing = spacing;
-
-    if (_calcMode == RackCalcMode.kick90) {
-      final firstPipe = _allConduits.first;
-      final angleRad = _degreesToRadians(firstPipe.angle);
-
-      if (_kick90RackStyle == Kick90RackStyle.parallel && kickAngle != 0) {
-        // Perpendicular kick rack:
-        // Box spacing = run spacing × cosecant(angle)
-        // Reverse: run spacing = box spacing × sin(angle)
-        _c2cSpacing = spacing * sin(angleRad);
-      } else {
-        // Same-plane kick rack:
-        // Run spacing and box spacing are equal.
-        _c2cSpacing = spacing;
-      }
-    } else {
-      _c2cSpacing = spacing;
-    }
-
-    _recalculate();
-    notifyListeners();
-  }
-
-  void setStubLength(double length) {
-    stubLength = length;
-    _calcMode = RackCalcMode.parallel90;
-    _recalculate();
-    notifyListeners();
-  }
-
-  void setLegLength(double length) {
-    legLength = length;
-    _calcMode = RackCalcMode.parallel90;
-    _recalculate();
-    notifyListeners();
-  }
-  void setParallel90BenderData({
-    required double gain,
-    required double takeup,
-  }) {
+  void setParallel90BenderData({required double gain, required double takeup, String? brand}) {
     benderGain = gain;
     benderTakeup = takeup;
-    _calcMode = RackCalcMode.parallel90;
+    
+    // Also apply to current conduit for persistent individual results
+    if (_selectedPipeIndex >= 0 && _selectedPipeIndex < _allConduits.length) {
+      if (brand != null) _allConduits[_selectedPipeIndex].benderBrand = brand;
+      _allConduits[_selectedPipeIndex].benderGain = gain;
+      _allConduits[_selectedPipeIndex].benderTakeup = takeup;
+    }
+
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setStubLength(double val) {
+    parallel90Stub = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setLegLength(double val) {
+    parallel90Leg = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setPipeODs(Map<int, double> ods) {
+    _pipeODs = ods;
+    notifyListeners();
+  }
+
+  void setPipeProgressionOffsets(List<double> offsets, {List<String>? sizes}) {
+    _pipeProgressionOffsets = offsets;
+    final oldType = _allConduits.isNotEmpty ? _allConduits.first.conduitType : BoxLayoutConduitType.emt;
+    
+    _allConduits.clear();
+    for (var i = 0; i < offsets.length; i++) {
+      String pipeSize = '0.5';
+      if (sizes != null && i < sizes.length) {
+        pipeSize = sizes[i].replaceAll('"', '').trim();
+      }
+      _allConduits.add(ConduitData(size: pipeSize, conduitType: oldType));
+    }
+
+    _recalculate();
+    notifyListeners();
+  }
+
+  void initializeFromBoxLayout({
+    required List<String> pipeSizes,
+    required double spacing,
+    required bool isCenterToCenter,
+    required String conduitType,
+  }) {
+    _isFromBox = true;
+    _allConduits.clear();
+    final type = conduitType == 'RMC' ? BoxLayoutConduitType.grc : BoxLayoutConduitType.emt;
+    for (var size in pipeSizes) {
+      _allConduits.add(ConduitData(size: size, conduitType: type));
+    }
+    centerToCenterSpacing = spacing;
     _recalculate();
     notifyListeners();
   }
 
   void resetParallel90sState() {
-    _calcMode = RackCalcMode.parallel90;
-    stubLength = 0;
-    legLength = 0;
+    parallel90Stub = 0;
+    parallel90Leg = 0;
     _recalculate();
     notifyListeners();
   }
+
+  void setMeasureToTop(bool val) {
+    _measureToTop = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setDistanceFromBox(double val) {
+    _distanceFromBox = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setParallel90Direction(String dir) {
+    _parallel90Direction = dir;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void startOffsetUp() {
+    _calcMode = RackCalcMode.offset;
+    _offsetDirectionSign = 0;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void startOffsetLeft() {
+    _calcMode = RackCalcMode.parallelOffset;
+    _offsetDirectionSign = -1;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void startOffsetRight() {
+    _calcMode = RackCalcMode.parallelOffset;
+    _offsetDirectionSign = 1;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void startRollingOffset() {
+    _calcMode = RackCalcMode.rollingOffset;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setKick90RackStyle(Kick90RackStyle style) {
+    _kick90RackStyle = style;
+    _recalculate();
+    notifyListeners();
+  }
+
   void setKick90Inputs({
     required double stub,
     required double height,
-    required double leg,
     required double angle,
+    required double leg,
     required double matchBendDistance,
     required double gain,
     required double takeup,
-    required double pipeOD,
     required double clr,
+    required double pipeOD,
     required bending_data.BendingMethod method,
     required Kick90RackStyle style,
+    String? size,
   }) {
     kickStubLength = stub;
     kickHeight = height;
-    kickLegLength = leg;
     kickAngle = angle;
+    kickLegLength = leg;
     kickMatchBendDistance = matchBendDistance;
-    kickPipeOD = pipeOD;
+    benderGain = gain;
+    benderTakeup = takeup;
     kickCLR = clr;
-    kickBendingMethod = method;
-
-    benderGain = gain;
-    benderTakeup = takeup;
+    kickPipeOD = pipeOD;
+    if (size != null) kickSize = size;
+    bendingMethod = method;
     _kick90RackStyle = style;
-    _calcMode = RackCalcMode.kick90;
 
-    _recalculate();
-    notifyListeners();
-  }
-  void updateInitialPipe({
-    required double markA,
-    required double markB,
-    required double ol,
-    required double angle,
-    required double gain,
-    required double takeup,
-  }) {
-    if (_allConduits.isEmpty) return;
-
-    _calcMode = RackCalcMode.kick90;
-
-    final firstPipe = _allConduits.first;
-    firstPipe.markA = markA;
-    firstPipe.markB = markB;
-    firstPipe.ol = ol;
-    firstPipe.angle = angle;
-
-    benderGain = gain;
-    benderTakeup = takeup;
-
-    _updateKick90SpacingRelationship();
     _recalculate();
     notifyListeners();
   }
@@ -318,7 +312,55 @@ class RackState extends ChangeNotifier {
     notifyListeners();
   }
 
+  double get totalBoxSpread {
+    if (_allConduits.isEmpty) return 0.0;
+    final centers = boxCenterMarks;
+    if (centers.isEmpty) return 0.0;
+    
+    final double firstRad = _pipeODs[0] != null ? _pipeODs[0]! / 2 : 0.0;
+    final double lastRad = _pipeODs[_allConduits.length - 1] != null ? _pipeODs[_allConduits.length - 1]! / 2 : 0.0;
+    
+    return centers.last - centers.first + firstRad + lastRad;
+  }
+
+  List<double> get boxCenterMarks {
+    if (_allConduits.isEmpty) return [];
+    
+    List<double> centers = [];
+    double multiplier = 1.0;
+    
+    if (_calcMode == RackCalcMode.kick90 && _kick90RackStyle == Kick90RackStyle.parallel) {
+      multiplier = bending_data.calculateCosecant(kickAngle);
+    }
+
+    for (int i = 0; i < _allConduits.length; i++) {
+      final double runOffset = i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0;
+      centers.add(runOffset * multiplier);
+    }
+    
+    return centers;
+  }
+
   void _recalculate() {
+    // 1. Sync bender data for each conduit if a brand is selected
+    final type = _allConduits.isNotEmpty ? _allConduits.first.conduitType : BoxLayoutConduitType.emt;
+    final bendingType = type == BoxLayoutConduitType.grc ? bending_data.ConduitType.rigid : bending_data.ConduitType.emt;
+    
+    for (var pipe in _allConduits) {
+      final activeBrand = pipe.benderBrand ?? benderBrand;
+      if (activeBrand != null) {
+        final match = bending_data.benderDatabase.firstWhereOrNull((b) => 
+          b.brand == activeBrand &&
+          b.conduitSize == _pipeSizeKey(pipe.size) && 
+          b.conduitType == bendingType
+        );
+        if (match != null) {
+          pipe.benderGain = match.gain;
+          pipe.benderTakeup = match.deduct;
+        }
+      }
+    }
+
     switch (_calcMode) {
       case RackCalcMode.kick90:
         _calculateKick90Rack();
@@ -337,29 +379,17 @@ class RackState extends ChangeNotifier {
     }
   }
 
-  void _updateKick90SpacingRelationship() {
-    if (_allConduits.isEmpty) return;
-
-    final firstPipe = _allConduits.first;
-    final angleRad = _degreesToRadians(firstPipe.angle);
-
-    if (_kick90RackStyle == Kick90RackStyle.parallel && angleRad != 0) {
-      // Perpendicular kick rack:
-      // Box spacing = run spacing × cosecant(angle)
-      _boxSpacing = _c2cSpacing * bending_data.calculateCosecant(kickAngle);
-    } else {
-      // Same-plane / parallel kick rack:
-      // Run spacing = box spacing.
-      _boxSpacing = _c2cSpacing;
-    }
-  }
-
   void _calculateKick90Rack() {
     if (_allConduits.isEmpty) return;
 
+    final double baseStub = _isFromBox ? _distanceFromBox : kickStubLength;
+
     for (int i = 0; i < _allConduits.length; i++) {
       final pipe = _allConduits[i];
-      final spacingOffset = _pipeProgressionOffsets[i];
+      final spacingOffset = i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0;
+      
+      final double g = pipe.benderGain ?? benderGain;
+      final double t = pipe.benderTakeup ?? benderTakeup;
 
       if (_kick90RackStyle == Kick90RackStyle.parallel) {
         final pipeKickHeight = kickHeight + spacingOffset;
@@ -368,26 +398,27 @@ class RackState extends ChangeNotifier {
         final adjustedLeg = kickLegLength + boxOffset;
 
         pipe.markA = bending_data.calculateKick90MarkA(
-          stub: kickStubLength,
-          takeUp: benderTakeup,
+          stub: baseStub,
+          takeUp: t,
         );
 
         pipe.markB = bending_data.calculateKick90MarkB(
-          stub: kickStubLength,
+          stub: baseStub,
           kickHeight: pipeKickHeight,
           angleDeg: kickAngle,
-          gain90: benderGain,
+          gain90: g,
           pipeOD: kickPipeOD,
           clr: kickCLR,
-          method: kickBendingMethod,
+          deduct: t,
+          method: bendingMethod,
         );
 
         pipe.ol = bending_data.calculateKick90CutLength(
-          stub: kickStubLength,
+          stub: baseStub,
           leg: adjustedLeg,
           kickHeight: pipeKickHeight,
           angleDeg: kickAngle,
-          gain90: benderGain,
+          gain90: g,
         );
 
         pipe.angle = kickAngle;
@@ -398,26 +429,27 @@ class RackState extends ChangeNotifier {
 
         if (i == 0) {
           pipe.markA = bending_data.calculateKick90MarkA(
-            stub: kickStubLength,
-            takeUp: benderTakeup,
+            stub: baseStub,
+            takeUp: t,
           );
 
           pipe.markB = bending_data.calculateKick90MarkB(
-            stub: kickStubLength,
+            stub: baseStub,
             kickHeight: kickHeight,
             angleDeg: kickAngle,
-            gain90: benderGain,
+            gain90: g,
             pipeOD: kickPipeOD,
             clr: kickCLR,
-            method: kickBendingMethod,
+            deduct: t,
+            method: bendingMethod,
           );
 
           pipe.ol = bending_data.calculateKick90CutLength(
-            stub: kickStubLength,
+            stub: baseStub,
             leg: kickLegLength,
             kickHeight: kickHeight,
             angleDeg: kickAngle,
-            gain90: benderGain,
+            gain90: g,
           );
 
           pipe.angle = kickAngle;
@@ -436,13 +468,13 @@ class RackState extends ChangeNotifier {
       else if (_kick90RackStyle == Kick90RackStyle.sameAngle) {
         final result = bending_data.calculateKick90SameAnglePlaneChange(
           pipeIndex: i,
-          baseStub: kickStubLength,
+          baseStub: baseStub,
           baseKickHeight: kickHeight,
           spacingOffset: spacingOffset,
           angleDeg: kickAngle,
           leg: kickLegLength,
-          takeUp: benderTakeup,
-          gain90: benderGain,
+          takeUp: t,
+          gain90: g,
           pipeOD: kickPipeOD,
         );
 
@@ -455,88 +487,88 @@ class RackState extends ChangeNotifier {
       else if (_kick90RackStyle == Kick90RackStyle.sameStart) {
         final result = bending_data.calculateKick90SameStartPlaneChange(
           pipeIndex: i,
-          baseStub: kickStubLength,
+          baseStub: baseStub,
           baseKickHeight: kickHeight,
           spacingOffset: spacingOffset,
           sameStartRun: kickMatchBendDistance,
           leg: kickLegLength,
-          takeUp: benderTakeup,
-          gain90: benderGain,
+          takeUp: t,
+          gain90: g,
           pipeOD: kickPipeOD,
         );
 
+        pipe.markA = result.markA;
+        pipe.markB = bending_data.calculateKick90MarkBFromDistanceBetweenBends(
+          stub: result.stub,
+          distanceBetweenBends: result.distanceBetweenBends,
+          angleDeg: result.angleDeg,
+          gain90: g,
+          pipeOD: kickPipeOD,
+          clr: kickCLR,
+          deduct: t,
+          method: bendingMethod,
+        );
+        pipe.ol = result.markC;
+        pipe.angle = result.angleDeg;
+      }
+      else if (_kick90RackStyle == Kick90RackStyle.sameAngleSamePlane) {
+        final result = bending_data.calculateKick90SameAngleSamePlane(
+          pipeIndex: i,
+          baseStub: baseStub,
+          baseLeg: kickLegLength,
+          kickHeight: kickHeight,
+          spacingOffset: spacingOffset,
+          angleDeg: kickAngle,
+          takeUp: t,
+          gain90: g,
+          pipeOD: kickPipeOD,
+          clr: kickCLR,
+          method: bendingMethod,
+        );
         pipe.markA = result.markA;
         pipe.markB = result.markB;
         pipe.ol = result.markC;
         pipe.angle = result.angleDeg;
       }
-else if (_kick90RackStyle ==
-Kick90RackStyle.sameAngleSamePlane) {
-final result = bending_data.calculateKick90SameAngleSamePlane(
-pipeIndex: i,
-baseStub: kickStubLength,
-baseLeg: kickLegLength,
-kickHeight: kickHeight,
-spacingOffset: spacingOffset,
-angleDeg: kickAngle,
-takeUp: benderTakeup,
-gain90: benderGain,
-pipeOD: kickPipeOD,
-clr: kickCLR,
-method: kickBendingMethod,
-);
-
-pipe.markA = result.markA;
-pipe.markB = result.markB;
-pipe.ol = result.markC;
-pipe.angle = result.angleDeg;
-      }
-      else if (_kick90RackStyle ==
-          Kick90RackStyle.sameStartSamePlane) {
+      else if (_kick90RackStyle == Kick90RackStyle.sameStartSamePlane) {
         final result = bending_data.calculateKick90SameStartSamePlane(
           pipeIndex: i,
-          baseStub: kickStubLength,
+          baseStub: baseStub,
           baseLeg: kickLegLength,
           kickHeight: kickHeight,
           baseMatchBendDistance: kickMatchBendDistance,
           spacingOffset: spacingOffset,
-          takeUp: benderTakeup,
-          gain90: benderGain,
+          takeUp: t,
+          gain90: g,
           pipeOD: kickPipeOD,
           clr: kickCLR,
-          method: kickBendingMethod,
+          method: bendingMethod,
         );
-
         pipe.markA = result.markA;
         pipe.markB = result.markB;
         pipe.ol = result.markC;
         pipe.angle = result.angleDeg;
       }
     }
-
-    _updateKick90SpacingRelationship();
   }
 
   void _calculateParallel90s() {
     if (_allConduits.isEmpty) return;
 
-    final firstPipe = _allConduits.first;
+    final bool isGraduated = _parallel90Direction == 'left' || _parallel90Direction == 'right';
 
-    firstPipe.markA = stubLength - benderTakeup;
-    firstPipe.markB = 0;
-    firstPipe.ol = stubLength + legLength - benderGain;
-
-    for (int i = 1; i < _allConduits.length; i++) {
+    for (int i = 0; i < _allConduits.length; i++) {
       final pipe = _allConduits[i];
-      final spacingOffset = _pipeProgressionOffsets[i];
+      final double spacingOffset = isGraduated 
+          ? (i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0)
+          : 0.0;
 
-      final newStub = stubLength + spacingOffset;
-      final newLeg = legLength + spacingOffset;
+      final double currentGain = pipe.benderGain ?? benderGain;
+      final double currentTakeup = pipe.benderTakeup ?? benderTakeup;
 
-      pipe.markA = newStub - benderTakeup;
-      pipe.markB = 0;
-      pipe.ol = newStub + newLeg - benderGain;
-      pipe.angle = 90;
+      pipe.markA = bending_data.calculateBtbMarkA(parallel90Stub + spacingOffset, currentTakeup);
+      pipe.ol = bending_data.calculateBtbCutLength(parallel90Stub + spacingOffset, 0.0, parallel90Leg + spacingOffset, currentGain);
+      pipe.markB = 0.0; // Not used for simple 90
     }
   }
 
@@ -545,12 +577,8 @@ pipe.angle = result.angleDeg;
 
     final firstPipe = _allConduits.first;
 
-    // Regular offset:
-    // C = cut length = overall length + shrink
-    // A = far bend = distance to obstruction + shrink
-    // B = near bend = A - travel
     final shrink = _shrink(offsetHeight, bendAngle);
-    final travelBetweenBends = offsetHeight * _cosecant(bendAngle);
+    final travelBetweenBends = offsetHeight * bending_data.calculateCosecant(bendAngle);
 
     final baseA = offsetDistance + shrink;
     final baseB = baseA - travelBetweenBends;
@@ -561,27 +589,20 @@ pipe.angle = result.angleDeg;
     firstPipe.ol = baseC;
     firstPipe.angle = bendAngle;
 
-    for (int i = 1; i < _allConduits.length; i++) {
+    for (int i = 0; i < _allConduits.length; i++) {
       final pipe = _allConduits[i];
-
+      final spacingOffset = i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0;
+      
       if (_calcMode == RackCalcMode.offset) {
-        // Regular offset up:
-        // every pipe gets the same marks.
-        pipe.markA = firstPipe.markA;
-        pipe.markB = firstPipe.markB;
-        pipe.ol = firstPipe.ol;
+        pipe.markA = baseA;
+        pipe.markB = baseB;
+        pipe.ol = baseC;
         pipe.angle = bendAngle;
       } else {
-        // Parallel offset:
-        // Pipe 1 = inside pipe.
-        // Number outward and ADD the adjustment each time.
-        // BOTH A and B move together.
-        final spacingOffset = _pipeProgressionOffsets[i];
         final markShift = spacingOffset * _tanHalf(bendAngle);
-
-        pipe.markA = firstPipe.markA + markShift;
-        pipe.markB = firstPipe.markB + markShift;
-        pipe.ol = firstPipe.ol;
+        pipe.markA = baseA + markShift;
+        pipe.markB = baseB + markShift;
+        pipe.ol = baseC;
         pipe.angle = bendAngle;
       }
     }
@@ -592,14 +613,9 @@ pipe.angle = result.angleDeg;
 
     final firstPipe = _allConduits.first;
 
-    // Rolling offset:
-    // true offset = sqrt(vertical² + horizontal²)
-    // C = cut length = overall length + shrink
-    // A = far bend = distance to obstruction + shrink
-    // B = near bend = A - travel
     final trueOffset = _trueOffset(offsetHeight, offsetHorizontal);
     final shrink = _shrink(trueOffset, bendAngle);
-    final travelBetweenBends = trueOffset * _cosecant(bendAngle);
+    final travelBetweenBends = trueOffset * bending_data.calculateCosecant(bendAngle);
 
     final baseA = offsetDistance + shrink;
     final baseB = baseA - travelBetweenBends;
@@ -610,114 +626,122 @@ pipe.angle = result.angleDeg;
     firstPipe.ol = baseC;
     firstPipe.angle = bendAngle;
 
-    for (int i = 1; i < _allConduits.length; i++) {
+    for (int i = 0; i < _allConduits.length; i++) {
       final pipe = _allConduits[i];
-
+      final spacingOffset = i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0;
+      
       if (_calcMode == RackCalcMode.rollingOffset) {
-        // Single rolling offset:
-        // every pipe gets the same marks.
-        pipe.markA = firstPipe.markA;
-        pipe.markB = firstPipe.markB;
-        pipe.ol = firstPipe.ol;
+        pipe.markA = baseA;
+        pipe.markB = baseB;
+        pipe.ol = baseC;
         pipe.angle = bendAngle;
       } else {
-        // Parallel rolling offset:
-        // Pipe 1 = inside pipe.
-        // Number outward and ADD the adjustment each time.
-        // BOTH A and B move together.
-        final spacingOffset = _pipeProgressionOffsets[i];
         final markShift = spacingOffset * _tanHalf(bendAngle);
-
-        pipe.markA = firstPipe.markA + markShift;
-        pipe.markB = firstPipe.markB + markShift;
-        pipe.ol = firstPipe.ol;
+        pipe.markA = baseA + markShift;
+        pipe.markB = baseB + markShift;
+        pipe.ol = baseC;
         pipe.angle = bendAngle;
       }
     }
   }
 
+  double _shrink(double height, double angle) => height * _tanHalf(angle);
+  double _tanHalf(double angle) => math.tan(_degreesToRadians(angle / 2.0));
+  double _degreesToRadians(double deg) => deg * math.pi / 180.0;
+  double _trueOffset(double v, double h) => math.sqrt((v * v) + (h * h));
 
-  static double _degreesToRadians(double degrees) {
-    return degrees * pi / 180.0;
+  String _pipeSizeKey(String displaySize) {
+    final s = displaySize.replaceAll('"', '').trim();
+    switch (s) {
+      case '1/2': return '0.5';
+      case '3/4': return '0.75';
+      case '1': return '1.0';
+      case '1 1/4': return '1.25';
+      case '1 1/2': return '1.5';
+      case '2': return '2.0';
+      case '2 1/2': return '2.5';
+      case '3': return '3.0';
+      case '3 1/2': return '3.5';
+      case '4': return '4.0';
+      default:
+        final d = double.tryParse(s);
+        if (d != null) {
+          return d.toString().contains('.') ? d.toString() : '${d.toString()}.0';
+        }
+        return '0.5';
+    }
   }
 
-  static double _cosecant(double degrees) {
-    final rad = _degreesToRadians(degrees);
-    if (rad == 0) return 0;
-    return 1 / sin(rad);
-  }
+  double get c2cSpacing => centerToCenterSpacing;
+  double get boxSpacingDisplayValue => boxSpacing;
+  double get stubLength => parallel90Stub;
+  double get legLength => parallel90Leg;
+  bool get isRollingMode => _calcMode == RackCalcMode.rollingOffset || _calcMode == RackCalcMode.parallelRollingOffset;
 
-  static double _tanHalf(double degrees) {
-    return tan(_degreesToRadians(degrees / 2.0));
-  }
-
-  static double _shrink(double height, double angle) {
-    return height * _tanHalf(angle);
-  }
-
-  static double _trueOffset(double vertical, double horizontal) {
-    return sqrt(pow(vertical, 2) + pow(horizontal, 2));
-  }
   double shiftFromPreviousPipe(int index) {
-    if (index <= 0 || index >= _allConduits.length) {
+    if (index <= 0 || index >= _pipeProgressionOffsets.length) return 0;
+    return _pipeProgressionOffsets[index] - _pipeProgressionOffsets[index - 1];
+  }
+
+  // --- Static Helpers ---
+  static double parseInches(String text) {
+    if (text.isEmpty) return 0.0;
+    try {
+      text = text.replaceAll('"', '').trim();
+      double total = 0.0;
+      if (text.contains(' ')) {
+        final parts = text.split(' ');
+        total += double.tryParse(parts[0]) ?? 0.0;
+        if (parts.length > 1 && parts[1].contains('/')) {
+          final fracParts = parts[1].split('/');
+          final num = double.tryParse(fracParts[0]) ?? 0.0;
+          final den = double.tryParse(fracParts[1]) ?? 1.0;
+          if (den != 0) total += num / den;
+        }
+      } else if (text.contains('/')) {
+        final fracParts = text.split('/');
+        final num = double.tryParse(fracParts[0]) ?? 0.0;
+        final den = double.tryParse(fracParts[1]) ?? 1.0;
+        if (den != 0) total += num / den;
+      } else {
+        total = double.tryParse(text) ?? 0.0;
+      }
+      return total;
+    } catch (_) {
       return 0.0;
     }
-
-    return _allConduits[index].markA -
-        _allConduits[index - 1].markA;
-  }
-  static String inchFmt(double inches) {
-    if (inches.isNaN || inches.isInfinite || inches < 0) return '0';
-
-    final int whole = inches.floor();
-    final double remainder = inches - whole;
-    int sixteenths = (remainder * 16).round();
-
-    if (sixteenths == 16) return (whole + 1).toString();
-    if (sixteenths == 0) return whole.toString();
-
-    int numerator = sixteenths;
-    int denominator = 16;
-
-    while (numerator % 2 == 0 && denominator > 2) {
-      numerator ~/= 2;
-      denominator ~/= 2;
-    }
-
-    if (whole == 0) return '$numerator/$denominator';
-    return '$whole $numerator/$denominator';
   }
 
-  static double parseInches(String input) {
-    input = input.replaceAll('"', '').trim();
-    if (input.isEmpty) return 0.0;
-
-    final parts = input.split(' ');
-    double totalInches = 0;
-
-    if (parts.length == 1) {
-      if (parts.first.contains('/')) {
-        return _parseFraction(parts.first);
-      }
-      return double.tryParse(parts.first) ?? 0.0;
+  static String inchFmt(double x, {bool addInchMark = true}) {
+    if (x == 0) return addInchMark ? '0"' : '0';
+    final sign = x < 0 ? -1 : 1;
+    double ax = x.abs();
+    int whole = ax.floor();
+    double frac = ax - whole;
+    int sixteenths = (frac * 16).round();
+    if (sixteenths == 16) {
+      whole += 1;
+      sixteenths = 0;
     }
-
-    if (parts.length == 2) {
-      totalInches += double.tryParse(parts.first) ?? 0.0;
-      totalInches += _parseFraction(parts.last);
+    String fracStr = '';
+    if (sixteenths > 0) {
+      int g = _gcd(sixteenths, 16);
+      int num = sixteenths ~/ g;
+      int den = 16 ~/ g;
+      fracStr = '$num/$den';
     }
-
-    return totalInches;
+    final body = (whole == 0 && fracStr.isNotEmpty)
+        ? fracStr
+        : (fracStr.isNotEmpty ? '$whole $fracStr' : '$whole');
+    return '${sign < 0 ? '-' : ''}$body${addInchMark ? '"' : ''}';
   }
 
-  static double _parseFraction(String fraction) {
-    final fracParts = fraction.split('/');
-    if (fracParts.length != 2) return 0.0;
-
-    final double num = double.tryParse(fracParts.first) ?? 0.0;
-    final double den = double.tryParse(fracParts.last) ?? 1.0;
-
-    if (den == 0) return 0.0;
-    return num / den;
+  static int _gcd(int a, int b) {
+    while (b != 0) {
+      final t = b;
+      b = a % b;
+      a = t;
+    }
+    return a.abs();
   }
 }

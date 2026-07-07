@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'code_screen.dart';
 import 'main_menu_screen.dart';
+import 'rack_builder_11.dart';
+import 'rack_state.dart';
+import 'package:provider/provider.dart';
 import 'dart:async';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,8 +22,17 @@ void main() async {
 
 class BoxLayoutModeScreen extends StatelessWidget {
   final double? preCalculatedCenterToCenter;
+  final List<ConduitData>? prePopulatedConduits;
+  final List<double>? preCalculatedCenterMarks;
+  final bool showBackButton;
 
-  const BoxLayoutModeScreen({super.key, this.preCalculatedCenterToCenter});
+  const BoxLayoutModeScreen({
+    super.key,
+    this.preCalculatedCenterToCenter,
+    this.prePopulatedConduits,
+    this.preCalculatedCenterMarks,
+    this.showBackButton = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -30,13 +42,18 @@ class BoxLayoutModeScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: Colors.white,
         centerTitle: true,
-        leading: IconButton(
+        leading: showBackButton
+            ? IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.pop(context),
+        )
+            : IconButton(
           icon: const Icon(Icons.home),
           onPressed: () {
             Navigator.pushAndRemoveUntil(
               context,
-              MaterialPageRoute(builder: (context) => MainMenuScreen()),
-              (route) => false,
+              MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+                  (route) => false,
             );
           },
         ),
@@ -49,77 +66,60 @@ class BoxLayoutModeScreen extends StatelessWidget {
                 context: context,
                 builder: (context) => AlertDialog(
                   backgroundColor: const Color(0xFF212121),
-                  insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+                  insetPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 24),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(14),
                     side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
                   ),
                   title: const Text(
-                    "Box Layout Tool",
+                    "Box Layout Tool Help",
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
                       fontSize: 22,
                     ),
                   ),
-                  content: const SingleChildScrollView(
-                    child: ListBody(
-                      children: [
-                        Text(
-                          "Use this tool to precisely disperse conduits across a set distance. It is optimized for junction boxes, trapeze hangers, and strut racks.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          "Two Ways to Start:",
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "• START WITH PIPES: Select pipe type and sizes first. The app will calculate the minimum width needed for the run.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 8),
-                        Text(
-                          "• OR START WITH BOX: Tap 'Box' to enter a fixed width. The app will then distribute your conduits evenly across that space.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          "Reading the Results:",
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "The results represent a single tape measure pull starting from the left edge.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "• Top Row: Left edge to pipe center. Tap 'Space' to toggle center-to-center.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "• Bottom Row: Face of strut up to pipe center.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 16),
-                        Text(
-                          "Pro Features:",
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "• Accounts for physical footprint of Locknuts, Myers Hubs, or Grounding Bushings.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                        SizedBox(height: 4),
-                        Text(
-                          "• Long-press 'Space' to manually override even spacing.",
-                          style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-                        ),
-                      ],
+                  content: SizedBox(
+                    width: MediaQuery.of(context).size.width * 0.9,
+                    child: const SingleChildScrollView(
+                      child: ListBody(
+                        children: [
+                          Text(
+                            "This tool precisely calculates pipe spacing across a junction box or strut rack.",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            "Dimensioning Modes:",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• TOP ROW: Left edge of box to pipe center. (Tap 'Space' to toggle center-to-center).",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• BOTTOM ROW: Face of strut up to pipe center.",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            "Pro Tips:",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• The app automatically suggests box sizes based on your total pipe occupancy.",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• Fitting clearance (Locknuts, Hubs) is checked automatically based on selected fitting type.",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   actions: [
@@ -165,6 +165,8 @@ class BoxLayoutModeScreen extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 600),
               child: _BoxLayoutModeWidget(
                 preCalculatedCenterToCenter: preCalculatedCenterToCenter,
+                prePopulatedConduits: prePopulatedConduits,
+                preCalculatedCenterMarks: preCalculatedCenterMarks,
               ),
             ),
           ),
@@ -190,8 +192,14 @@ enum WorkflowStep {
 
 class _BoxLayoutModeWidget extends StatefulWidget {
   final double? preCalculatedCenterToCenter;
+  final List<ConduitData>? prePopulatedConduits;
+  final List<double>? preCalculatedCenterMarks;
 
-  const _BoxLayoutModeWidget({this.preCalculatedCenterToCenter});
+  const _BoxLayoutModeWidget({
+    this.preCalculatedCenterToCenter,
+    this.prePopulatedConduits,
+    this.preCalculatedCenterMarks,
+  });
 
   @override
   State<_BoxLayoutModeWidget> createState() => _BoxLayoutModeState();
@@ -246,6 +254,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   String _space = "";
   String _boxWidth = "";
 
+  List<double>? _importedMarks; // ADDED
   int _activePipeIndex = -1;
   String _currentInput = "";
 
@@ -317,7 +326,44 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
       ..repeat(reverse: true);
     _pulseAnim = CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut);
 
-    if (widget.preCalculatedCenterToCenter != null) {
+    if (widget.prePopulatedConduits != null &&
+        widget.prePopulatedConduits!.isNotEmpty) {
+      _pipes = widget.prePopulatedConduits!.map((c) => c.size).toList();
+      _type = widget.prePopulatedConduits!.first.conduitType;
+      
+      _importedMarks = widget.preCalculatedCenterMarks != null 
+          ? List<double>.from(widget.preCalculatedCenterMarks!) 
+          : null;
+
+      // Handle spacing calculation from imported marks
+      if (_importedMarks != null && _importedMarks!.length > 1) {
+        final double p1Size = _parseInches(_pipes[0]);
+        final double p2Size = _parseInches(_pipes[1]);
+        final od1 = (_type == BoxLayoutConduitType.emt ? _emtOD[p1Size] : _grcOD[p1Size]) ?? 0.0;
+        final od2 = (_type == BoxLayoutConduitType.emt ? _emtOD[p2Size] : _grcOD[p2Size]) ?? 0.0;
+        
+        final double spaceBetween = (_importedMarks![1] - _importedMarks![0]) - (od1 / 2 + od2 / 2);
+        _space = _formatToSixteenth(math.max(0.0, spaceBetween));
+        _spacingConfirmed = true;
+      } else if (widget.preCalculatedCenterToCenter != null &&
+          widget.preCalculatedCenterToCenter! > 0) {
+        // Fallback to single C2C value
+        final double p1Size = _parseInches(_pipes[0]);
+        final double p2Size = _pipes.length > 1 ? _parseInches(_pipes[1]) : p1Size;
+        final od1 = (_type == BoxLayoutConduitType.emt ? _emtOD[p1Size] : _grcOD[p1Size]) ?? 0.0;
+        final od2 = (_type == BoxLayoutConduitType.emt ? _emtOD[p2Size] : _grcOD[p2Size]) ?? 0.0;
+        
+        final spaceBetween = widget.preCalculatedCenterToCenter! - (od1 / 2 + od2 / 2);
+        _space = _formatToSixteenth(math.max(0.0, spaceBetween));
+        _spacingConfirmed = true;
+      }
+
+      // If we have conduits, go straight to box width input
+      _step = WorkflowStep.boxWidth;
+      _boxWidthConfirmed = false; // Ensure top row is hidden initially
+      _recomputeLayout();
+    }
+else if (widget.preCalculatedCenterToCenter != null) {
       // Convert the center-to-center to space between
       // This is an approximation, assuming two identical pipes for now.
       // A more robust solution would need the pipe sizes.
@@ -470,14 +516,22 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     }
   }
 
-  bool get _showErrorBanner => (isError || hasWarning) && !_errorAcknowledged;
+  bool get _showErrorBanner => (isError || _spacingWarning != null) && !_errorAcknowledged;
 
   String get _displayTop {
     if (_showErrorBanner) {
-      return _fitWarning ?? _autoSpacingWarning ?? _spacingWarning ??
+      return _fitWarning ?? _spacingWarning ??
           "An unknown error occurred.";
     }
     if (!isSuccess) {
+      if (_step == WorkflowStep.boxWidth && _boxWidth.isEmpty) {
+        return "Enter total box width. Tap ✓ to confirm.";
+      }
+      
+      if (_boxWidth.isEmpty && _step == WorkflowStep.boxWidth && _autoSpacingWarning != null) {
+        return _autoSpacingWarning!;
+      }
+
       switch (_step) {
         case WorkflowStep.typeSelect:
           return "Select pipe type or tap Box to start. Tap ✓ to proceed.";
@@ -572,7 +626,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   bool get _fittingActive =>
       !_showErrorBanner && _step == WorkflowStep.fittingSelect;
 
-  bool get _boxActive => !_showErrorBanner && (_step == WorkflowStep.boxWidth || (_step == WorkflowStep.typeSelect && _boxWidth.isEmpty));
+  bool get _boxActive => _step == WorkflowStep.boxWidth || (_step == WorkflowStep.typeSelect && _boxWidth.isEmpty);
 
   bool get _countActive =>
       !_showErrorBanner && _step == WorkflowStep.pipeCount;
@@ -910,6 +964,48 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     );
   }
 
+  Widget _buildSuggestedBoxSizes() {
+    if (_step != WorkflowStep.boxWidth) return const SizedBox.shrink();
+
+    final List<int> suggestions = [6, 8, 10, 12, 18, 24];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            "QUICK BOX SIZES:",
+            style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: suggestions.map((size) {
+              return Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: _BeveledButton(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      setState(() {
+                        _currentInput = size.toString();
+                        _commitInput();
+                      });
+                    },
+                    child: Text(
+                      '${size}"',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildOperatorBar() {
     Widget opBtn({
       required Widget child,
@@ -1123,7 +1219,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
               final label = _pipes[i];
 
               String topLabel = "--";
-              if (isSuccess && i < _centerMarksIn.length) {
+              if (_centerMarksIn.isNotEmpty && i < _centerMarksIn.length) {
                 if (_centerToCenterMode) {
                   if (i == 0) {
                     topLabel = "--";
@@ -1131,7 +1227,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
                     topLabel = _formatToSixteenth(
                         _centerMarksIn[i] - _centerMarksIn[i - 1]);
                   }
-                } else {
+                } else if (_boxWidthConfirmed) {
                   topLabel = _formatToSixteenth(_centerMarksIn[i]);
                 }
               }
@@ -1310,248 +1406,373 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: kOuterPad),
       child: IntrinsicHeight(
-        child: Row(
+        child: Column(
           children: [
-            if (totalTxt.isNotEmpty) ...[
-              AnimatedBuilder(
-                animation: _pulseAnim,
-                builder: (context, _) {
-                  final glowT = _pulseAnim.value;
-                  final glowOpacity =
-                  _isDanger ? (0.25 + 0.55 * glowT) : 0.0;
-                  final blur = _isDanger ? (8 + 10 * glowT) : 0.0;
-                  final spread = _isDanger ? (0.5 + 1.5 * glowT) : 0.0;
-                  return Container(
-                    width: 86,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 8,
-                      horizontal: 6,
-                    ),
+            Row(
+              children: [
+                if (totalTxt.isNotEmpty) ...[
+                  AnimatedBuilder(
+                    animation: _pulseAnim,
+                    builder: (context, _) {
+                      final glowT = _pulseAnim.value;
+                      final glowOpacity =
+                      _isDanger ? (0.25 + 0.55 * glowT) : 0.0;
+                      final blur = _isDanger ? (8 + 10 * glowT) : 0.0;
+                      final spread = _isDanger ? (0.5 + 1.5 * glowT) : 0.0;
+                      return Container(
+                        width: 86,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 8,
+                          horizontal: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: baseColor,
+                          borderRadius: BorderRadius.circular(kRadius),
+                          border: Border.all(
+                            color: const Color(0xFF9E9E9E),
+                            width: 1.5,
+                          ),
+                          boxShadow: _isDanger
+                              ? [
+                            BoxShadow(
+                              color: baseColor
+                                  .withAlpha((255 * glowOpacity).round()),
+                              blurRadius: blur,
+                              spreadRadius: spread,
+                            ),
+                          ]
+                              : const [],
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            const Text(
+                              "Total",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12.0,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              '$totalTxt"',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14.0,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (_spacingConfirmed && _space.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              const Text(
+                                "Space Btw",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11.0,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              Text(
+                                '$_space"',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14.0,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ]
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                     decoration: BoxDecoration(
-                      color: baseColor,
+                      color: isSuccess ? const Color(0xFF3AAE75) : (_showErrorBanner
+                          ? baseColor
+                          : Colors.black),
                       borderRadius: BorderRadius.circular(kRadius),
                       border: Border.all(
                         color: const Color(0xFF9E9E9E),
                         width: 1.5,
                       ),
-                      boxShadow: _isDanger
-                          ? [
-                        BoxShadow(
-                          color: baseColor
-                              .withAlpha((255 * glowOpacity).round()),
-                          blurRadius: blur,
-                          spreadRadius: spread,
-                        ),
-                      ]
-                          : const [],
                     ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        const Text(
-                          "Total",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.0,
-                            fontWeight: FontWeight.w700,
+                    child: isSuccess
+                        ? Builder(builder: (context) {
+                      const double topPos1TopRow = 204.0;
+                      const double topPos2Equals = 192.3;
+                      const double topPos3BoxEdge = 122.7;
+                      const double topPos4Arrow = 99.0;
+                      const double topPos5PipeCenter = 17.5;
+                      const double pos1BotRow = 204.0;
+                      const double pos2Equals = 192.3;
+                      const double pos3StrutFace = 122.7;
+                      const double pos4Arrow = 97.0;
+                      const double pos5PipeCenter = 17.5;
+                      return  Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            height: 20,
+                            child: Stack(
+                              children: [
+                                Positioned(
+                                  right: topPos1TopRow,
+                                  child: Text("Top row",
+                                      style: successTextStyle),
+                                ),
+                                Positioned(
+                                  right: topPos2Equals,
+                                  child: Text("=",
+                                      style: successTextStyle),
+                                ),
+                                Positioned(
+                                  right: topPos3BoxEdge,
+                                  child: Text("Box edge",
+                                      style: successTextStyle),
+                                ),
+                                Positioned(
+                                  right: topPos4Arrow,
+                                  child: Text("➜",
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight:
+                                          FontWeight.w800)),
+                                ),
+                                Positioned(
+                                  right: topPos5PipeCenter,
+                                  child: Text("pipe center",
+                                      style: successTextStyle),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 4),
+                          const SizedBox(
+                            height: 20,
+                            child: Stack(
+                              children: [
+                                Positioned(
+                                  right: pos1BotRow,
+                                  child: Text("Bot row",
+                                      style: successTextStyle),
+                                ),
+                                Positioned(
+                                  right: pos2Equals,
+                                  child: Text("=",
+                                      style: successTextStyle),
+                                ),
+                                Positioned(
+                                  right: pos3StrutFace,
+                                  child: Text("Strut face",
+                                      style: successTextStyle),
+                                ),
+                                Positioned(
+                                  right: pos4Arrow,
+                                  child: RotatedBox(
+                                    quarterTurns: -1,
+                                    child: Text("➜",
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 16,
+                                            fontWeight:
+                                            FontWeight.w800)),
+                                  ),
+                                ),
+                                Positioned(
+                                  right: pos5PipeCenter,
+                                  child: Text("pipe center",
+                                      style: successTextStyle),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _showAltMessage
+                                ? "(Press and hold Space to edit spacing)"
+                                : "(Tap space again for center to center.)",
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      );
+                    })
+                        : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
                         Text(
-                          '$totalTxt"',
+                          top,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 14.0,
-                            fontWeight: FontWeight.w800,
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.1,
                           ),
                         ),
-                        if (_spacingConfirmed && _space.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          const Text(
-                            "Space",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 12.0,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          Text(
-                            '$_space"',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14.0,
-                              fontWeight: FontWeight.w800,
+                        if (bottom.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: isEditing
+                                ? BoxDecoration(
+                              color: Colors.white24,
+                              borderRadius:
+                              BorderRadius.circular(4),
+                            )
+                                : null,
+                            child: Text(
+                              bottom,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.1,
+                              ),
                             ),
                           ),
                         ]
                       ],
                     ),
-                  );
-                },
-              ),
-              const SizedBox(width: 6),
-            ],
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                decoration: BoxDecoration(
-                  color: isSuccess ? const Color(0xFF3AAE75) : (_showErrorBanner
-                      ? baseColor
-                      : Colors.black),
-                  borderRadius: BorderRadius.circular(kRadius),
-                  border: Border.all(
-                    color: const Color(0xFF9E9E9E),
-                    width: 1.5,
                   ),
                 ),
-                child: isSuccess
-                    ? Builder(builder: (context) {
-                  const double topPos1TopRow = 204.0;
-                  const double topPos2Equals = 192.3;
-                  const double topPos3BoxEdge = 122.7;
-                  const double topPos4Arrow = 99.0;
-                  const double topPos5PipeCenter = 17.5;
-                  const double pos1BotRow = 204.0;
-                  const double pos2Equals = 192.3;
-                  const double pos3StrutFace = 122.7;
-                  const double pos4Arrow = 97.0;
-                  const double pos5PipeCenter = 17.5;
-                  return  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        height: 20,
-                        child: Stack(
-                          children: [
-                            Positioned(
-                              right: topPos1TopRow,
-                              child: Text("Top row",
-                                  style: successTextStyle),
-                            ),
-                            Positioned(
-                              right: topPos2Equals,
-                              child: Text("=",
-                                  style: successTextStyle),
-                            ),
-                            Positioned(
-                              right: topPos3BoxEdge,
-                              child: Text("Box edge",
-                                  style: successTextStyle),
-                            ),
-                            Positioned(
-                              right: topPos4Arrow,
-                              child: Text("➜",
-                                  style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight:
-                                      FontWeight.w800)),
-                            ),
-                            Positioned(
-                              right: topPos5PipeCenter,
-                              child: Text("pipe center",
-                                  style: successTextStyle),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      SizedBox(
-                        height: 20,
-                        child: Stack(
-                          children: [
-                            Positioned(
-                              right: pos1BotRow,
-                              child: Text("Bot row",
-                                  style: successTextStyle),
-                            ),
-                            Positioned(
-                              right: pos2Equals,
-                              child: Text("=",
-                                  style: successTextStyle),
-                            ),
-                            Positioned(
-                              right: pos3StrutFace,
-                              child: Text("Strut face",
-                                  style: successTextStyle),
-                            ),
-                            Positioned(
-                              right: pos4Arrow,
-                              child: RotatedBox(
-                                quarterTurns: -1,
-                                child: Text("➜",
-                                    style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight:
-                                        FontWeight.w800)),
-                              ),
-                            ),
-                            Positioned(
-                              right: pos5PipeCenter,
-                              child: Text("pipe center",
-                                  style: successTextStyle),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        _showAltMessage
-                            ? "(Press and hold Space to edit spacing)"
-                            : "(Tap space again for center to center.)",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            color: Colors.white,
+              ],
+            ),
+            if (isSuccess) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (widget.prePopulatedConduits != null) ...[
+                    Expanded(
+                      child: _BeveledButton(
+                        active: false,
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          setState(() {
+                            _pipes = _pipes.reversed.toList();
+                            if (_importedMarks != null) {
+                              // Calculate the gaps between pipes from original marks
+                              List<double> gaps = [];
+                              for (int i = 1; i < _importedMarks!.length; i++) {
+                                gaps.add(_importedMarks![i] - _importedMarks![i-1]);
+                              }
+                              // Reverse the gaps
+                              gaps = gaps.reversed.toList();
+                              // Re-build marks from reversed gaps
+                              _importedMarks = [0.0];
+                              for (double gap in gaps) {
+                                _importedMarks!.add(_importedMarks!.last + gap);
+                              }
+                            }
+                            _recomputeLayout();
+                          });
+                        },
+                        child: const Text(
+                          "REVERSE ORDER",
+                          style: TextStyle(
+                            color: Colors.white70,
                             fontSize: 13,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  );
-                })
-                    : Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      top,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16.5,
-                        fontWeight: FontWeight.w700,
-                        height: 1.1,
-                      ),
-                    ),
-                    if (bottom.isNotEmpty) ...[
-                      const SizedBox(height: 3),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: isEditing
-                            ? BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius:
-                          BorderRadius.circular(4),
-                        )
-                            : null,
-                        child: Text(
-                          bottom,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15.5,
-                            fontWeight: FontWeight.w600,
-                            height: 1.1,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
-                    ]
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _BeveledButton(
+                        active: true,
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          Navigator.pop(context);
+                        },
+                        child: const Text(
+                          "BACK TO RACK",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    Expanded(
+                      child: _BeveledButton(
+                        active: false,
+                        onTap: () {
+                          HapticFeedback.heavyImpact();
+                          _clearAll();
+                        },
+                        child: const Text(
+                          "START NEW BOX",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _BeveledButton(
+                        active: true,
+                        onTap: () {
+                          HapticFeedback.mediumImpact();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ChangeNotifierProvider(
+                                create: (_) => RackState(),
+                                child: RackBuilderScreen(
+                                  startFromBoxTransition: true,
+                                  boxLayoutPipeSizes: _pipes,
+                                  boxLayoutSpacing: _parseInches(_space),
+                                  boxLayoutIsCenterToCenter: _centerToCenterMode,
+                                  boxLayoutConduitType: _type == BoxLayoutConduitType.emt ? 'EMT' : 'RMC',
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                        child: const FittedBox(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.straighten, color: Colors.white, size: 18),
+                              SizedBox(width: 6),
+                              Text(
+                                "TO THE RACK",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
-                ),
+                ],
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -1646,7 +1867,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
   void _recomputeLayout() {
     _centerMarksIn.clear();
-    _effectiveODs.clear(); // keep if you still want to display / inspect fitting ODs
+    _effectiveODs.clear();
     _pipeODs.clear();
     _strutDistancesIn.clear();
     _fitWarning = null;
@@ -1654,60 +1875,66 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     _autoSpacingWarning = null;
     _errorAcknowledged = false;
 
+    if (_pipes.isEmpty) return;
 
-    if (_pipes.isEmpty) {
-      return;
-    }
-
-    // Build actual pipe ODs and selected fitting ODs separately.
     for (final p in _pipes) {
       final trade = _parseInches(p);
       if (trade > 0) {
         final pipeOD = _outsideDiameterForTradeSize(trade);
         _pipeODs.add(pipeOD);
-        _effectiveODs.add(_effectiveDiameterForPipe(trade)); // fitting envelope, warning only
+        _effectiveODs.add(_effectiveDiameterForPipe(trade));
       } else {
         _pipeODs.add(0.0);
         _effectiveODs.add(0.0);
       }
     }
 
-    final userSpaceW = _parseInches(_space);
-
-    // BASE LAYOUT: use actual pipe ODs only.
-    if (_pipes.isNotEmpty) {
+    // 1. Calculate the initial group layout starting from 0
+    if (_importedMarks != null && _importedMarks!.length == _pipes.length) {
+      // Use imported exact centers (useful for Kicks)
+      for (final mark in _importedMarks!) {
+        _centerMarksIn.add(mark);
+      }
+    } else {
+      // Standard spacing logic
+      final userSpaceW = _parseInches(_space);
       _centerMarksIn.add(_pipeODs[0] / 2);
-
       for (int i = 1; i < _pipes.length; i++) {
-        final centerToCenterDist =
-            (_pipeODs[i - 1] / 2) + userSpaceW + (_pipeODs[i] / 2);
+        final centerToCenterDist = (_pipeODs[i - 1] / 2) + userSpaceW + (_pipeODs[i] / 2);
         _centerMarksIn.add(_centerMarksIn.last + centerToCenterDist);
       }
     }
 
-    // FIT CHECK FOR ACTUAL PIPE LAYOUT IN THE BOX.
     final boxW = _parseInches(_boxWidth);
-    if (boxW > 0 && _centerMarksIn.isNotEmpty) {
-      final rackStart = _centerMarksIn.first - (_pipeODs.first / 2);
-      final rackEnd = _centerMarksIn.last + (_pipeODs.last / 2);
-      final totalRackW = rackEnd - rackStart;
-      final clearance = boxW - totalRackW;
+    final rackStart = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.first - (_pipeODs.first / 2);
+    final rackEnd = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.last + (_pipeODs.last / 2);
+    final totalPipeWidth = rackEnd - rackStart;
 
+    // 2. Centering Logic
+    if (boxW > 0 && _centerMarksIn.isNotEmpty) {
+      final clearance = boxW - totalPipeWidth;
       if (clearance < 0) {
         _fitWarning = "Layout does not fit in the box.\nAdjust box, spacing, or remove a pipe.";
       } else if (clearance < 1.0) {
         _fitWarning = "Clearance is tight (< 1 inch).";
       }
 
-      final leftOffset = (clearance / 2) - rackStart;
-      if (leftOffset > 0) {
-        for (int i = 0; i < _centerMarksIn.length; i++) {
-          _centerMarksIn[i] += leftOffset;
-        }
+      // Center the whole group within boxW
+      final groupLeftEdge = _centerMarksIn.first - (_pipeODs.first / 2);
+      final centerShift = (boxW - totalPipeWidth) / 2 - groupLeftEdge;
+      
+      for (int i = 0; i < _centerMarksIn.length; i++) {
+        _centerMarksIn[i] += centerShift;
       }
     }
 
-    // STRUT FACE TO PIPE CENTER stays based on actual conduit OD.
+    // Suggested Box Width with 1.5" total safety buffer (0.75" on each side)
+    final suggestedMinBox = totalPipeWidth + 1.5;
+    if (_boxWidth.isEmpty && _step == WorkflowStep.boxWidth) {
+      _autoSpacingWarning =
+          "Total Pipe Occupancy: ${_formatToSixteenth(totalPipeWidth)}\"\nSuggested Min Box: ${_formatToSixteenth(suggestedMinBox)}\"";
+    }
+
     for (final od in _pipeODs) {
       _strutDistancesIn.add(od / 2);
     }
@@ -1715,20 +1942,20 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     // SECONDARY FITTING CLEARANCE CHECK.
     // Only run this after spacing has actually been entered and confirmed.
     if (_spacingConfirmed && _space.trim().isNotEmpty && _pipes.length > 1) {
+      final userSpaceW = _parseInches(_space);
       for (int i = 1; i < _pipes.length; i++) {
-        final requiredGap =
-            ((_effectiveODs[i - 1] - _pipeODs[i - 1]) / 2) +
-                ((_effectiveODs[i] - _pipeODs[i]) / 2);
+        final requiredGap = ((_effectiveODs[i - 1] - _pipeODs[i - 1]) / 2) +
+            ((_effectiveODs[i] - _pipeODs[i]) / 2);
 
         if (userSpaceW < requiredGap) {
           final fittingName = _fitting == FittingType.lock
               ? "locknuts"
               : _fitting == FittingType.bush
-              ? "bushings"
-              : "Myers hubs";
+                  ? "bushings"
+                  : "Myers hubs";
 
           _spacingWarning =
-          'Warning: $fittingName may interfere at ${_formatToSixteenth(userSpaceW)}" spacing.';
+              'Warning: $fittingName may interfere at ${_formatToSixteenth(userSpaceW)}" spacing.';
           break;
         }
       }
@@ -1898,6 +2125,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           _space = takeClean(_space);
           _currentInput = "";
           _spacingConfirmed = true;
+          _importedMarks = null; // Manual spacing clear imported rack marks
 
           final spaceIn = _parseInches(_space);
           if (spaceIn > 0 && spaceIn < kMinWorkableSpacingIn) {
@@ -1931,7 +2159,9 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
         case WorkflowStep.boxWidth:
           _boxWidth = takeClean(_boxWidth);
           _currentInput = "";
-          _boxWidthConfirmed = true;
+          
+          final boxW = _parseInches(_boxWidth);
+          _boxWidthConfirmed = boxW > 0;
 
           if (!_hasCompletedOnce && _pipes.isEmpty) {
             _isBoxFirstWorkflow = true;
@@ -2028,6 +2258,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
           _buildModeTopBar(),
           const SizedBox(height: 4),
           _buildFullKeypad(),
+          _buildSuggestedBoxSizes(),
           const SizedBox(height: 4),
           _buildBottomScrollBar(),
           const SizedBox(height: 4),
@@ -2113,5 +2344,63 @@ class _RulerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _RulerPainter oldDelegate) {
     return oldDelegate.boxWidthText != boxWidthText;
+  }
+}
+
+class _BeveledButton extends StatelessWidget {
+  const _BeveledButton({
+    this.active = false,
+    this.redOutline = false,
+    required this.onTap,
+    required this.child,
+  });
+
+  final bool active;
+  final VoidCallback? onTap;
+  final Widget child;
+  final bool redOutline;
+
+  @override
+  Widget build(BuildContext context) {
+    final bool enabled = onTap != null;
+
+    return Container(
+      height: 45,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: active
+              ? const [
+            Color(0xFF8A1010),
+            Color(0xFFC82828),
+          ]
+              : enabled
+              ? const [
+            Color(0xFF454548),
+            Color(0xFF2B2D2D),
+          ]
+              : [
+            Colors.grey.shade800,
+            Colors.grey.shade900,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: redOutline
+              ? const Color(0xFFE53935)
+              : const Color(0xFF8C8C8C),
+          width: redOutline ? 1.7 : 0.9,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Center(child: child),
+        ),
+      ),
+    );
   }
 }
