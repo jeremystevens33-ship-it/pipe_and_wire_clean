@@ -1,6 +1,9 @@
 import 'dart:math' as math;
 
-enum BendingMethod { notch, centerline }
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+
+enum BendingMethod { notch, centerline, hook }
 enum ConduitType { emt, imc, rigid, pvc }
 enum MarkBMethod { pushThrough, reverseBender }
 
@@ -40,7 +43,7 @@ class Bender {
   // Deserialization for loading custom benders
   factory Bender.fromJson(Map<String, dynamic> json) => Bender(
         brand: json['brand'],
-        model: json['model'],
+        model: json['model'] ?? json['brand'],
         displayName: json['displayName'],
         conduitSize: json['conduitSize'],
         conduitType: ConduitType.values.firstWhere(
@@ -50,6 +53,52 @@ class Bender {
         deduct: (json['deduct'] as num).toDouble(),
         gain: (json['gain'] as num).toDouble(),
       );
+}
+
+/// Centralized storage for custom benders
+class BenderStore {
+  static const String _storageKey = 'rack_custom_benders';
+
+  /// Loads the list of custom benders from the phone's memory.
+  static Future<List<Bender>> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_storageKey);
+    if (raw == null || raw.isEmpty) return [];
+
+    try {
+      final List decoded = jsonDecode(raw);
+      return decoded.map((item) => Bender.fromJson(item)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Saves or Updates a bender in the phone's memory.
+  static Future<void> save(Bender bender) async {
+    final list = await load();
+
+    // Overwrite Logic: Remove any bender with same name, size, and type
+    list.removeWhere((b) =>
+        b.brand == bender.brand &&
+        b.conduitSize == bender.conduitSize &&
+        b.conduitType == bender.conduitType);
+
+    list.add(bender);
+
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(list.map((b) => b.toJson()).toList());
+    await prefs.setString(_storageKey, encoded);
+  }
+
+  /// Deletes a bender from memory.
+  static Future<void> delete(String nickname) async {
+    final list = await load();
+    list.removeWhere((b) => b.brand == nickname);
+
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(list.map((b) => b.toJson()).toList());
+    await prefs.setString(_storageKey, encoded);
+  }
 }
 
 // ===== OD tables (inches) =====
@@ -80,44 +129,18 @@ const List<String> pipeSizeOrder = [
 ];
 
 final List<Bender> benderDatabase = [
-  // ===== GARDNER BENDER =====
+  // ===========================================================================
+  // HAND BENDERS
+  // ===========================================================================
+
+  // Gardner Bender (Hand)
   const Bender(brand: 'Gardner Bender', model: '960 Big Ben', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 3.69, deduct: 5.0, gain: 2.29),
   const Bender(brand: 'Gardner Bender', model: '961 Big Ben', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 4.74, deduct: 6.0, gain: 2.96),
   const Bender(brand: 'Gardner Bender', model: '961 Big Ben', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.74, deduct: 6.0, gain: 2.87),
   const Bender(brand: 'Gardner Bender', model: '962 Big Ben', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 5.81, deduct: 8.0, gain: 3.66),
   const Bender(brand: 'Gardner Bender', model: '962 Big Ben', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 5.81, deduct: 8.0, gain: 3.54),
 
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.375, deduct: 7.625, gain: 2.584),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 8.5, gain: 3.228),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 11.0, gain: 3.953),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 7.84375, deduct: 13.0, gain: 4.877),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.375, deduct: 13.5, gain: 5.336),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.65625, deduct: 15.5, gain: 6.342),
-
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 7.75, gain: 2.718),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 5.3125, deduct: 9.0, gain: 3.330),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 6.21875, deduct: 11.0, gain: 3.984),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.71875, deduct: 12.75, gain: 4.973),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.234375, deduct: 13.5, gain: 5.435),
-  const Bender(brand: 'Gardner Bender Cyclone B2000', model: 'Cyclone', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.453125, deduct: 15.75, gain: 6.432),
-
-  // ===== GARDNER BENDER SIDEWINDER (MECHANICAL) =====
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.25, deduct: 6.5, gain: 2.53),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 7.875, gain: 3.228),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.75, deduct: 10.75, gain: 4.059),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 8.75, deduct: 13.0, gain: 5.266),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.28125, deduct: 13.0, gain: 5.29),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.1875, deduct: 15.0, gain: 6.145),
-
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 5.0625, gain: 2.718),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 4.5, deduct: 7.5, gain: 2.981),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 5.75, deduct: 8.125, gain: 3.783),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.25, deduct: 13.0, gain: 4.768),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.25, deduct: 15.0, gain: 5.441),
-  const Bender(brand: 'Gardner Bender Sidewinder', model: 'Sidewinder', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.5, deduct: 16.25, gain: 6.452),
-
-  // ===== GREENLEE =====
-  // Site-Rite® Hand Benders (Formula: Gain90 = (0.4292 * CLR) + OD)
+  // Greenlee (Hand)
   const Bender(brand: 'Greenlee', model: '840', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.1875, deduct: 5.0, gain: 2.503),
   const Bender(brand: 'Greenlee', model: '841', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.125, deduct: 6.0, gain: 3.122),
   const Bender(brand: 'Greenlee', model: '841', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 5.125, deduct: 6.0, gain: 3.040),
@@ -126,32 +149,7 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Greenlee', model: '843', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.625, deduct: 11.0, gain: 5.641),
   const Bender(brand: 'Greenlee', model: '843', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 9.625, deduct: 11.0, gain: 5.446),
 
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '0.5', conduitType: ConduitType.emt, deduct: 7.25, clr: 4.3125, gain: 2.557),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '0.5', conduitType: ConduitType.rigid, deduct: 7.5, clr: 4.25, gain: 2.664),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '0.75', conduitType: ConduitType.emt, deduct: 9.0, clr: 5.5, gain: 3.283),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '0.75', conduitType: ConduitType.rigid, deduct: 9.0, clr: 5.4375, gain: 3.384),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '1.0', conduitType: ConduitType.emt, deduct: 11.0, clr: 7.0, gain: 4.167),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '1.0', conduitType: ConduitType.rigid, deduct: 11.0, clr: 6.9375, gain: 4.293),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '1.25', conduitType: ConduitType.emt, deduct: 14.0, clr: 8.8125, gain: 5.292),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '1.25', conduitType: ConduitType.rigid, deduct: 14.0, clr: 8.75, gain: 5.416),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '1.5', conduitType: ConduitType.emt, deduct: 12.75, clr: 8.375, gain: 5.336),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '1.5', conduitType: ConduitType.rigid, deduct: 14.25, clr: 8.25, gain: 5.441),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '2.0', conduitType: ConduitType.emt, deduct: 13.375, clr: 9.25, gain: 6.176),
-  const Bender(brand: 'Greenlee 555', model: '555', conduitSize: '2.0', conduitType: ConduitType.rigid, deduct: 16.125, clr: 9.0, gain: 6.238),
-
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '0.5', conduitType: ConduitType.rigid, deduct: 6.0, clr: 2.65625, gain: 1.980),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '0.75', conduitType: ConduitType.rigid, deduct: 8.125, clr: 4.50000, gain: 2.981),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '1.0', conduitType: ConduitType.rigid, deduct: 10.25, clr: 5.87500, gain: 3.837),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '1.25', conduitType: ConduitType.rigid, deduct: 12.375, clr: 7.12500, gain: 4.729),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '1.5', conduitType: ConduitType.rigid, deduct: 15.0, clr: 9.00000, gain: 5.762),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '2.0', conduitType: ConduitType.rigid, deduct: 16.3125, clr: 10.50000, gain: 6.882),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '0.75', conduitType: ConduitType.emt, deduct: 8.6875, clr: 5.09375, gain: 3.106),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '1.0', conduitType: ConduitType.emt, deduct: 10.25, clr: 6.40625, gain: 3.910),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '1.25', conduitType: ConduitType.emt, deduct: 12.625, clr: 7.625, gain: 4.786),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '1.5', conduitType: ConduitType.emt, deduct: 12.9375, clr: 8.28125, gain: 5.290),
-  const Bender(brand: 'Greenlee 1818', model: '1818', conduitSize: '2.0', conduitType: ConduitType.emt, deduct: 15.0, clr: 9.1875, gain: 6.145),
-
-  // ===== IDEAL =====
+  // Ideal (Hand)
   const Bender(brand: 'Ideal', model: '74-031', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.34375, deduct: 5.0, gain: 2.570),
   const Bender(brand: 'Ideal', model: '74-032', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.203125, deduct: 6.0, gain: 3.155),
   const Bender(brand: 'Ideal', model: '74-032', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 5.203125, deduct: 6.0, gain: 3.073),
@@ -160,7 +158,7 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Ideal', model: '74-036', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.75, deduct: 11.0, gain: 5.694),
   const Bender(brand: 'Ideal', model: '74-036', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 9.75, deduct: 11.0, gain: 5.499),
 
-  // ===== KLEIN (IRON) =====
+  // Klein (Hand)
   const Bender(brand: 'Klein (Iron)', model: '56208', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.3125, deduct: 5.0, gain: 2.557),
   const Bender(brand: 'Klein (Iron)', model: '56209', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.125, deduct: 6.0, gain: 3.122),
   const Bender(brand: 'Klein (Iron)', model: '56209', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 5.125, deduct: 6.0, gain: 3.040),
@@ -168,18 +166,103 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Klein (Iron)', model: '56210', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 6.5, deduct: 8.0, gain: 3.840),
   const Bender(brand: 'Klein (Iron)', model: '56211', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.625, deduct: 11.0, gain: 5.641),
   const Bender(brand: 'Klein (Iron)', model: '56211', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 9.625, deduct: 11.0, gain: 5.446),
-
-  // ===== KLEIN (ALUMINUM) =====
   const Bender(brand: 'Klein (Aluminum)', model: '56206', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 5.0, deduct: 5.0, gain: 2.854),
   const Bender(brand: 'Klein (Aluminum)', model: '56207', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 6.0, deduct: 6.0, gain: 3.497),
   const Bender(brand: 'Klein (Aluminum)', model: '56207', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 6.0, deduct: 6.0, gain: 3.415),
 
-  // ===== MILWAUKEE =====
+  // Milwaukee (Hand)
   const Bender(brand: 'Milwaukee', model: '48-22-4080', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.5, deduct: 5.0, gain: 2.637),
   const Bender(brand: 'Milwaukee', model: '48-22-4081', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.25, deduct: 6.0, gain: 3.175),
   const Bender(brand: 'Milwaukee', model: '48-22-4081', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 5.25, deduct: 6.0, gain: 3.093),
   const Bender(brand: 'Milwaukee', model: '48-22-4082', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 8.0, gain: 3.953),
   const Bender(brand: 'Milwaukee', model: '48-22-4082', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 6.5, deduct: 8.0, gain: 3.840),
+
+  // ===========================================================================
+  // MECHANICAL BENDERS
+  // ===========================================================================
+
+  // Greenlee 1818
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '0.5', conduitType: ConduitType.rigid, deduct: 6.0, clr: 2.65625, gain: 1.980),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '0.75', conduitType: ConduitType.rigid, deduct: 8.125, clr: 4.50000, gain: 2.981),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '1.0', conduitType: ConduitType.rigid, deduct: 10.25, clr: 5.87500, gain: 3.837),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '1.25', conduitType: ConduitType.rigid, deduct: 12.375, clr: 7.12500, gain: 4.729),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '1.5', conduitType: ConduitType.rigid, deduct: 15.0, clr: 9.00000, gain: 5.762),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '2.0', conduitType: ConduitType.rigid, deduct: 16.3125, clr: 10.50000, gain: 6.882),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '0.75', conduitType: ConduitType.emt, deduct: 8.6875, clr: 5.09375, gain: 3.106),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '1.0', conduitType: ConduitType.emt, deduct: 10.25, clr: 6.40625, gain: 3.910),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '1.25', conduitType: ConduitType.emt, deduct: 12.625, clr: 7.625, gain: 4.786),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '1.5', conduitType: ConduitType.emt, deduct: 12.9375, clr: 8.28125, gain: 5.290),
+  const Bender(brand: 'Greenlee 1818', model: '', conduitSize: '2.0', conduitType: ConduitType.emt, deduct: 15.0, clr: 9.1875, gain: 6.145),
+
+  // Gardner Bender Sidewinder
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.25, deduct: 6.5, gain: 2.53),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 7.875, gain: 3.228),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.75, deduct: 10.75, gain: 4.059),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 8.75, deduct: 13.0, gain: 5.266),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.28125, deduct: 13.0, gain: 5.29),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.1875, deduct: 15.0, gain: 6.145),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 5.0625, gain: 2.718),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 4.5, deduct: 7.5, gain: 2.981),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 5.75, deduct: 8.125, gain: 3.783),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.25, deduct: 13.0, gain: 4.768),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.25, deduct: 15.0, gain: 5.441),
+  const Bender(brand: 'Gardner Bender Sidewinder', model: '', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.5, deduct: 16.25, gain: 6.452),
+
+  // ===========================================================================
+  // ELECTRIC BENDERS
+  // ===========================================================================
+
+  // Greenlee 555
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '0.5', conduitType: ConduitType.emt, deduct: 7.25, clr: 4.3125, gain: 2.557),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '0.5', conduitType: ConduitType.rigid, deduct: 7.5, clr: 4.25, gain: 2.664),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '0.75', conduitType: ConduitType.emt, deduct: 9.0, clr: 5.5, gain: 3.283),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '0.75', conduitType: ConduitType.rigid, deduct: 9.0, clr: 5.4375, gain: 3.384),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '1.0', conduitType: ConduitType.emt, deduct: 11.0, clr: 7.0, gain: 4.167),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '1.0', conduitType: ConduitType.rigid, deduct: 11.0, clr: 6.9375, gain: 4.293),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '1.25', conduitType: ConduitType.emt, deduct: 14.0, clr: 8.8125, gain: 5.292),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '1.25', conduitType: ConduitType.rigid, deduct: 14.0, clr: 8.75, gain: 5.416),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '1.5', conduitType: ConduitType.emt, deduct: 12.75, clr: 8.375, gain: 5.336),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '1.5', conduitType: ConduitType.rigid, deduct: 14.25, clr: 8.25, gain: 5.441),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '2.0', conduitType: ConduitType.emt, deduct: 13.375, clr: 9.25, gain: 6.176),
+  const Bender(brand: 'Greenlee 555', model: '', conduitSize: '2.0', conduitType: ConduitType.rigid, deduct: 16.125, clr: 9.0, gain: 6.238),
+
+  // Gardner Bender Cyclone
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.375, deduct: 7.625, gain: 2.584),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '0.75', conduitType: ConduitType.emt, clr: 5.375, deduct: 8.5, gain: 3.228),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 6.5, deduct: 11.0, gain: 3.953),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 7.84375, deduct: 13.0, gain: 4.877),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '1.5', conduitType: ConduitType.emt, clr: 8.375, deduct: 13.5, gain: 5.336),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '2.0', conduitType: ConduitType.emt, clr: 9.65625, deduct: 15.5, gain: 6.342),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 4.375, deduct: 7.75, gain: 2.718),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 5.3125, deduct: 9.0, gain: 3.330),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 6.21875, deduct: 11.0, gain: 3.984),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '1.25', conduitType: ConduitType.rigid, clr: 7.71875, deduct: 12.75, gain: 4.973),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '1.5', conduitType: ConduitType.rigid, clr: 8.234375, deduct: 13.5, gain: 5.435),
+  const Bender(brand: 'Gardner Bender Cyclone B2000', model: '', conduitSize: '2.0', conduitType: ConduitType.rigid, clr: 9.453125, deduct: 15.75, gain: 6.432),
+
+  // ===========================================================================
+  // HYDRAULIC BENDERS
+  // ===========================================================================
+
+  // Greenlee 881 Cam Track
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '2.5', conduitType: ConduitType.rigid, clr: 13.5, deduct: 21.5, gain: 8.669),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '3.0', conduitType: ConduitType.rigid, clr: 15.0, deduct: 24.25, gain: 9.938),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '3.5', conduitType: ConduitType.rigid, clr: 17.5, deduct: 28.25, gain: 11.511),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '4.0', conduitType: ConduitType.rigid, clr: 20.875, deduct: 32.5, gain: 13.460),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '2.5', conduitType: ConduitType.emt, clr: 13.5, deduct: 21.5, gain: 8.669),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '3.0', conduitType: ConduitType.emt, clr: 15.0, deduct: 24.0, gain: 9.938),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '3.5', conduitType: ConduitType.emt, clr: 17.5, deduct: 27.75, gain: 11.511),
+  const Bender(brand: 'Greenlee 881', model: '', conduitSize: '4.0', conduitType: ConduitType.emt, clr: 20.875, deduct: 32.25, gain: 13.460),
+
+  // Gardner Bender Ultra-E
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '2.5', conduitType: ConduitType.rigid, clr: 13.5, deduct: 15.625, gain: 8.669),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '3.0', conduitType: ConduitType.rigid, clr: 15.875, deduct: 18.25, gain: 10.314),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '3.5', conduitType: ConduitType.rigid, clr: 18.5, deduct: 21.25, gain: 11.940),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '4.0', conduitType: ConduitType.rigid, clr: 21.0, deduct: 24.125, gain: 13.513),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '2.5', conduitType: ConduitType.emt, clr: 13.5, deduct: 15.625, gain: 8.669),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '3.0', conduitType: ConduitType.emt, clr: 15.875, deduct: 18.25, gain: 10.314),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '3.5', conduitType: ConduitType.emt, clr: 18.5, deduct: 21.25, gain: 11.940),
+  const Bender(brand: 'Gardner Bender Ultra-E', model: '', conduitSize: '4.0', conduitType: ConduitType.emt, clr: 21.0, deduct: 24.125, gain: 13.513),
 ];
 
 // This helper function calculate 90° gain based on CLR and OD.
@@ -188,6 +271,13 @@ final List<Bender> benderDatabase = [
 double calculateGain90(double clr, double od) {
   const double gainConstant = 2 - (math.pi / 2); // Approx. 0.4292
   return (gainConstant * clr) + od;
+}
+
+// Formula: CLR = (Gain90 - OD) / (2 - (π / 2))
+double calculateCLRFromGain(double gain, double od) {
+  const double gainConstant = 2 - (math.pi / 2);
+  if (od <= 0 || gain <= od) return 0.0;
+  return (gain - od) / gainConstant;
 }
 
 // This helper function calculates the 90° travel for a given CLR.
@@ -206,16 +296,22 @@ const Set<String> electricBenderBrands = {
   'Gardner Bender Cyclone B2000',
 };
 
+const Set<String> hydraulicBenderBrands = {
+  'Greenlee 881',
+  'Gardner Bender Ultra-E',
+};
+
 const Set<String> mechanicalElectricBenderBrands = {
   ...mechanicalBenderBrands,
   ...electricBenderBrands,
+  ...hydraulicBenderBrands,
 };
 
 // =============================================================================
 // Centralized Bender Selection Logic
 // =============================================================================
 
-/// Returns grouped brand lists for dropdowns (Hand, Mechanical, Electric).
+/// Returns grouped brand lists for dropdowns (Hand, Mechanical, Electric, Hydraulic).
 List<Map<String, String>> getGroupedBenderBrands() {
   final handBenders = benderDatabase
       .where((b) => !mechanicalElectricBenderBrands.contains(b.brand))
@@ -229,6 +325,10 @@ List<Map<String, String>> getGroupedBenderBrands() {
       .where((b) => electricBenderBrands.contains(b.brand))
       .map((b) => b.brand).toSet().toList()..sort();
 
+  final hydraulic = benderDatabase
+      .where((b) => hydraulicBenderBrands.contains(b.brand))
+      .map((b) => b.brand).toSet().toList()..sort();
+
   return [
     {'type': 'header', 'name': 'HAND BENDERS'},
     ...handBenders.map((name) => {'type': 'bender', 'name': name}),
@@ -236,6 +336,8 @@ List<Map<String, String>> getGroupedBenderBrands() {
     ...mechanical.map((name) => {'type': 'bender', 'name': name}),
     {'type': 'header', 'name': 'ELECTRIC BENDERS'},
     ...electric.map((name) => {'type': 'bender', 'name': name}),
+    {'type': 'header', 'name': 'HYDRAULIC BENDERS'},
+    ...hydraulic.map((name) => {'type': 'bender', 'name': name}),
   ];
 }
 
@@ -253,6 +355,9 @@ Map<String, String> getFilteredPipeSizes(String? brand) {
     // Machine/Electric Benders: Capped at 2"
     final int maxIndex = pipeSizeOrder.indexOf('2.0');
     availableSizes.addAll(pipeSizeOrder.sublist(0, maxIndex + 1));
+  } else if (brand.contains('881') || brand.contains('Ultra-E')) {
+    // Large Hydraulic Benders: 2.5" to 4"
+    availableSizes.addAll(['2.5', '3.0', '3.5', '4.0']);
   } else if (brand.contains('Aluminum')) {
     // Specialized Klein Aluminum: Capped at 3/4"
     final int maxIndex = pipeSizeOrder.indexOf('0.75');
@@ -270,6 +375,37 @@ Map<String, String> getFilteredPipeSizes(String? brand) {
   return Map.fromEntries(
     pipeSizes.entries.where((entry) => availableSizes.contains(entry.key)),
   );
+}
+
+// =============================================================================
+// BENDER CLEARANCE / COLLISION CHECK
+// =============================================================================
+
+/// Calculates where the 90° curve physically ends on the pipe, measured from
+/// the end (0 mark).
+///
+/// Formula: End of Curve = Stub - (CLR + Pipe OD / 2) + 90° Travel
+double calculateCurveEnd({
+  required double stub,
+  required double clr,
+  required double pipeOD,
+}) {
+  final travel90 = (math.pi * clr) / 2.0;
+  return stub - (clr + (pipeOD / 2.0)) + travel90;
+}
+
+/// Returns true if the bender shoe has enough "straight" pipe to seat properly
+/// after a 90° bend.
+///
+/// [markB] is the physical mark where the bender hook sits for the next bend.
+/// [curveEnd] is the result of calculateCurveEnd().
+bool isBenderClearanceSafe({
+  required double markB,
+  required double curveEnd,
+  double buffer = 0.5,
+}) {
+  // If the hook mark is at or beyond the end of the curve, we are safe.
+  return markB >= (curveEnd + buffer);
 }
 
 // =============================================================================
@@ -517,7 +653,9 @@ double calculateKick90MarkB({
   required double gain90,
   required double pipeOD,
   required double clr,
+  required double deduct,
   required BendingMethod method,
+  bool reverse = false,
 }) {
   final centerlineMarkB =
   calculateKick90CenterlineMarkB(
@@ -530,6 +668,17 @@ double calculateKick90MarkB({
 
   if (method == BendingMethod.centerline) {
     return centerlineMarkB;
+  }
+
+  if (method == BendingMethod.hook) {
+    return convertCenterMarkToFrontHookMark(
+      centerMark: centerlineMarkB,
+      deduct: deduct,
+      clr: clr,
+      pipeOD: pipeOD,
+      angleDeg: angleDeg,
+      reverse: reverse,
+    );
   }
 
 // BendingMethod.notch is now used as:
@@ -1229,6 +1378,7 @@ Kick90SameAngleSamePlaneResult calculateKick90SameAngleSamePlane({
     gain90: gain90,
     pipeOD: pipeOD,
     clr: clr,
+    deduct: takeUp,
     method: method,
   );
 
@@ -1333,6 +1483,7 @@ double calculateKick90MarkBFromDistanceBetweenBends({
   required double gain90,
   required double pipeOD,
   required double clr,
+  required double deduct,
   required BendingMethod method,
 }) {
   final centerlineMarkB =
@@ -1340,6 +1491,16 @@ double calculateKick90MarkBFromDistanceBetweenBends({
 
   if (method == BendingMethod.centerline) {
     return centerlineMarkB;
+  }
+
+  if (method == BendingMethod.hook) {
+    return convertCenterMarkToFrontHookMark(
+      centerMark: centerlineMarkB,
+      deduct: deduct,
+      clr: clr,
+      pipeOD: pipeOD,
+      angleDeg: angleDeg,
+    );
   }
 
   return calculateKick90NotchMarkFromCenterline(
@@ -1424,6 +1585,7 @@ Kick90SameStartSamePlaneResult calculateKick90SameStartSamePlane({
     gain90: gain90,
     pipeOD: pipeOD,
     clr: clr,
+    deduct: takeUp,
     method: method,
   );
 
@@ -1602,7 +1764,59 @@ Kick90SameStartSamePlaneResult calculateKick90SameStartSamePlane({
 //   Front Hook Mark = 31"
 //
 // The user marks 31" on the pipe and places the FRONT OF THE HOOK on that mark.
-//
+
+double calculateFrontHookStartAdjustment({
+  required double deduct,
+  required double clr,
+  required double pipeOD,
+}) {
+  return deduct - (clr + (pipeOD / 2.0));
+}
+
+double calculateFrontHookAdjustment({
+  required double deduct,
+  required double clr,
+  required double pipeOD,
+  required double angleDeg,
+}) {
+  final startAdjustment = calculateFrontHookStartAdjustment(
+    deduct: deduct,
+    clr: clr,
+    pipeOD: pipeOD,
+  );
+
+  final radiusAdjustment = calculateRadiusAdjustment(
+    clr: clr,
+    angleDeg: angleDeg,
+  );
+
+  return startAdjustment + radiusAdjustment;
+}
+
+double convertCenterMarkToFrontHookMark({
+  required double centerMark,
+  required double deduct,
+  required double clr,
+  required double pipeOD,
+  required double angleDeg,
+  bool reverse = false,
+}) {
+  final frontHookAdjustment = calculateFrontHookAdjustment(
+    deduct: deduct,
+    clr: clr,
+    pipeOD: pipeOD,
+    angleDeg: angleDeg,
+  );
+
+  // Normal orientation:
+  // The front of the hook is farther along the tape than the true center mark.
+  //
+  // Reverse orientation:
+  // The bender is turned around, so the hook mark falls before the center mark.
+  return reverse
+      ? centerMark - frontHookAdjustment
+      : centerMark + frontHookAdjustment;
+}
 // =============================================================================
 // 45° NOTCH / TEARDROP METHOD
 // =============================================================================
@@ -1716,7 +1930,61 @@ double convertCenterMarkTo45NotchMark({
 
   return centerMark;
 }
+// =============================================================================
+// CENTER MARK TO SELECTED BENDER REFERENCE
+// =============================================================================
+//
+// Every calculation should first determine the TRUE CENTER-OF-BEND mark.
+//
+// This helper then converts that true center mark into the physical reference
+// the user will place on the conduit:
+//
+// CENTERLINE:
+//   Returns the true center mark unchanged.
+//
+// NOTCH:
+//   Converts the true center mark to the 45° notch / teardrop.
+//
+// HOOK:
+//   Converts the true center mark to the front of the machine-bender hook.
+//
+// Normal orientation uses the standard measuring direction.
+// Reverse orientation turns the bender around and reverses the translation.
+//
+// =============================================================================
 
+double convertCenterMarkToBenderReference({
+  required double centerMark,
+  required BendingMethod method,
+  required double clr,
+  required double deduct,
+  required double pipeOD,
+  required double angleDeg,
+  bool reverse = false,
+}) {
+  switch (method) {
+    case BendingMethod.centerline:
+      return centerMark;
+
+    case BendingMethod.notch:
+      return convertCenterMarkTo45NotchMark(
+        centerMark: centerMark,
+        clr: clr,
+        angleDeg: angleDeg,
+        reverse: reverse,
+      );
+
+    case BendingMethod.hook:
+      return convertCenterMarkToFrontHookMark(
+        centerMark: centerMark,
+        deduct: deduct,
+        clr: clr,
+        pipeOD: pipeOD,
+        angleDeg: angleDeg,
+        reverse: reverse,
+      );
+  }
+}
 // =============================================================================
 // 3-POINT SADDLE CALCULATIONS (PUSH-THROUGH METHOD)
 // =============================================================================
@@ -1837,6 +2105,7 @@ double calculateSaddle3PointMark({
   required double angleDeg,
   required double pipeOD,
   required double clr,
+  required double deduct,
   required String markType, // 'A', 'B', or 'C'
   bool reverse = false,
   BendingMethod method = BendingMethod.notch,
@@ -1857,6 +2126,19 @@ double calculateSaddle3PointMark({
 
   if (method == BendingMethod.centerline) {
     return centerlineMark;
+  }
+
+  if (method == BendingMethod.hook) {
+    // Mark B uses double the angle for the center bend
+    final targetAngle = (markType == 'B') ? (angleDeg * 2.0) : angleDeg;
+    return convertCenterMarkToFrontHookMark(
+      centerMark: centerlineMark,
+      deduct: deduct,
+      clr: clr,
+      pipeOD: pipeOD,
+      angleDeg: targetAngle,
+      reverse: reverse,
+    );
   }
 
   // Always translate to the notch for push-through convenience
@@ -1906,6 +2188,7 @@ Saddle3PointResult calculateSaddle3Point({
   required double angleDeg,
   required double pipeOD,
   required double clr,
+  required double deduct,
   required double runLength,
   BendingMethod method = BendingMethod.notch,
 }) {
@@ -1916,14 +2199,14 @@ Saddle3PointResult calculateSaddle3Point({
 
   double mA, mC;
   if (isLong) {
-    mA = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'C', reverse: true, method: method);
-    mC = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'A', reverse: true, method: method);
+    mA = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, deduct: deduct, markType: 'C', reverse: true, method: method);
+    mC = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, deduct: deduct, markType: 'A', reverse: true, method: method);
   } else {
-    mA = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'A', reverse: false, method: method);
-    mC = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'C', reverse: false, method: method);
+    mA = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, deduct: deduct, markType: 'A', reverse: false, method: method);
+    mC = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, deduct: deduct, markType: 'C', reverse: false, method: method);
   }
 
-  final mB = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, markType: 'B', reverse: isLong, method: method);
+  final mB = calculateSaddle3PointMark(centerDistance: centerDistance, height: height, angleDeg: angleDeg, pipeOD: pipeOD, clr: clr, deduct: deduct, markType: 'B', reverse: isLong, method: method);
   final mD = calculateSaddle3PointCutLength(runLength: runLength, height: height, angleDeg: angleDeg);
 
   return Saddle3PointResult(markA: mA, markB: mB, markC: mC, cutLength: mD);
@@ -2035,6 +2318,7 @@ Saddle4PointResult calculateSaddle4Point({
   required double obstructionLength,
   required double pipeOD,
   required double clr,
+  required double deduct,
   required double runLength,
   BendingMethod method = BendingMethod.notch,
 }) {
@@ -2058,16 +2342,30 @@ Saddle4PointResult calculateSaddle4Point({
   double rA, rB, rC, rD;
   if (isLong) {
     // START AT THE FURTHEST MARK (centerlineD) and push forward through C, B, A
-    rA = convertCenterMarkTo45NotchMark(centerMark: centerlineD, clr: clr, angleDeg: angleDeg, reverse: true);
-    rB = convertCenterMarkTo45NotchMark(centerMark: centerlineC, clr: clr, angleDeg: angleDeg, reverse: true);
-    rC = convertCenterMarkTo45NotchMark(centerMark: centerlineB, clr: clr, angleDeg: angleDeg, reverse: true);
-    rD = convertCenterMarkTo45NotchMark(centerMark: centerlineA, clr: clr, angleDeg: angleDeg, reverse: true);
+    if (method == BendingMethod.hook) {
+      rA = convertCenterMarkToFrontHookMark(centerMark: centerlineD, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: true);
+      rB = convertCenterMarkToFrontHookMark(centerMark: centerlineC, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: true);
+      rC = convertCenterMarkToFrontHookMark(centerMark: centerlineB, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: true);
+      rD = convertCenterMarkToFrontHookMark(centerMark: centerlineA, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: true);
+    } else {
+      rA = convertCenterMarkTo45NotchMark(centerMark: centerlineD, clr: clr, angleDeg: angleDeg, reverse: true);
+      rB = convertCenterMarkTo45NotchMark(centerMark: centerlineC, clr: clr, angleDeg: angleDeg, reverse: true);
+      rC = convertCenterMarkTo45NotchMark(centerMark: centerlineB, clr: clr, angleDeg: angleDeg, reverse: true);
+      rD = convertCenterMarkTo45NotchMark(centerMark: centerlineA, clr: clr, angleDeg: angleDeg, reverse: true);
+    }
   } else {
     // START AT THE NEAREST MARK (centerlineA) and push forward through B, C, D
-    rA = convertCenterMarkTo45NotchMark(centerMark: centerlineA, clr: clr, angleDeg: angleDeg, reverse: false);
-    rB = convertCenterMarkTo45NotchMark(centerMark: centerlineB, clr: clr, angleDeg: angleDeg, reverse: false);
-    rC = convertCenterMarkTo45NotchMark(centerMark: centerlineC, clr: clr, angleDeg: angleDeg, reverse: false);
-    rD = convertCenterMarkTo45NotchMark(centerMark: centerlineD, clr: clr, angleDeg: angleDeg, reverse: false);
+    if (method == BendingMethod.hook) {
+      rA = convertCenterMarkToFrontHookMark(centerMark: centerlineA, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: false);
+      rB = convertCenterMarkToFrontHookMark(centerMark: centerlineB, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: false);
+      rC = convertCenterMarkToFrontHookMark(centerMark: centerlineC, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: false);
+      rD = convertCenterMarkToFrontHookMark(centerMark: centerlineD, deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: false);
+    } else {
+      rA = convertCenterMarkTo45NotchMark(centerMark: centerlineA, clr: clr, angleDeg: angleDeg, reverse: false);
+      rB = convertCenterMarkTo45NotchMark(centerMark: centerlineB, clr: clr, angleDeg: angleDeg, reverse: false);
+      rC = convertCenterMarkTo45NotchMark(centerMark: centerlineC, clr: clr, angleDeg: angleDeg, reverse: false);
+      rD = convertCenterMarkTo45NotchMark(centerMark: centerlineD, clr: clr, angleDeg: angleDeg, reverse: false);
+    }
   }
 
   if (method == BendingMethod.centerline) {

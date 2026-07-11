@@ -2,11 +2,16 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:collection/collection.dart';
 
 import 'keypad_5.dart';
+import 'keypad_6.dart';
 import 'rack_builder_11.dart';
 import 'rack_state.dart';
 import 'main_menu_screen.dart';
+import 'bender_picker_dialog.dart';
+import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -25,6 +30,7 @@ void main() async {
 const kRed = Color(0xFFE53935);
 const kBlack = Colors.black;
 const kLight = Colors.white;
+const kGreen = Color(0xFF4CAF50);
 
 class OffsetStartingPointScreen extends StatefulWidget {
   const OffsetStartingPointScreen({super.key});
@@ -34,24 +40,39 @@ class OffsetStartingPointScreen extends StatefulWidget {
       _OffsetStartingPointScreenState();
 }
 
-class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
-  @override
-  void initState() {
-    super.initState();
-
-    parallelSpacingCtl.addListener(_onParallelSpacingChanged);
-  }
-  bool _isMeasurementsExpanded = true;
+class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> with TickerProviderStateMixin {
+  int _currentStep = 0;
+  bool _isBenderExpanded = true;
+  bool _isMeasurementsExpanded = false;
   bool _isResultsExpanded = false;
+  bool _showBendingMethodCard = false;
+  bool _bendingMethodCardExpanded = false;
+  bool _isCalculateReady = false;
+
+  late final AnimationController _infoAnimCtrl;
+  bool _hasViewedInfo = false;
+
+  bool get _isBenderSetupComplete => _selectedBrand != null && _selectedPipeSize != null;
+
+  String? _selectedBrand;
+  String? _selectedPipeSize;
+  bending_data.BendingMethod _bendingMethod = bending_data.BendingMethod.centerline; 
+  bool _isArrowMethod = true; 
+  bool _isBenderDirectionReversed = false; // Forward/Reverse Hook
+  final List<bending_data.Bender> _customBenders = [];
+  List<Map<String, String>> _allBrands = [];
 
   bool _isKeypadVisible = false;
   TextEditingController? _activeController;
+  bool _isNameEntryMode = false;
+  String _customBenderName = '';
 
   bool _showParallelSetup = false;
   bool _isRollingOffset = false;
   bool _isQuickMode = true;
   bool _modeTouched = false;
   bool _typeTouched = false;
+
   final distanceCtl = TextEditingController();
   final offsetHeightCtl = TextEditingController();
   final rollingVerticalCtl = TextEditingController();
@@ -59,45 +80,146 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
   final overallCtl = TextEditingController();
   final angleCtl = TextEditingController();
   final parallelSpacingCtl = TextEditingController();
+  final parallelPipeCountCtl = TextEditingController();
+  final parallelPipeSizeCtl = TextEditingController();
+
+  final takeUpCtl = TextEditingController();
+  final gainCtl = TextEditingController();
+  final radiusCtl = TextEditingController();
+  final setbackCtl = TextEditingController();
+
+  String _parallelConduitType = 'EMT';
   final ScrollController _scrollCtl = ScrollController();
   String markA = '';
   String markB = '';
   String markC = '';
   String shrinkOut = '';
   String travelOut = '';
+  String radiusAdjustmentOut = '';
+  String referenceAdjustmentOut = '';
+  String referenceAdjustmentLabel = 'Reference Adjustment';
+  double _rawMarkA = 0.0;
+  double _rawMarkB = 0.0;
+  double _rawCut = 0.0;
+  double _rawTakeUp = 0.0;
+  double _rawGain = 0.0;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadCustomBenders();
+    _updateBrandDropdown();
 
-  void _onParallelSpacingChanged() {
-    setState(() {});
+    parallelSpacingCtl.addListener(_onParallelSpacingChanged);
+    distanceCtl.addListener(_onInputChanged);
+    offsetHeightCtl.addListener(_onInputChanged);
+    rollingVerticalCtl.addListener(_onInputChanged);
+    rollingHorizontalCtl.addListener(_onInputChanged);
+    overallCtl.addListener(_onInputChanged);
+    angleCtl.addListener(_onInputChanged);
+
+    distanceCtl.addListener(_updateCalculateReady);
+    offsetHeightCtl.addListener(_updateCalculateReady);
+    rollingVerticalCtl.addListener(_updateCalculateReady);
+    rollingHorizontalCtl.addListener(_updateCalculateReady);
+    overallCtl.addListener(_updateCalculateReady);
+    angleCtl.addListener(_updateCalculateReady);
+
+    takeUpCtl.addListener(_updateSetback);
+    gainCtl.addListener(_updateSetback);
+    gainCtl.addListener(_updateRadiusFromGain);
+    radiusCtl.addListener(_updateGainFromRadius);
+
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
   }
+
+  void _onParallelSpacingChanged() => setState(() {});
+  void _onInputChanged() => setState(() {});
+
+  void _updateCalculateReady() {
+    bool ready = false;
+    if (_isRollingOffset) {
+      if (_isQuickMode) {
+        ready = rollingVerticalCtl.text.isNotEmpty && rollingHorizontalCtl.text.isNotEmpty && angleCtl.text.isNotEmpty;
+      } else {
+        ready = rollingVerticalCtl.text.isNotEmpty && rollingHorizontalCtl.text.isNotEmpty && angleCtl.text.isNotEmpty && distanceCtl.text.isNotEmpty && overallCtl.text.isNotEmpty;
+      }
+    } else {
+      if (_isQuickMode) {
+        ready = offsetHeightCtl.text.isNotEmpty && angleCtl.text.isNotEmpty;
+      } else {
+        ready = offsetHeightCtl.text.isNotEmpty && angleCtl.text.isNotEmpty && distanceCtl.text.isNotEmpty && overallCtl.text.isNotEmpty;
+      }
+    }
+    if (ready != _isCalculateReady) {
+      setState(() => _isCalculateReady = ready);
+    }
+  }
+
+  Future<void> _loadCustomBenders() async {
+    final benders = await bending_data.BenderStore.load();
+    setState(() {
+      _customBenders.clear();
+      _customBenders.addAll(benders);
+      _updateBrandDropdown();
+    });
+  }
+
+  void _updateBrandDropdown() {
+    final brands = bending_data.getGroupedBenderBrands();
+    setState(() {
+      _allBrands = [
+        ...brands,
+        {'type': 'header', 'name': 'SAVED BENDERS'},
+        ..._customBenders.map((b) => {'type': 'custom_bender', 'name': b.brand}),
+      ];
+    });
+  }
+
+  void _updateSetback() {
+    final takeUp = parseInches(takeUpCtl.text);
+    final gain = parseInches(gainCtl.text);
+    if (takeUp > 0 && gain > 0) setbackCtl.text = fmtInches(takeUp - gain);
+  }
+
+  void _updateGainFromRadius() {
+    if (_activeController != radiusCtl) return;
+    final radiusText = radiusCtl.text.trim();
+    if (radiusText.isEmpty || _selectedPipeSize == null) { gainCtl.text = ''; return; }
+    final radius = parseInches(radiusText);
+    final double pipeOD = (_parallelConduitType == 'Rigid' ? bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)] : bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
+    if (pipeOD <= 0 || radius <= 0) return;
+    gainCtl.text = fmtInches(bending_data.calculateGain90(radius, pipeOD));
+  }
+
+  void _updateRadiusFromGain() {
+    if (_activeController != gainCtl) return;
+    final gainText = gainCtl.text.trim();
+    if (gainText.isEmpty || _selectedPipeSize == null) { radiusCtl.text = ''; return; }
+    final gain = parseInches(gainText);
+    final double pipeOD = (_parallelConduitType == 'Rigid' ? bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)] : bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
+    if (pipeOD <= 0 || gain <= pipeOD) { radiusCtl.text = ''; return; }
+    radiusCtl.text = fmtInches(bending_data.calculateCLRFromGain(gain, pipeOD));
+  }
+
+  @override
   void dispose() {
-    distanceCtl.dispose();
-    offsetHeightCtl.dispose();
-    rollingVerticalCtl.dispose();
-    rollingHorizontalCtl.dispose();
-    overallCtl.dispose();
-    angleCtl.dispose();
-    parallelSpacingCtl.dispose();
-    parallelSpacingCtl.removeListener(_onParallelSpacingChanged);
+    for (var c in [distanceCtl, offsetHeightCtl, rollingVerticalCtl, rollingHorizontalCtl, overallCtl, angleCtl, parallelSpacingCtl, takeUpCtl, gainCtl, radiusCtl, setbackCtl]) {
+      c.dispose();
+    }
     _scrollCtl.dispose();
+    _infoAnimCtrl.dispose();
     super.dispose();
   }
 
-  void _showKeypad(
-      TextEditingController controller, {
-        bool clearFirst = false,
-      }) {
+  void _showKeypad(TextEditingController c, {bool clearFirst = true}) {
     setState(() {
-      if (_activeController != controller) {
-        _commitActiveFieldFormatting();
-      }
-
-      _activeController = controller;
-
-      if (clearFirst) {
-        controller.clear();
-      }
-
+      if (_activeController != c) _commitActiveFieldFormatting();
+      _activeController = c;
+      if (clearFirst && c.text.isNotEmpty) c.clear();
       _isKeypadVisible = true;
     });
   }
@@ -109,6 +231,7 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       _isKeypadVisible = false;
     });
   }
+
   void _advanceFocus() {
     if (_isRollingOffset) {
       if (_activeController == rollingVerticalCtl) {
@@ -127,10 +250,6 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       } else if (_activeController == overallCtl) {
         _hideKeypad();
         calculate();
-      } else if (_activeController == parallelSpacingCtl) {
-        _hideKeypad();
-      } else {
-        _hideKeypad();
       }
     } else {
       if (_activeController == offsetHeightCtl) {
@@ -147,71 +266,64 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       } else if (_activeController == overallCtl) {
         _hideKeypad();
         calculate();
-      } else if (_activeController == parallelSpacingCtl) {
-        _hideKeypad();
-      } else {
-        _hideKeypad();
       }
     }
+    if (_activeController == parallelPipeCountCtl) {
+      _showKeypad(parallelPipeSizeCtl);
+    } else if (_activeController == parallelPipeSizeCtl) {
+      _showKeypad(parallelSpacingCtl);
+    } else if (_activeController == parallelSpacingCtl) {
+      _hideKeypad();
+    }
   }
-  void _commitActiveFieldFormatting() {
-    final c = _activeController;
-    if (c == null || c.text.trim().isEmpty) return;
 
+  void _commitActiveFieldFormatting() {
+    final c = _activeController; if (c == null || c.text.trim().isEmpty) return;
     if (c == angleCtl) {
       final angle = double.tryParse(c.text.replaceAll('°', '').trim()) ?? 0;
-      if (angle > 0) {
-        c.text = angle.toString().replaceAll('.0', '');
-      }
+      if (angle > 0) c.text = angle.toString().replaceAll('.0', '');
       return;
     }
-
     final v = parseInches(c.text);
-    c.text = fmtInches(v);
+    c.text = v == 0 ? '' : (c == parallelPipeCountCtl ? v.toInt().toString() : fmtInches(v).replaceAll('"', ''));
   }
+
   void _onKeypadTap(String value) {
     if (_activeController == null) return;
-
     final c = _activeController!;
     final text = c.text;
-
-    if (value == '⌫') {
-      if (text.isNotEmpty) {
-        c.text = text.substring(0, text.length - 1);
-      }
-      return;
+    if (value == '⌫') { if (text.isNotEmpty) c.text = text.substring(0, text.length - 1); return; }
+    if (value == '✔') { _advanceFocus(); return; }
+    final String cleanValue = value.replaceAll('°', '');
+    if (cleanValue.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
+      if (int.tryParse(text[text.length - 1]) != null) c.text += ' ';
     }
-
-    if (value == '✔') {
-      if (c.text.isNotEmpty && c != angleCtl) {
-        c.text = fmtInches(parseInches(c.text));
-      }
-      _advanceFocus();
-      return;
-    }
-
-    if (value.contains('/') && text.isNotEmpty && !text.endsWith(' ')) {
-      final lastChar = text[text.length - 1];
-      if (int.tryParse(lastChar) != null) {
-        c.text += ' ';
-      }
-    }
-
-    c.text += value;
+    c.text += cleanValue;
   }
 
   void calculate() {
     final distance = parseInches(distanceCtl.text);
     final overall = parseInches(overallCtl.text);
-    final angle = double.tryParse(angleCtl.text.replaceAll('°', '').trim()) ?? 0;
+
+    final angle =
+        double.tryParse(
+          angleCtl.text.replaceAll('°', '').trim(),
+        ) ??
+            0.0;
 
     final double offsetHeight;
+
+    // ===========================================================================
+    // TRUE OFFSET HEIGHT
+    // ===========================================================================
 
     if (_isRollingOffset) {
       final vertical = parseInches(rollingVerticalCtl.text);
       final horizontal = parseInches(rollingHorizontalCtl.text);
 
-      if (vertical <= 0 || horizontal <= 0) return;
+      if (vertical <= 0 || horizontal <= 0) {
+        return;
+      }
 
       offsetHeight = math.sqrt(
         (vertical * vertical) + (horizontal * horizontal),
@@ -220,118 +332,253 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
       offsetHeight = parseInches(offsetHeightCtl.text);
     }
 
+    // ===========================================================================
+    // INPUT VALIDATION
+    // ===========================================================================
+
     if (_isQuickMode) {
-      if (offsetHeight <= 0 || angle <= 0) return;
+      if (offsetHeight <= 0 || angle <= 0 || angle >= 90) {
+        return;
+      }
     } else {
-      if (distance <= 0 || offsetHeight <= 0 || overall <= 0 || angle <= 0) {
+      if (distance <= 0 ||
+          offsetHeight <= 0 ||
+          overall <= 0 ||
+          angle <= 0 ||
+          angle >= 90) {
         return;
       }
     }
 
     final angleRad = angle * math.pi / 180.0;
-    final shrink = offsetHeight * math.tan(angleRad / 2);
-    final travel = offsetHeight / math.sin(angleRad);
 
-// NEW: True offset (for rolling)
-    final trueOffset = _isRollingOffset
-        ? offsetHeight
-        : offsetHeight;
+    // ===========================================================================
+    // BASIC OFFSET GEOMETRY
+    // ===========================================================================
 
-    final a = distance + shrink;
-    final b = a - travel;
-    final c = overall + shrink;
+    final shrink =
+        offsetHeight * math.tan(angleRad / 2.0);
+
+    final distanceBetweenBends =
+        offsetHeight / math.sin(angleRad);
+
+    final cutLength = overall + shrink;
+
+    // ===========================================================================
+    // BENDER DATA
+    // ===========================================================================
+
+    final clr = parseInches(radiusCtl.text);
+    final takeUp = parseInches(takeUpCtl.text);
+    final gain = parseInches(gainCtl.text);
+
+    final pipeSizeKey = _getNumericalStringPipeSize(
+      _selectedPipeSize ?? '0.5',
+    );
+
+    final double pipeOD =
+        (_parallelConduitType == 'Rigid'
+            ? bending_data.grcOD[pipeSizeKey]
+            : bending_data.emtOD[pipeSizeKey]) ??
+            0.706;
+
+    // ===========================================================================
+    // STAGE 1: TRADITIONAL ARROW / START MARKS
+    // ===========================================================================
+    //
+    // Mark A is the farther mark near the obstruction.
+    //
+    // Mark B is found by subtracting the distance between bends.
+    //
+    // These two marks remain separated by the full offset hypotenuse.
+    //
+
+    final arrowMarkA = distance + shrink;
+    final arrowMarkB = arrowMarkA - distanceBetweenBends;
+
+    double finalMarkA = arrowMarkA;
+    double finalMarkB = arrowMarkB;
+    double radiusAdjustmentValue = 0.0;
+    double referenceAdjustmentValue = 0.0;
+    String adjustmentLabel = 'Reference Adjustment';
+
+    // ===========================================================================
+    // STAGE 2: TRUE CENTER-OF-BEND MARKS
+    // ===========================================================================
+    //
+    // Radius adjustment moves the ENTIRE offset mark layout together.
+    //
+    // It does not move Mark A and Mark B in opposite directions.
+    //
+    // Both marks receive the same subtraction:
+    //
+    // Center A = Arrow A - Radius Adjustment
+    // Center B = Arrow B - Radius Adjustment
+    //
+    // This preserves the exact distance between bends.
+    //
+    // Reversing the physical bender does not change these center marks.
+    //
+
+    if (!_isArrowMethod && clr > 0) {
+      final radiusAdjustment =
+      bending_data.calculateRadiusAdjustment(
+        clr: clr,
+        angleDeg: angle,
+      );
+
+      radiusAdjustmentValue = radiusAdjustment;
+
+      if (_bendingMethod == bending_data.BendingMethod.notch) {
+        referenceAdjustmentValue =
+            bending_data.calculate45NotchCorrection(
+              clr: clr,
+              angleDeg: angle,
+            );
+
+        adjustmentLabel = 'Notch Adjustment';
+      } else if (_bendingMethod == bending_data.BendingMethod.hook) {
+        referenceAdjustmentValue =
+            bending_data.calculateFrontHookAdjustment(
+              deduct: takeUp,
+              clr: clr,
+              pipeOD: pipeOD,
+              angleDeg: angle,
+            );
+
+        adjustmentLabel = 'Front Hook Adjustment';
+      } else {
+        referenceAdjustmentValue = 0.0;
+        adjustmentLabel = 'Centerline Adjustment';
+      }
+
+      final centerMarkA =
+          arrowMarkA - radiusAdjustment;
+
+      final centerMarkB =
+          arrowMarkB - radiusAdjustment;
+
+      // =========================================================================
+      // STAGE 3: SELECTED BENDER REFERENCE
+      // =========================================================================
+      //
+      // CENTERLINE:
+      //   Returns the true center marks unchanged.
+      //
+      // NOTCH:
+      //   Translates the true center marks to the 45° notch / teardrop.
+      //
+      // HOOK:
+      //   Translates the true center marks to the front of the machine hook.
+      //
+      // Forward / Reverse applies only to the physical bender reference.
+      // It does not move or recalculate the offset geometry.
+      //
+
+      finalMarkA =
+          bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerMarkA,
+            method: _bendingMethod,
+            clr: clr,
+            deduct: takeUp,
+            pipeOD: pipeOD,
+            angleDeg: angle,
+            reverse: _isBenderDirectionReversed,
+          );
+
+      finalMarkB =
+          bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerMarkB,
+            method: _bendingMethod,
+            clr: clr,
+            deduct: takeUp,
+            pipeOD: pipeOD,
+            angleDeg: angle,
+            reverse: _isBenderDirectionReversed,
+          );
+    }
+
+    // ===========================================================================
+    // OUTPUT
+    // ===========================================================================
 
     setState(() {
-      markA = fmtInches(a);
-      markB = fmtInches(b);
-      markC = fmtInches(c);
-      shrinkOut = fmtInches(shrink);
-      travelOut = fmtInches(travel);
+      _rawMarkA = finalMarkA;
+      _rawMarkB = finalMarkB;
+      _rawCut = cutLength;
+      _rawTakeUp = takeUp;
+      _rawGain = gain;
 
+      markA = fmtInches(finalMarkA);
+      markB = fmtInches(finalMarkB);
+      markC = fmtInches(cutLength);
+
+      shrinkOut = fmtInches(shrink);
+      travelOut = fmtInches(distanceBetweenBends);
+
+      radiusAdjustmentOut =
+      _isArrowMethod ? '—' : fmtInches(radiusAdjustmentValue);
+
+      referenceAdjustmentOut =
+      _isArrowMethod || _bendingMethod == bending_data.BendingMethod.centerline
+          ? '—'
+          : fmtInches(referenceAdjustmentValue);
+
+      referenceAdjustmentLabel = adjustmentLabel;
       _activeController = null;
       _isKeypadVisible = false;
-
       _isMeasurementsExpanded = false;
       _isResultsExpanded = true;
+      _showParallelSetup = false;
     });
 
-    Future.delayed(const Duration(milliseconds: 150), () {
-      if (_scrollCtl.hasClients) {
-        _scrollCtl.animateTo(
-          _scrollCtl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      }
-    });
+    Future.delayed(
+      const Duration(milliseconds: 50),
+          () {
+        if (_scrollCtl.hasClients) {
+          _scrollCtl.animateTo(
+            320.0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.easeOut,
+          );
+        }
+      },
+    );
   }
 
   void _startNewBend() {
     setState(() {
-      distanceCtl.clear();
-      offsetHeightCtl.clear();
-      rollingVerticalCtl.clear();
-      rollingHorizontalCtl.clear();
-      overallCtl.clear();
-      angleCtl.clear();
-      parallelSpacingCtl.clear();
-
+      for (var c in [distanceCtl, offsetHeightCtl, rollingVerticalCtl, rollingHorizontalCtl, overallCtl, angleCtl, parallelSpacingCtl]) {
+        c.clear();
+      }
       markA = '';
       markB = '';
       markC = '';
       shrinkOut = '';
       travelOut = '';
-
-      _showParallelSetup = false;
-      _isResultsExpanded = false;
-      _isMeasurementsExpanded = true;
-      _isKeypadVisible = false;
-      _modeTouched = false;
-      _typeTouched = false;
-
-
-      _activeController = _isRollingOffset
-          ? rollingVerticalCtl
-          : offsetHeightCtl;
+      radiusAdjustmentOut = '';
+      referenceAdjustmentOut = '';
+      referenceAdjustmentLabel = 'Reference Adjustment';
+      _showParallelSetup = false; _isResultsExpanded = false; _isMeasurementsExpanded = false; _isBenderExpanded = true;
+      _isKeypadVisible = false; _modeTouched = false; _typeTouched = false; _currentStep = 0;
     });
   }
 
-  double _currentEffectiveOffsetHeight() {
-    if (_isRollingOffset) {
-      final vertical = parseInches(rollingVerticalCtl.text);
-      final horizontal = parseInches(rollingHorizontalCtl.text);
-      return math.sqrt((vertical * vertical) + (horizontal * horizontal));
-    }
-    return parseInches(offsetHeightCtl.text);
-  }
-
   void _openRackBuilder() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ChangeNotifierProvider(
-          create: (_) => RackState(),
-          child: RackBuilderScreen(
-            initialDistance: parseInches(distanceCtl.text),
-            initialOffsetHeight: _isRollingOffset
-                ? parseInches(rollingVerticalCtl.text)
-                : parseInches(offsetHeightCtl.text),
-
-            initialHorizontalRoll: _isRollingOffset
-                ? parseInches(rollingHorizontalCtl.text)
-                : null,
-            initialOverallLength: parseInches(overallCtl.text),
-            initialAngle: double.tryParse(
-              angleCtl.text.replaceAll('°', '').trim(),
-            ) ??
-                0,
-            initialSpacing: parseInches(parallelSpacingCtl.text),
-            startInOffsetMode: true,
-            startInRollingOffsetMode: _isRollingOffset,
-          ),
-        ),
-      ),
-    );
+    final int count = int.tryParse(parallelPipeCountCtl.text) ?? 3;
+    final String sizeStr = parallelPipeSizeCtl.text;
+    final double spaceBetween = parseInches(parallelSpacingCtl.text);
+    final List<String> sizes = List.generate(count, (_) => sizeStr);
+    Navigator.push(context, MaterialPageRoute(builder: (context) => ChangeNotifierProvider(create: (_) => RackState(),
+      child: RackBuilderScreen(
+        initialDistance: parseInches(distanceCtl.text),
+        initialOffsetHeight: _isRollingOffset ? parseInches(rollingVerticalCtl.text) : parseInches(offsetHeightCtl.text),
+        initialHorizontalRoll: _isRollingOffset ? parseInches(rollingHorizontalCtl.text) : null,
+        initialOverallLength: parseInches(overallCtl.text),
+        initialAngle: double.tryParse(angleCtl.text.replaceAll('°', '').trim()) ?? 0,
+        initialSpacing: spaceBetween, initialPipeCount: count, initialPipeSizes: sizes, boxLayoutConduitType: _parallelConduitType,
+        startInOffsetMode: true, startInRollingOffsetMode: _isRollingOffset,
+      ))));
   }
 
   @override
@@ -339,400 +586,403 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> {
     return Scaffold(
       backgroundColor: kBlack,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1F1F1F),
-        foregroundColor: kLight,
-        centerTitle: true,
+        backgroundColor: const Color(0xFF1F1F1F), foregroundColor: kLight, centerTitle: true, leadingWidth: 96,
+        leading: Row(children: [
+          IconButton(icon: const Icon(Icons.home), onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const MainMenuScreen()), (route) => false)),
+          IconButton(icon: const RotatedBox(quarterTurns: 2, child: Text("➜", style: TextStyle(color: kLight, fontSize: 26, fontWeight: FontWeight.w900))),
+            onPressed: () {
+              _hideKeypad();
+              if (_currentStep > 0) {
+                setState(() { _currentStep--; _isBenderExpanded = _currentStep == 0; _isMeasurementsExpanded = _currentStep == 1; _showBendingMethodCard = _currentStep == 2; _isResultsExpanded = _currentStep == 3; });
+              } else {
+                Navigator.maybePop(context);
+              }
+            },
+          ),
+        ]),
+        title: const Text('Offsets', style: TextStyle(fontWeight: FontWeight.w700)),
+        actions: [ IconButton(icon: const Icon(Icons.info_outline), onPressed: () => _showHelpDialog()) ],
+      ),
+      body: Column(children: [
+        Expanded(child: Padding(padding: const EdgeInsets.fromLTRB(4, 10, 4, 0), child: ListView(controller: _scrollCtl, children: [
+          _buildBenderSection(), const SizedBox(height: 6),
+          _buildMeasurementsSection(), const SizedBox(height: 6),
+          if (_showBendingMethodCard && _selectedBrand != null) ...[ _buildBendingMethodCard(), const SizedBox(height: 6) ],
+          _buildCalculateSection(), const SizedBox(height: 6),
+          _buildResultsSection(),
+        ]))),
+        if (!_isKeypadVisible && !_isNameEntryMode) _buildInfoBarWidget(),
+        if (_isNameEntryMode) AlphaInputKeypad(onTap: _onNameKeyTap),
+        if (_isKeypadVisible) NumericInputKeypad(onTap: _onKeypadTap),
+      ]),
+    );
+  }
 
-        // LEFT SIDE: Home + Back
-        leadingWidth: 96,
-        leading: Row(
+  Widget _buildInfoBarWidget() {
+    String message;
+    if (_isResultsExpanded) {
+      message = 'Offset complete. Marks are measured from one end.\nTap Parallel to send results to Rack Builder.';
+    } else if (_showBendingMethodCard && _bendingMethodCardExpanded) {
+      final bool isMachineBender = bending_data.mechanicalElectricBenderBrands.contains(_selectedBrand);
+      if (isMachineBender) {
+        message = 'USE HOOK: Translates center-of-bend to machine hook.\nUSE CENTERLINE: For shoes with custom center marks.';
+      } else {
+        message = 'USE NOTCH: Translates center-of-bend to hand bender notch.\nUSE CENTERLINE: For shoes with center marks.';
+      }
+    } else if (_currentStep == 0) {
+      message = 'Select your bender and pipe size, or tap Skip to use standard Arrow marks.';
+    } else if (_currentStep == 1) {
+      message = 'Enter offset height and bend angle. Accuracy depends on your measurements.';
+    } else {
+      message = 'Generate results to see layout marks.';
+    }
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      constraints: const BoxConstraints(minHeight: 125),
+      decoration: BoxDecoration(
+        color: kBlack,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.4),
+      ),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(color: kLight, fontSize: 18, height: 1.35, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+
+  Widget _buildBenderSection() {
+    return _buildGroupContainer(child: Column(children: [
+      _buildSilverButton(label: '1. BENDER & CONDUIT', fontSize: 19, height: 60, isActive: _currentStep == 0, onTap: () => setState(() { _currentStep = 0; _isBenderExpanded = !_isBenderExpanded; if (_isBenderExpanded) { _isMeasurementsExpanded = false; _isResultsExpanded = false; _showBendingMethodCard = false; } })),
+      if (_isBenderExpanded) Padding(padding: const EdgeInsets.only(top: 6.0), child: Column(children: [
+        _buildBrandSelector(), const SizedBox(height: 6), _buildConduitTypeSelector(), const SizedBox(height: 6), _buildPipeSizeSelector(),
+        if (!_isBenderSetupComplete) ...[ const SizedBox(height: 6), _buildSilverButton(label: 'SKIP BENDER INFO', height: 40, onTap: () => setState(() { _selectedBrand = null; _selectedPipeSize = null; _isArrowMethod = true; _bendingMethod = bending_data.BendingMethod.centerline; _currentStep = 1; _isBenderExpanded = false; _isMeasurementsExpanded = true; })) ],
+        if (_isBenderSetupComplete) ...[
+          const SizedBox(height: 10),
+          _inlineField('Take Up', takeUpCtl, suffix: '"', readOnly: true),
+          _inlineField('Gain90', gainCtl, suffix: '"', readOnly: true),
+          _inlineField('Radius / CLR', radiusCtl, suffix: '"', readOnly: true),
+          const SizedBox(height: 10),
+          _buildSilverButton(label: 'DONE', height: 44, isActive: true, isCheckmark: true, onTap: () => setState(() { _currentStep = 1; _isBenderExpanded = false; _isMeasurementsExpanded = true; }))
+        ]
+      ]))
+    ]));
+  }
+
+  Widget _buildBrandSelector() {
+    return GestureDetector(
+      onTap: _showBrandPicker,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xFF111111),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFC0C0C0), width: 1.2),
+        ),
+        child: Row(
           children: [
-            IconButton(
-              icon: const Icon(Icons.home),
-              onPressed: () {
-                Navigator.pushAndRemoveUntil(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const MainMenuScreen(),
-                  ),
-                      (route) => false,
-                );
-              },
+            Expanded(
+              child: Text(
+                _selectedBrand ?? 'Select Bender Brand',
+                style: TextStyle(
+                  color: (_selectedBrand == null) ? Colors.white70 : kLight,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ),
-            IconButton(
-              icon: const RotatedBox(
-                quarterTurns: 2,
+            const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 28),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConduitTypeSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildSilverButton(
+            label: 'EMT',
+            height: 40,
+            isActive: _parallelConduitType == 'EMT',
+            onTap: () {
+              setState(() => _parallelConduitType = 'EMT');
+              _updateBenderData();
+            },
+          ),
+        ),
+        const SizedBox(width: 6.0),
+        Expanded(
+          child: _buildSilverButton(
+            label: 'RIGID',
+            height: 40,
+            isActive: _parallelConduitType == 'Rigid',
+            onTap: () {
+              setState(() => _parallelConduitType = 'Rigid');
+              _updateBenderData();
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPipeSizeSelector() {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+      ),
+      child: PopupMenuButton<String>(
+        offset: const Offset(0, 50),
+        color: const Color(0xFF151515),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFC8C8C8), width: 1.5),
+        ),
+        onSelected: (newValue) {
+          setState(() => _selectedPipeSize = newValue);
+          _updateBenderData();
+        },
+        itemBuilder: (context) {
+          final sizes = bending_data.getFilteredPipeSizes(_selectedBrand);
+          return sizes.keys.map((String value) {
+            final bool selected = value == _selectedPipeSize;
+            return PopupMenuItem<String>(
+              value: value,
+              height: 44,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: selected
+                        ? [const Color(0xFF8A1010), const Color(0xFFD12A2A)]
+                        : [const Color(0xFF3A3A3A), const Color(0xFF1E1E1E)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white24, width: 1),
+                ),
                 child: Text(
-                  "➜",
+                  bending_data.pipeSizes[value]!,
+                  style: const TextStyle(color: kLight, fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
+            );
+          }).toList();
+        },
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFC0C0C0), width: 1.2),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _selectedPipeSize == null ? 'Select Pipe Size' : (bending_data.pipeSizes[_selectedPipeSize] ?? ''),
                   style: TextStyle(
-                    color: kLight,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
+                    color: _selectedPipeSize == null ? Colors.white70 : kLight,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              onPressed: () {
-                if (_isResultsExpanded) {
-                  setState(() {
-                    _isResultsExpanded = false;
-                    _isMeasurementsExpanded = true;
-                    _activeController = null;
-                    _isKeypadVisible = false;
-                  });
-                } else {
-                  Navigator.maybePop(context);
-                }
-              },
-            ),
-          ],
-        ),
-
-        title: const Text(
-          'Offset Starting Point',
-          style: TextStyle(fontWeight: FontWeight.w700),
-        ),
-
-        // RIGHT SIDE: Info
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) {
-                  return AlertDialog(
-                    backgroundColor: const Color(0xFF2C3030),
-                    title: const Text(
-                      'Offset Info',
-                      style: TextStyle(
-                        color: kLight,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    content: const SingleChildScrollView(
-                      child: Text(
-                        '''Quick mode:
-Use this when you only need offset size, bend angle, distance between bends, and shrink.
-
-Full mode:
-Use this when you need layout marks A, B, and C.
-
-Standard Offset:
-Uses offset height and bend angle.
-
-Rolling Offset:
-Uses vertical offset + horizontal roll to calculate the true offset.''',
-                        style: TextStyle(
-                          color: kLight,
-                          height: 1.45,
-                        ),
-                      ),
-                    ),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text(
-                          'Close',
-                          style: TextStyle(color: kRed),
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
+              const Icon(Icons.arrow_drop_down, color: Colors.white54, size: 28),
+            ],
           ),
-        ],
-      ),
-
-      body: Column(
-        children: [
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
-              child: ListView(
-                controller: _scrollCtl,
-                children: [
-                  _buildMeasurementsSection(),
-                  const SizedBox(height: 6),
-                  _buildCalculateButton(),
-                  const SizedBox(height: 6),
-                  _buildResultsSection(),
-                ],
-              ),
-            ),
-          ),
-          if (!_isKeypadVisible) _buildInfoBar(),
-          if (_isKeypadVisible) NumericInputKeypad(onTap: _onKeypadTap),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildMeasurementsSection() {
-    return _buildGroupContainer(
-      showBorder: !_isResultsExpanded,
-      child: Column(
-        children: [
-          _buildSilverButton(
-            label: '1. OFFSET MEASUREMENTS',
-            height: 60,
-            fontSize: 19,
-            isActive: _isMeasurementsExpanded,
-            onTap: () {
-              setState(() {
-                _isMeasurementsExpanded = !_isMeasurementsExpanded;
-                if (_isMeasurementsExpanded) _isResultsExpanded = false;
-              });
-            },
-          ),
-
-          if (_isMeasurementsExpanded)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Column(
-                children: [
-                  Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildChoiceButton(
-                              label: 'Quick',
-                              selected: _isQuickMode,
-                              touched: _modeTouched,
-                              onTap: () {
-                                setState(() {
-                                  _isQuickMode = true;
-                                  _modeTouched = true;
-                                });
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildChoiceButton(
-                              label: 'Full',
-                              selected: !_isQuickMode,
-                              touched: _modeTouched,
-                              onTap: () {
-                                setState(() {
-                                  _isQuickMode = false;
-                                  _modeTouched = true;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildChoiceButton(
-                              label: 'Standard Offset',
-                              selected: !_isRollingOffset,
-                              touched: _typeTouched,
-                              onTap: () {
-                                setState(() {
-                                  _isRollingOffset = false;
-                                  _showParallelSetup = false;
-                                  _typeTouched = true;
-                                });
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildChoiceButton(
-                              label: 'Rolling Offset',
-                              selected: _isRollingOffset,
-                              touched: _typeTouched,
-                              onTap: () {
-                                setState(() {
-                                  _isRollingOffset = true;
-                                  _showParallelSetup = false;
-                                  _typeTouched = true;
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 10),
-
-                  if (_isRollingOffset) ...[
-                    _inlineField(
-                      'Vertical Offset',
-                      rollingVerticalCtl,
-                      onTap: () => _showKeypad(rollingVerticalCtl, clearFirst: true),
-                    ),
-                    _inlineField(
-                      'Horizontal Roll',
-                      rollingHorizontalCtl,
-                      onTap: () => _showKeypad(rollingHorizontalCtl, clearFirst: true),
-                    ),
-                  ] else ...[
-                    _inlineField(
-                      'Offset Height',
-                      offsetHeightCtl,
-                      onTap: () => _showKeypad(offsetHeightCtl, clearFirst: true),
-                    ),
-                  ],
-
-                  _inlineField(
-                    'Bend Angle',
-                    angleCtl,
-                    suffix: null,
-                    onTap: () => _showKeypad(angleCtl, clearFirst: true),
-                  ),
-
-                  if (!_isQuickMode) ...[
-                    _inlineField(
-                      'Distance to Obstruction',
-                      distanceCtl,
-                      onTap: () => _showKeypad(distanceCtl, clearFirst: true),
-                    ),
-                    _inlineField(
-                      'Finished Overall Length',
-                      overallCtl,
-                      onTap: () => _showKeypad(overallCtl, clearFirst: true),
-                    ),
-                  ],
-
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
+    final bool canOpen = _selectedBrand == null || _isBenderSetupComplete || _currentStep >= 1;
+    return _buildGroupContainer(child: Column(children: [
+      _buildSilverButton(label: '2. OFFSET MEASUREMENTS', fontSize: 19, height: 60, isActive: _currentStep == 1, onTap: canOpen ? () => setState(() { _currentStep = 1; _isMeasurementsExpanded = !_isMeasurementsExpanded; if (_isMeasurementsExpanded) { _isBenderExpanded = false; _isResultsExpanded = false; _showBendingMethodCard = false; } }) : null),
+      if (_isMeasurementsExpanded) Padding(padding: const EdgeInsets.only(top: 12), child: Column(children: [
+        Row(children: [
+          Expanded(child: _buildChoiceButton(label: 'Quick', selected: _isQuickMode, touched: _modeTouched, onTap: () => setState(() { _isQuickMode = true; _modeTouched = true; }))),
+          const SizedBox(width: 8),
+          Expanded(child: _buildChoiceButton(label: 'Full', selected: !_isQuickMode, touched: _modeTouched, onTap: () => setState(() { _isQuickMode = false; _modeTouched = true; }))),
+        ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: _buildChoiceButton(label: 'Standard Offset', selected: !_isRollingOffset, touched: _typeTouched, onTap: () => setState(() { _isRollingOffset = false; _showParallelSetup = false; _typeTouched = true; }))),
+          const SizedBox(width: 8),
+          Expanded(child: _buildChoiceButton(label: 'Rolling Offset', selected: _isRollingOffset, touched: _typeTouched, onTap: () => setState(() { _isRollingOffset = true; _showParallelSetup = false; _typeTouched = true; }))),
+        ]),
+        const SizedBox(height: 10),
+        if (_isRollingOffset) ...[
+          _inlineField('Vertical Offset', rollingVerticalCtl, suffix: '"', onTap: () => _showKeypad(rollingVerticalCtl)),
+          _inlineField('Horizontal Roll', rollingHorizontalCtl, suffix: '"', onTap: () => _showKeypad(rollingHorizontalCtl)),
+        ] else ...[
+          _inlineField('Offset Height', offsetHeightCtl, suffix: '"', onTap: () => _showKeypad(offsetHeightCtl)),
         ],
-      ),
-    );
+        _inlineField('Bend Angle', angleCtl, suffix: '°', onTap: () => _showKeypad(angleCtl)),
+        if (!_isQuickMode) ...[
+          _inlineField('Distance to Obstruction', distanceCtl, suffix: '"', onTap: () => _showKeypad(distanceCtl)),
+          _inlineField('Finished Overall Length', overallCtl, suffix: '"', onTap: () => _showKeypad(overallCtl)),
+        ],
+        if (_isCalculateReady) ...[
+          const SizedBox(height: 10),
+          _buildSilverButton(label: _selectedBrand == null ? 'DONE' : 'CONTINUE', height: 44, isActive: true, onTap: () {
+            _hideKeypad();
+            if (_selectedBrand == null) {
+              setState(() { _currentStep = 3; _isMeasurementsExpanded = false; calculate(); });
+            } else {
+              setState(() { _currentStep = 2; _isMeasurementsExpanded = false; _showBendingMethodCard = true; _bendingMethodCardExpanded = true; });
+            }
+          })
+        ]
+      ]))
+    ]));
   }
 
-  Widget _buildCalculateButton() {
-    return _buildGroupContainer(
-      child: _buildSilverButton(
-        label: '2. CALCULATE',
-        height: 60,
-        fontSize: 20,
-        isActive: true,
-        onTap: calculate,
-      ),
-    );
+  Widget _buildBendingMethodCard() {
+    final bool isMachineBender = _selectedBrand != null && bending_data.mechanicalElectricBenderBrands.contains(_selectedBrand);
+    return _buildGroupContainer(child: Column(children: [
+      GestureDetector(onTap: () => setState(() => _bendingMethodCardExpanded = !_bendingMethodCardExpanded), child: Container(height: 34, padding: const EdgeInsets.symmetric(horizontal: 10), child: Row(children: [ const Expanded(child: Text('3. BENDING METHOD', style: TextStyle(color: kLight, fontSize: 14, fontWeight: FontWeight.w900))), Text(_bendingMethodCardExpanded ? '⌃' : '⌄', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)) ]))),
+      if (_bendingMethodCardExpanded) ...[
+        const SizedBox(height: 6),
+        Row(children: [
+          Expanded(child: _buildSilverButton(label: 'ARROW', height: 40, isActive: _isArrowMethod, onTap: () => setState(() { _isArrowMethod = true; _bendingMethod = bending_data.BendingMethod.centerline; }))),
+          const SizedBox(width: 4),
+          Expanded(child: _buildSilverButton(label: isMachineBender ? 'HOOK' : 'NOTCH', height: 40, isActive: !_isArrowMethod && (_bendingMethod == bending_data.BendingMethod.notch || _bendingMethod == bending_data.BendingMethod.hook), onTap: () => setState(() { _isArrowMethod = false; _bendingMethod = isMachineBender ? bending_data.BendingMethod.hook : bending_data.BendingMethod.notch; }))),
+          const SizedBox(width: 4),
+          Expanded(child: _buildSilverButton(label: '℄ LINE', height: 40, isActive: !_isArrowMethod && _bendingMethod == bending_data.BendingMethod.centerline, onTap: () => setState(() { _isArrowMethod = false; _bendingMethod = bending_data.BendingMethod.centerline; }))),
+        ]),
+        const SizedBox(height: 8),
+        if (!_isArrowMethod) ...[
+          Row(
+            children: [
+              const Expanded(child: Text('Bender Orientation', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold))),
+              _buildChoiceButton(
+                label: 'FORWARD',
+                width: 90,
+                height: 34,
+                fontSize: 12,
+                selected: !_isBenderDirectionReversed,
+                touched: true,
+                onTap: () => setState(() => _isBenderDirectionReversed = false),
+              ),
+              const SizedBox(width: 4),
+              _buildChoiceButton(
+                label: 'REVERSE',
+                width: 90,
+                height: 34,
+                fontSize: 12,
+                selected: _isBenderDirectionReversed,
+                touched: true,
+                onTap: () => setState(() => _isBenderDirectionReversed = true),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _buildSilverButton(
+            label: _selectedBrand ?? 'Select Bender Brand',
+            height: 40,
+            onTap: _showBrandPicker,
+          ),
+          const SizedBox(height: 6),
+          _buildPipeSizeSelector(),
+          const SizedBox(height: 10),
+          if (_selectedBrand != null) ...[
+            _inlineField('Take Up', takeUpCtl, suffix: '"', readOnly: true),
+            _inlineField('Gain90', gainCtl, suffix: '"', readOnly: true),
+            _inlineField('Radius / CLR', radiusCtl, suffix: '"', readOnly: true),
+            const SizedBox(height: 10),
+          ],
+        ],
+        Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)), child: Text(_getBendingMethodExplanation(), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.3))),
+      ]
+    ]));
+  }
+
+  Widget _buildCalculateSection() {
+    final bool showCalculate = (_currentStep == 2 && _showBendingMethodCard) || (_currentStep == 1 && _selectedBrand == null && _isCalculateReady);
+    final bool isActive = showCalculate;
+    if (_isResultsExpanded) return const SizedBox.shrink();
+    return _buildGroupContainer(child: _buildSilverButton(label: '3. CALCULATE', isActive: isActive, isCheckmark: isActive, height: 60, fontSize: 20, onTap: isActive ? () { _hideKeypad(); setState(() { _currentStep = 3; _showBendingMethodCard = false; _bendingMethodCardExpanded = false; }); calculate(); } : null));
   }
 
   Widget _buildResultsSection() {
-    return _buildGroupContainer(
-      child: Column(
-        children: [
-          _buildSilverButton(
-            label: '3. RESULTS',
-            height: 60,
-            fontSize: 20,
-            isActive: _isResultsExpanded,
-            onTap: () {
-              setState(() {
-                _isResultsExpanded = !_isResultsExpanded;
-                if (_isResultsExpanded) {
-                  _isMeasurementsExpanded = false;
-                  _activeController = null;
-                  _isKeypadVisible = false;
-                }
-              });
-            },
-          ),
-          if (_isResultsExpanded)
-            Padding(
-              padding: const EdgeInsets.only(top: 10, bottom: 6),
-              child: Column(
-                children: [
-                  _buildOffsetExtras(),
-                  // MARKS (standalone)
-                  if (!_isQuickMode) ...[
-                    _offsetMarksCard(),
-                  ],
-
-
-
-                  // GRAPHIC (standalone feel)
-                  // GRAPHIC (only in Full mode)
-                  if (!_isQuickMode) ...[
-                    const SizedBox(height: 8),
-                    _OffsetResultGraphic(
-                      markB: markB,
-                      markA: markA,
-                      markC: markC,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-
-
-
-                  // BUTTON ROW
-                  if (_isQuickMode)
-                    _buildSilverButton(
-                      label: 'Start New Bend',
-                      height: 44,
-                      onTap: _startNewBend,
-                    )
-                  else
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildSilverButton(
-                            label: 'Start New Bend',
-                            height: 44,
-                            onTap: _startNewBend,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _buildSilverButton(
-                            label: 'Parallel',
-                            height: 44,
-                            isActive: _showParallelSetup,
-                            onTap: () {
-                              setState(() {
-                                _showParallelSetup = !_showParallelSetup;
-                                _activeController = null;
-                                _isKeypadVisible = false;
-                              });
-
-                              if (!_showParallelSetup) return;
-
-                              WidgetsBinding.instance.addPostFrameCallback((_) {
-                                Future.delayed(const Duration(milliseconds: 80), () {
-                                  if (_scrollCtl.hasClients) {
-                                    _scrollCtl.animateTo(
-                                      _scrollCtl.position.maxScrollExtent,
-                                      duration: const Duration(milliseconds: 300),
-                                      curve: Curves.easeOut,
-                                    );
-                                  }
-                                });
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  if (_showParallelSetup) ...[
-                    const SizedBox(height: 8),
-                    _parallelSetupCard(),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
+    final bool canOpen = _currentStep >= 3;
+    return _buildGroupContainer(child: Column(children: [
+      _buildSilverButton(label: '4. RESULTS', fontSize: 20, height: 60, isActive: _currentStep == 3, onTap: canOpen ? () => setState(() { _currentStep = 3; _isResultsExpanded = !_isResultsExpanded; if (_isResultsExpanded) { _isBenderExpanded = false; _isMeasurementsExpanded = false; _showBendingMethodCard = false; } }) : null),
+      if (_isResultsExpanded) Padding(padding: const EdgeInsets.only(top: 10, bottom: 6), child: Column(children: [
+        _buildOffsetExtras(), if (!_isQuickMode) _offsetMarksCard(),
+        if (!_isQuickMode) ...[ const SizedBox(height: 8), _OffsetResultGraphic(markB: markB, markA: markA, markC: markC, isBenderDirectionReversed: _isBenderDirectionReversed), const SizedBox(height: 12) ],
+        if (_isQuickMode) _buildSilverButton(label: 'Start New Bend', height: 44, onTap: _startNewBend)
+        else Row(children: [
+          Expanded(child: _buildSilverButton(label: 'Start New Bend', height: 44, onTap: _startNewBend)),
+          const SizedBox(width: 10),
+          Expanded(child: _buildSilverButton(label: 'Parallel', height: 44, isActive: _showParallelSetup, onTap: () {
+            setState(() { _showParallelSetup = !_showParallelSetup; _activeController = null; _isKeypadVisible = false; });
+            if (!_showParallelSetup) return;
+            WidgetsBinding.instance.addPostFrameCallback((_) { Future.delayed(const Duration(milliseconds: 200), () { if (_scrollCtl.hasClients) _scrollCtl.animateTo(_scrollCtl.position.maxScrollExtent, duration: const Duration(milliseconds: 500), curve: Curves.easeOut); }); });
+          })),
+        ]),
+        if (_showParallelSetup) ...[ const SizedBox(height: 8), _parallelSetupCard() ],
+      ]))
+    ]));
   }
+
+  void _showHelpDialog() {
+    showDialog(context: context, builder: (context) => AlertDialog(backgroundColor: const Color(0xFF2C3030), title: const Text('Offset Info', style: TextStyle(color: kLight, fontWeight: FontWeight.bold)), content: const SingleChildScrollView(child: Text('Quick mode:\nUse this when you only need offset size, bend angle, distance between bends, and shrink.\n\nFull mode:\nUse this when you need layout marks A, B, and C.\n\nStandard Offset:\nUses offset height and bend angle.\n\nRolling Offset:\nUses vertical offset + horizontal roll to calculate the true offset.', style: TextStyle(color: kLight, height: 1.45))), actions: [ TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close', style: TextStyle(color: kRed))) ]));
+  }
+
+  String _getBendingMethodExplanation() {
+    if (_isArrowMethod) return 'USE ARROW: Standard geometric center marks. Align your bender arrow with the marks on the pipe.';
+    switch (_bendingMethod) {
+      case bending_data.BendingMethod.centerline: return 'USE CENTERLINE: Uses center-of-bend markings you have made on the shoe.';
+      case bending_data.BendingMethod.notch: return 'USE NOTCH: Translates center-of-bend measurements to the 45° notch / teardrop on your hand bender.';
+      case bending_data.BendingMethod.hook: return 'USE HOOK: Translates center-of-bend measurements to the front edge of the machine bender hook.';
+    }
+  }
+
+  void _onNameKeyTap(String value) {
+    if (value == '⌫') { if (_customBenderName.isNotEmpty) setState(() => _customBenderName = _customBenderName.substring(0, _customBenderName.length - 1)); return; }
+    if (value == 'CLEAR') { setState(() => _customBenderName = ''); return; }
+    if (value == '✔') { _finishSaveCustomBender(); return; }
+    if (_customBenderName.length < 24) setState(() => _customBenderName += value);
+  }
+
+  void _finishSaveCustomBender() {
+    final name = _customBenderName.trim(); if (name.isEmpty) return;
+    final newBender = bending_data.Bender(brand: name, model: name, conduitSize: _selectedPipeSize ?? '0.5', conduitType: _parallelConduitType == 'Rigid' ? bending_data.ConduitType.rigid : bending_data.ConduitType.emt, clr: parseInches(radiusCtl.text), deduct: parseInches(takeUpCtl.text), gain: parseInches(gainCtl.text));
+    setState(() { _customBenders.add(newBender); bending_data.BenderStore.save(newBender); _updateBrandDropdown(); _selectedBrand = name; _isNameEntryMode = false; _customBenderName = ''; });
+    _updateBenderData(); _hideKeypad();
+  }
+
+  void _showBrandPicker() {
+    final brands = bending_data.getGroupedBenderBrands();
+    showDialog(context: context, builder: (context) => BenderPickerDialog(allBrands: brands, selectedBrand: _selectedBrand, onSelected: (name) { setState(() => _selectedBrand = name); _updateBenderData(); }));
+  }
+
+  void _updateBenderData() {
+    if (_selectedBrand == null || _selectedPipeSize == null) return;
+    final type = _parallelConduitType == 'Rigid' ? bending_data.ConduitType.rigid : bending_data.ConduitType.emt;
+    final bender = bending_data.benderDatabase.firstWhereOrNull((b) => b.brand == _selectedBrand && b.conduitSize == _selectedPipeSize && b.conduitType == type);
+    if (bender != null) setState(() { takeUpCtl.text = bender.deduct.toString(); gainCtl.text = bender.gain.toString(); radiusCtl.text = bender.clr.toString(); });
+  }
+
   Widget _buildOffsetExtras() {
-    if (travelOut.isEmpty) return const SizedBox.shrink();
+    if (travelOut.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     final double offsetSize = _isRollingOffset
         ? math.sqrt(
@@ -754,453 +1004,148 @@ Uses vertical offset + horizontal roll to calculate the true offset.''',
       ),
       child: Column(
         children: [
-          _cleanResultRow('Offset Size', fmtInches(offsetSize)),
+          _cleanResultRow(
+            'Offset Size',
+            fmtInches(offsetSize),
+          ),
           const SizedBox(height: 6),
+
           _cleanResultRow(
             'Bend Angle',
             '${angleCtl.text.replaceAll('°', '').trim()}°',
           ),
           const SizedBox(height: 6),
-          _cleanResultRow('Distance Between Bends', travelOut),
-          _cleanResultRow('Shrink', shrinkOut),
+
+          _cleanResultRow(
+            'Distance Between Bends',
+            travelOut,
+          ),
+          const SizedBox(height: 6),
+
+          _cleanResultRow(
+            'Shrink',
+            shrinkOut,
+          ),
+          const SizedBox(height: 6),
+
+          _cleanResultRow(
+            'Radius Adjustment',
+            radiusAdjustmentOut,
+          ),
+          const SizedBox(height: 6),
+
+          _cleanResultRow(
+            referenceAdjustmentLabel,
+            referenceAdjustmentOut,
+          ),
         ],
       ),
     );
   }
-  Widget _parallelSetupCard() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withAlpha(180),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFFC8C8C8),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _isRollingOffset ? 'Parallel Rolling Setup' : 'Parallel Setup',
-            style: const TextStyle(
-              color: kLight,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 10),
-          _inlineField(
-            'Center-to-Center Spacing',
-            parallelSpacingCtl,
-            suffix: null,
-            onTap: () {
-              _showKeypad(parallelSpacingCtl, clearFirst: true);
 
-              Future.delayed(const Duration(milliseconds: 150), () {
-                if (_scrollCtl.hasClients) {
-                  _scrollCtl.animateTo(
-                    _scrollCtl.position.maxScrollExtent,
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeOut,
-                  );
-                }
-              });
-            },
-          ),
-          const SizedBox(height: 10),
-          _buildSilverButton(
-            label: 'Build Rack',
-            height: 44,
-            isActive: parallelSpacingCtl.text.trim().isNotEmpty,
-            onTap: _openRackBuilder,
-          ),
-        ],
-      ),
-    );
+  Widget _parallelSetupCard() {
+    return Container(padding: const EdgeInsets.fromLTRB(12, 10, 12, 10), decoration: BoxDecoration(color: Colors.black.withAlpha(180), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(_isRollingOffset ? 'Parallel Rolling Setup' : 'Parallel Setup', style: const TextStyle(color: kLight, fontSize: 17, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        _inlineField('Pipe Count', parallelPipeCountCtl, suffix: null, onTap: () { _showKeypad(parallelPipeCountCtl, clearFirst: true); Future.delayed(const Duration(milliseconds: 150), () { if (_scrollCtl.hasClients) _scrollCtl.animateTo(_scrollCtl.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut); }); }),
+        _inlineField('Pipe Size', parallelPipeSizeCtl, suffix: '"', onTap: () => _showKeypad(parallelPipeSizeCtl, clearFirst: true)),
+        _inlineField('Space Between Pipes', parallelSpacingCtl, suffix: '"', onTap: () { _showKeypad(parallelSpacingCtl, clearFirst: true); Future.delayed(const Duration(milliseconds: 150), () { if (_scrollCtl.hasClients) _scrollCtl.animateTo(_scrollCtl.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut); }); }),
+        Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [ const Expanded(child: Text('Conduit Type', style: TextStyle(fontSize: 16, color: kLight))), const SizedBox(width: 12), SizedBox(width: 152, child: Row(children: [ Expanded(child: _buildChoiceButton(label: 'EMT', fontSize: 13, height: 38, selected: _parallelConduitType == 'EMT', touched: true, onTap: () => setState(() => _parallelConduitType = 'EMT'))), const SizedBox(width: 4), Expanded(child: _buildChoiceButton(label: 'RIGID', fontSize: 13, height: 38, selected: _parallelConduitType == 'Rigid', touched: true, onTap: () => setState(() => _parallelConduitType = 'Rigid'))) ])) ])),
+        const SizedBox(height: 10),
+        _buildSilverButton(label: 'Build Rack', height: 44, isActive: parallelSpacingCtl.text.trim().isNotEmpty && parallelPipeCountCtl.text.trim().isNotEmpty && parallelPipeSizeCtl.text.trim().isNotEmpty, onTap: _openRackBuilder),
+      ]));
   }
 
   Widget _offsetMarksCard() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-      decoration: BoxDecoration(
-        color: Colors.black.withAlpha(180),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFFC8C8C8),
-          width: 1.5,
-        ),
-      ),
-      child: Column(
-        children: [
-          _cleanResultRow('Mark A', markA),
-          const SizedBox(height: 6),
-          _cleanResultRow('Mark B', markB),
-          const SizedBox(height: 6),
-          _cleanResultRow('Mark C (Cut)', markC, isCut: true),
-        ],
-      ),
-    );
+    return Container(padding: const EdgeInsets.fromLTRB(12, 10, 12, 10), decoration: BoxDecoration(color: Colors.black.withAlpha(180), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5)),
+      child: Column(children: [ _cleanResultRow('Mark A', markA), const SizedBox(height: 6), _cleanResultRow('Mark B', markB), const SizedBox(height: 6), _cleanResultRow('Mark C (Cut)', markC, isCut: true) ]));
   }
 
   Widget _cleanResultRow(String label, String value, {bool isCut = false}) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ),
-        Container(
-          width: 132,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isCut
-                  ? const [Color(0xFF8A1010), Color(0xFFD12A2A)]
-                  : const [Color(0xFF5A5A5F), Color(0xFF2C3030)],
-            ),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: const Color(0xFFD0D0D0),
-              width: 1.2,
-            ),
-          ),
-          child: Text(
-            value.isEmpty ? '—' : value,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            softWrap: false,
-            overflow: TextOverflow.visible,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-      ],
-    );
+    return Row(children: [
+      Expanded(child: Text(label, style: const TextStyle(color: Colors.white70, fontSize: 17, fontWeight: FontWeight.w700))),
+      Container(width: 132, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7), decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: isCut ? const [Color(0xFF8A1010), Color(0xFFD12A2A)] : const [Color(0xFF5A5A5F), Color(0xFF2C3030)]), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFD0D0D0), width: 1.2)),
+        child: Text(value.isEmpty ? '—' : value, textAlign: TextAlign.center, maxLines: 1, softWrap: false, overflow: TextOverflow.visible, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900))),
+    ]);
   }
 
-  Widget _buildInfoBar() {
-    String text;
-
-    if (!_isResultsExpanded) {
-      text = 'Choose Quick or Full, then Standard or Rolling. Enter your measurements.';
-    } else if (_isQuickMode) {
-      text = 'Quick results show offset size, bend angle, distance between bends, and shrink.';
-    } else {
-      text = 'Full results include layout marks. Use Parallel to build this offset into a rack.';
-    }
-    return Container(
-      height: 78,
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(4, 6, 4, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withAlpha(180),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5),
-      ),
-      child: Center(
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: kLight,
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
-            height: 1.25,
-          ),
-        ),
-      ),
-    );
+  Widget _buildGroupContainer({required Widget child, bool showBorder = true}) {
+    return Container(padding: const EdgeInsets.all(4), margin: const EdgeInsets.symmetric(vertical: 2), decoration: showBorder ? BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5)) : null, child: child);
   }
 
-  Widget _buildGroupContainer({
-    required Widget child,
-    bool showBorder = true,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: showBorder
-          ? BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5),
-      )
-          : null,
-      child: child,
-    );
-  }
-
-  Widget _buildSilverButton({
-    required String label,
-    VoidCallback? onTap,
-    bool isActive = false,
-    double height = 44,
-    double fontSize = 15,
-  }) {
+  Widget _buildSilverButton({required String label, VoidCallback? onTap, bool isActive = false, bool redOutline = false, bool isCheckmark = false, double height = 44, double fontSize = 15}) {
     final bool isEnabled = onTap != null;
-
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isActive
-              ? const [Color(0xFF8A1010), Color(0xFFD12A2A)]
-              : isEnabled
-              ? const [Color(0xFF4E4E52), Color(0xFF2C3030)]
-              : [Colors.grey.shade800, Colors.grey.shade900],
-        ),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF9E9E9E), width: 1.1),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Center(
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: isEnabled ? Colors.white : Colors.grey.shade500,
-                fontSize: fontSize,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    return Container(height: height, decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: isActive ? const [Color(0xFF8A1010), Color(0xFFD12A2A)] : (isEnabled ? const [Color(0xFF4E4E52), Color(0xFF2C3030)] : [Colors.grey.shade800, Colors.grey.shade900])), borderRadius: BorderRadius.circular(8), border: Border.all(color: redOutline ? kRed : const Color(0xFF9E9E9E), width: redOutline ? 2.0 : 1.1)),
+      child: Material(color: Colors.transparent, child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(8), child: Center(child: Row(mainAxisSize: MainAxisSize.min, children: [ Text(label, textAlign: TextAlign.center, style: TextStyle(color: isEnabled ? Colors.white : Colors.grey.shade500, fontSize: fontSize, fontWeight: FontWeight.w700)), if (isCheckmark) ...[ const SizedBox(width: 8), const Icon(Icons.check_circle, color: kGreen, size: 20) ] ] )))));
   }
 
-  Widget _buildChoiceButton({
-    required String label,
-    required bool selected,
-    required bool touched,
-    required VoidCallback onTap,
-    double height = 44,
-    double fontSize = 15,
-  }) {
+  Widget _buildChoiceButton({required String label, required bool selected, required bool touched, required VoidCallback onTap, double height = 44, double? width, double fontSize = 15}) {
     final bool showFilled = selected && touched;
-
-    return Container(
-      height: height,
-      decoration: BoxDecoration(
-        gradient: showFilled
-            ? const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF8A1010), Color(0xFFE53935)],
-        )
-            : const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF3A3A3D), Color(0xFF1F1F21)],
-        ),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: selected ? kRed : const Color(0xFF9E9E9E),
-          width: selected ? 2.0 : 1.2,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: kLight,
-                fontSize: fontSize,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
+    return Container(height: height, width: width, decoration: BoxDecoration(gradient: showFilled ? const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF8A1010), Color(0xFFE53935)]) : const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF3A3A3D), Color(0xFF1F1F21)]), borderRadius: BorderRadius.circular(8), border: Border.all(color: selected ? kRed : const Color(0xFF9E9E9E), width: selected ? 2.0 : 1.2)),
+      child: Material(color: Colors.transparent, child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(8), child: Center(child: Text(label, style: TextStyle(color: kLight, fontSize: fontSize, fontWeight: FontWeight.w800))))));
   }
-  Widget _inlineField(
-      String label,
-      TextEditingController c, {
-        VoidCallback? onTap,
-        String? suffix = null,
-      }) {
-    final bool isActive = _activeController == c;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 16, color: kLight),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 152,
-            height: 48,
-            child: GestureDetector(
-              onTap: onTap,
-              child: AbsorbPointer(
-                child: TextField(
-                  controller: c,
-                  readOnly: true,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 18, color: kLight),
-                  decoration: InputDecoration(
-                    suffixText: suffix,
-                    suffixStyle: const TextStyle(fontSize: 18, color: kLight),
-                    isDense: true,
-                    filled: true,
-                    fillColor:
-                    isActive ? const Color(0xFF1A0A0A) : Colors.black,
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: 14,
-                      horizontal: 10,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: BorderSide(
-                        color: isActive ? kRed : const Color(0xFFC8C8C8),
-                        width: isActive ? 2.0 : 1.3,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      borderSide: const BorderSide(color: kRed, width: 2),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+  Widget _inlineField(String label, TextEditingController c, {VoidCallback? onTap, String? suffix, bool readOnly = false}) {
+    final bool isActive = _activeController == c; final bool effectiveReadOnly = readOnly || onTap == null;
+    return Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [
+      Expanded(child: Text(label, style: const TextStyle(fontSize: 16, color: kLight))), const SizedBox(width: 12),
+      SizedBox(width: 152, height: 48, child: GestureDetector(onTap: effectiveReadOnly ? null : onTap, child: AbsorbPointer(child: TextField(controller: c, readOnly: true, textAlign: TextAlign.right, style: const TextStyle(fontSize: 18, color: kLight), decoration: InputDecoration(suffixText: suffix, suffixStyle: const TextStyle(fontSize: 18, color: kLight), isDense: true, filled: true, fillColor: isActive ? const Color(0xFF1A0A0A) : Colors.black, contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10), enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isActive ? kRed : const Color(0xFFC8C8C8), width: isActive ? 2.0 : 1.3)), focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: kRed, width: 2)))))))
+    ]));
   }
+
+  String _getNumericalStringPipeSize(String s) => parseInches(s).toString();
 
   static String fmtInches(double x) {
     if (x.isNaN || x.isInfinite || x < 0) return '0"';
-
-    final int whole = x.floor();
-    final double remainder = x - whole;
-    int sixteenths = (remainder * 16).round();
-
-    if (sixteenths == 16) return '${whole + 1}"';
-    if (sixteenths == 0) return '$whole"';
-
-    int numerator = sixteenths;
-    int denominator = 16;
-
-    while (numerator % 2 == 0 && denominator > 2) {
-      numerator ~/= 2;
-      denominator ~/= 2;
-    }
-
-    if (whole == 0) return '$numerator/$denominator"';
-    return '$whole $numerator/$denominator"';
+    final int whole = x.floor(); final double remainder = x - whole; int sixteenths = (remainder * 16).round();
+    if (sixteenths == 16) return '${whole + 1}"'; if (sixteenths == 0) return '$whole"';
+    int num = sixteenths; int den = 16; while (num % 2 == 0 && den > 2) { num ~/= 2; den ~/= 2; }
+    if (whole == 0) return '$num/$den"'; return '$whole $num/$den"';
   }
 
   static double parseInches(String input) {
-    input = input.replaceAll('"', '').trim();
-    if (input.isEmpty) return 0.0;
-
+    input = input.replaceAll('"', '').trim(); if (input.isEmpty) return 0.0;
     final parts = input.split(' ');
-
-    if (parts.length == 1) {
-      if (parts.first.contains('/')) {
-        return _parseFraction(parts.first);
-      }
-      return double.tryParse(parts.first) ?? 0.0;
-    }
-
-    if (parts.length == 2) {
-      return (double.tryParse(parts.first) ?? 0.0) +
-          _parseFraction(parts.last);
-    }
-
-    return 0.0;
+    if (parts.length == 1) return parts.first.contains('/') ? _parseFraction(parts.first) : (double.tryParse(parts.first) ?? 0.0);
+    return (double.tryParse(parts.first) ?? 0.0) + _parseFraction(parts.last);
   }
 
   static double _parseFraction(String fraction) {
-    final fracParts = fraction.split('/');
-    if (fracParts.length != 2) return 0.0;
-
-    final num = double.tryParse(fracParts.first) ?? 0.0;
-    final den = double.tryParse(fracParts.last) ?? 1.0;
-
-    if (den == 0) return 0.0;
-    return num / den;
+    final fracParts = fraction.split('/'); if (fracParts.length != 2) return 0.0;
+    final num = double.tryParse(fracParts.first) ?? 0.0; final den = double.tryParse(fracParts.last) ?? 1.0;
+    return den == 0 ? 0.0 : num / den;
   }
 }
 
 class _OffsetResultGraphic extends StatelessWidget {
-  const _OffsetResultGraphic({
-    required this.markB,
-    required this.markA,
-    required this.markC,
-  });
-
-  final String markB;
-  final String markA;
-  final String markC;
-
+  const _OffsetResultGraphic({required this.markB, required this.markA, required this.markC, required this.isBenderDirectionReversed});
+  final String markB, markA, markC;
+  final bool isBenderDirectionReversed;
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 122,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.black.withAlpha(180),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFFC8C8C8),
-          width: 1.5,
-        ),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final w = constraints.maxWidth;
-
-          return Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned(
-                left: -18,
-                right: -22,
-                bottom: 8,
-                child: Image.asset(
-                  'assets/conduits/emt/pipe_5_ol.png',
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
+    return Container(height: 122, width: double.infinity, decoration: BoxDecoration(color: Colors.black.withAlpha(180), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5)),
+      child: LayoutBuilder(builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        return Stack(clipBehavior: Clip.none, children: [
+          Positioned(left: -18, right: -22, bottom: 8, child: Image.asset('assets/conduits/emt/pipe_5_ol.png', fit: BoxFit.contain, filterQuality: FilterQuality.high)),
+          _downMark(w * .15, 28, 'C', markC), _downMark(w * 0.45, 28, 'A', markA), _downMark(w * 0.74, 28, 'B', markB),
+          Positioned(
+            bottom: 0,
+            right: 14,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'Hook Faces: ${isBenderDirectionReversed ? "⬅ REVERSE" : "FORWARD ➜"}',
+                  style: TextStyle(
+                    color: isBenderDirectionReversed ? Colors.orangeAccent : kLight,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
                 ),
-              ),
-              _downMark(w * .15, 28, 'C', markC),
-              _downMark(w * 0.45, 28, 'A', markA),
-              _downMark(w * 0.74, 28, 'B', markB),
-              const Positioned(
-                bottom: 0,
-                right: 14,
-                child: Row(
+                const SizedBox(height: 2),
+                const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
@@ -1222,56 +1167,18 @@ class _OffsetResultGraphic extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-            ],
-          );
-        },
-      ),
+              ],
+            ),
+          ),
+        ]);
+      }),
     );
   }
 
   Widget _downMark(double x, double top, String label, String value) {
-    return Positioned(
-      left: x - 56,
-      top: top,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 112,
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.black.withAlpha(210),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFD0D0D0), width: 1.1),
-            ),
-            child: Text(
-              '$label: ${value.isEmpty ? "—" : value}',
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              softWrap: false,
-              overflow: TextOverflow.visible,
-              style: const TextStyle(
-                color: kLight,
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          const RotatedBox(
-            quarterTurns: 1,
-            child: Text(
-              "➜",
-              style: TextStyle(
-                color: kLight,
-                fontSize: 18,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    return Positioned(left: x - 56, top: top, child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Container(width: 112, padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4), decoration: BoxDecoration(color: Colors.black.withAlpha(210), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFD0D0D0), width: 1.1)), child: Text('$label: ${value.isEmpty ? "—" : value}', textAlign: TextAlign.center, maxLines: 1, softWrap: false, overflow: TextOverflow.visible, style: const TextStyle(color: kLight, fontSize: 14, fontWeight: FontWeight.w800))),
+      const SizedBox(height: 2), const RotatedBox(quarterTurns: 1, child: Text("➜", style: TextStyle(color: kLight, fontSize: 18, fontWeight: FontWeight.w900))),
+    ]));
   }
 }
