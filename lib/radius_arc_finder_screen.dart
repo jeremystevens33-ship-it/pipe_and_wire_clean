@@ -1,7 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'main_menu_screen.dart';
 import 'package:pipe_and_wire_clean/keypad_5.dart';
+
+void main() {
+  runApp(const MaterialApp(
+    home: RadiusArcFinderScreen(),
+  ));
+}
 
 class RadiusArcFinderScreen extends StatefulWidget {
   const RadiusArcFinderScreen({
@@ -41,9 +48,11 @@ enum RadiusStep {
   results,
 }
 
-class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
+class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> with TickerProviderStateMixin {
   RadiusMethod _selectedMethod = RadiusMethod.acrossRise;
   RadiusStep _activeStep = RadiusStep.method;
+
+  late AnimationController _infoAnimCtrl;
 
   String _acrossValue = '';
   String _riseValue = '';
@@ -59,6 +68,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
   double? _arcAngleDeg;
   String? _errorText;
 
+  bool _isKeypadVisible = false;
+
   final ScrollController _scrollController = ScrollController();
 
   final GlobalKey _methodCardKey = GlobalKey();
@@ -73,9 +84,183 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
   final GlobalKey _tangentOffsetFieldKey = GlobalKey();
   bool get _hasResults => _radius != null && _radius! > 0;
 
+  bool _hasViewedInfo = false;
+
+  Widget _buildGroupContainer({required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.all(4.0),
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildSilverButton({
+    required String label,
+    VoidCallback? onTap,
+    bool isActive = false,
+    bool isCheckmark = false,
+    double height = 44,
+    double fontSize = 15,
+  }) {
+    final bool isEnabled = onTap != null;
+
+    return Container(
+      height: height,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isActive
+              ? const [Color(0xFF8A1010), Color(0xFFD12A2A)]
+              : (isEnabled
+                  ? const [Color(0xFF4E4E52), Color(0xFF2C3030)]
+                  : [Colors.grey.shade800, Colors.grey.shade900]),
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF9E9E9E),
+          width: 1.1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Center(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: isEnabled ? Colors.white : Colors.grey.shade500,
+                    fontSize: fontSize,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (isCheckmark) ...[
+                  const SizedBox(width: 8),
+                  const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 24),
+                ]
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _labeledInput({
+    required GlobalKey fieldKey,
+    required String label,
+    required String currentValue,
+    required String hint,
+    required VoidCallback onTap,
+  }) {
+    final bool isActive = _isFieldActive(fieldKey);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        key: fieldKey,
+        children: [
+          Expanded(
+            flex: 7,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 5,
+            child: GestureDetector(
+              onTap: onTap,
+              child: Container(
+                height: 44,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                alignment: Alignment.centerRight,
+                decoration: BoxDecoration(
+                  color: Colors.black.withAlpha(160),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isActive ? const Color(0xFF4CAF50) : Colors.white38,
+                    width: isActive ? 1.8 : 1.2,
+                  ),
+                ),
+                child: Text(
+                  _displayInputValue(currentValue, hint),
+                  style: TextStyle(
+                    color: currentValue.isEmpty ? Colors.white38 : Colors.white,
+                    fontSize: 18,
+                    fontWeight: isActive ? FontWeight.w800 : FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.right,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _resultRow(String label, String value) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 1.5),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+          color: Colors.black.withAlpha(160),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFC8C8C8), width: 1.1)),
+      child: Row(
+        children: [
+          Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: 15,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600))),
+          const SizedBox(width: 12),
+          Container(
+            width: 132,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF8A1010), Color(0xFFD12A2A)]),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFB0B0B0), width: 1)),
+            child: Text(
+              value.isEmpty ? '—' : value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 19,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+    
     if (widget.initialRadiusInches != null && widget.initialRadiusInches! > 0) {
       _radius = widget.initialRadiusInches;
       _diameter = widget.initialRadiusInches! * 2;
@@ -85,6 +270,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
 
   @override
   void dispose() {
+    _infoAnimCtrl.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -94,6 +280,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
       _selectedMethod = RadiusMethod.acrossRise;
       _activeStep = RadiusStep.method;
       _activeInputType = KeypadInputType.none;
+      _isKeypadVisible = false;
       _acrossValue = '';
       _riseValue = '';
       _diameterValue = '';
@@ -116,7 +303,25 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     setState(() {
       _selectedMethod = method;
       _activeStep = RadiusStep.measurements;
-      _activeInputType = KeypadInputType.none;
+
+      // Highlight the first logical input but keep keypad hidden until clicked
+      switch (method) {
+        case RadiusMethod.acrossRise:
+          _activeInputType = KeypadInputType.across;
+          break;
+        case RadiusMethod.diameter:
+          _activeInputType = KeypadInputType.diameter;
+          break;
+        case RadiusMethod.circumference:
+          _activeInputType = KeypadInputType.circumference;
+          break;
+        case RadiusMethod.tangentOffset:
+          _activeInputType = KeypadInputType.tangentRun;
+          break;
+      }
+      
+      _isKeypadVisible = false;
+
       _errorText = null;
       _radius = null;
       _diameter = null;
@@ -147,7 +352,9 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
   Future<void> _focusInput(KeypadInputType inputType) async {
     setState(() {
       _activeInputType = inputType;
+      _setCurrentInputValue('');
       _activeStep = RadiusStep.measurements;
+      _isKeypadVisible = true;
       _errorText = null;
     });
 
@@ -206,10 +413,8 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     if ((value - value.roundToDouble()).abs() < 0.000001) {
       return value.toStringAsFixed(0);
     }
-    return value
-        .toStringAsFixed(3)
-        .replaceFirst(RegExp(r'0+$'), '')
-        .replaceFirst(RegExp(r'\.$'), '');
+    // Round to nearest tenth as per universal industrial standard
+    return value.toStringAsFixed(1);
   }
   String _fmtInchesFraction(double value) {
     final whole = value.floor();
@@ -425,6 +630,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
 
     setState(() {
       _activeInputType = KeypadInputType.none;
+      _isKeypadVisible = false;
     });
   }
 
@@ -549,6 +755,7 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
       _arcLength = null;
       _arcAngleDeg = null;
       _activeInputType = KeypadInputType.none;
+      _isKeypadVisible = false;
     });
 
     if (!_validate(showErrors: true)) return;
@@ -636,514 +843,86 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
     });
   }
   void _showInfoSheet() {
-    showModalBottomSheet<void>(
+    showDialog(
       context: context,
-      backgroundColor: const Color(0xFF171717),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-      ),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'How to measure',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  SizedBox(height: 16),
-                  _InfoBlock(
-                    title: 'Inside Arc',
-                    body:
-                    'Pick any two points on the curve. Measure straight across between them. Go to the midpoint of that measurement, then measure up to the arc.',
-                  ),
-                  SizedBox(height: 12),
-                  _InfoBlock(
-                    title: 'Diameter',
-                    body:
-                    'Use this when you can measure straight across the full circle or curved object.',
-                  ),
-                  SizedBox(height: 12),
-                  _InfoBlock(
-                    title: 'Circumference',
-                    body:
-                    'Use this when you can wrap around the object but cannot easily measure across it.',
-                  ),
-                  SizedBox(height: 12),
-                  _InfoBlock(
-                    title: 'Outside Arc',
-                    body:
-                    'Use this when you can rest a straight edge against the outside of the curve at one touch point. Measure X along the tangent line, then measure Y at a true 90° angle from the tangent down to the curve.',
-                  ),
-                  const SizedBox(height: 12),
-                  _InfoBlock(
-                    title: 'Returned value',
-                    body:
-                    'This screen solves radius first, and also shows diameter, arc angle, and arc length when available.',
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  String get _instructionText {
-    switch (_selectedMethod) {
-      case RadiusMethod.acrossRise:
-        return 'Pick any two points on the curve. Measure straight across between them. Go to the midpoint of that measurement, then measure up to the arc.';
-      case RadiusMethod.diameter:
-        return 'Measure straight across the full circle or curved object when that full width is accessible.';
-      case RadiusMethod.circumference:
-        return 'Measure all the way around the object when you cannot easily measure straight across it.';
-      case RadiusMethod.tangentOffset:
-        return 'Set a straight tangent line against the outside of the curve. Measure X along that tangent from the touch point, then measure Y at 90° from the tangent down to the curve.';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = _activeInputType != KeypadInputType.none ? 220.0 : 24.0;
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
-          onPressed: () => Navigator.of(context).maybePop(),
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
         ),
         title: const Text(
-          'Radius Arc Finder',
+          'How To Measure',
           style: TextStyle(
             color: Colors.white,
-            fontWeight: FontWeight.w700,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _helpItem('Inside Arc',
+                    'Pick any two points on the curve. Measure straight across between them (Across). Go to the midpoint of that line, then measure up to the arc (Rise).'),
+                const SizedBox(height: 12),
+                _helpItem('Diameter',
+                    'Use this when you can measure straight across the full circle or curved object.'),
+                const SizedBox(height: 12),
+                _helpItem('Circumference',
+                    'Use this when you can wrap around the object but cannot easily measure across it.'),
+                const SizedBox(height: 12),
+                _helpItem('Outside Arc',
+                    'Rest a straight edge against the outside of the curve. Measure X along the straight edge, then measure Y at a 90° angle down to the curve.'),
+                const SizedBox(height: 16),
+                const Text(
+                  'This screen solves radius first, and also shows diameter and arc segments when available.',
+                  style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: Colors.white),
-            onPressed: _showInfoSheet,
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: EdgeInsets.fromLTRB(14, 8, 14, bottomInset),
-                child: Column(
-                  children: [
-                    _stepCard(
-                      key: _methodCardKey,
-                      title: '1. Find Radius',
-                      isActive: _activeStep == RadiusStep.method,
-                      onHeaderTap: () {
-                        setState(() {
-                          _activeStep = RadiusStep.method;
-                          _activeInputType = KeypadInputType.none;
-                        });
-                      },
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Column(
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _methodChip(
-                                      label: 'Across + Rise',
-                                      selected: _selectedMethod == RadiusMethod.acrossRise,
-                                      onTap: () => _selectMethod(RadiusMethod.acrossRise),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _methodChip(
-                                      label: 'Diameter',
-                                      selected: _selectedMethod == RadiusMethod.diameter,
-                                      onTap: () => _selectMethod(RadiusMethod.diameter),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: _methodChip(
-                                      label: 'Circumference',
-                                      selected: _selectedMethod == RadiusMethod.circumference,
-                                      onTap: () => _selectMethod(RadiusMethod.circumference),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: _methodChip(
-                                      label: 'Tangent Offset',
-                                      selected: _selectedMethod == RadiusMethod.tangentOffset,
-                                      onTap: () => _selectMethod(RadiusMethod.tangentOffset),
-                                    ),
-                                  ),
-                                ],
-                              ),
-
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _stepCard(
-                      key: _measurementsCardKey,
-                      title: '2. MEASUREMENTS',
-                      isActive: _activeStep == RadiusStep.measurements,
-                      onHeaderTap: () {
-                        setState(() {
-                          _activeStep = RadiusStep.measurements;
-                          _activeInputType = KeypadInputType.none;
-                        });
-                      },
-                      child: Column(
-                        children: [
-                          if (_selectedMethod == RadiusMethod.acrossRise) ...[
-                            _diagramCard(),
-                            const SizedBox(height: 14),
-                            _labeledInput(
-                              fieldKey: _acrossFieldKey,
-                              label: 'Across (between two points)',
-                              currentValue: _acrossValue,
-                              hint: 'Example: 39',
-                              onTap: () => _focusInput(KeypadInputType.across),
-                            ),
-                            const SizedBox(height: 12),
-                            _labeledInput(
-                              fieldKey: _riseFieldKey,
-                              label: 'Rise (midpoint to arc)',
-                              currentValue: _riseValue,
-                              hint: 'Example: 5',
-                              onTap: () => _focusInput(KeypadInputType.rise),
-                            ),
-                          ],
-                          if (_selectedMethod == RadiusMethod.diameter) ...[
-                            _labeledInput(
-                              fieldKey: _diameterFieldKey,
-                              label: 'Diameter',
-                              currentValue: _diameterValue,
-                              hint: 'Measure straight across',
-                              onTap: () => _focusInput(KeypadInputType.diameter),
-                            ),
-                          ],
-                          if (_selectedMethod == RadiusMethod.circumference) ...[
-                            _labeledInput(
-                              fieldKey: _circumferenceFieldKey,
-                              label: 'Circumference',
-                              currentValue: _circumferenceValue,
-                              hint: 'Measure around the object',
-                              onTap: () => _focusInput(KeypadInputType.circumference),
-                            ),
-                          ],
-                          if (_selectedMethod == RadiusMethod.tangentOffset) ...[
-                            _tangentDiagramCard(),
-                            const SizedBox(height: 14),
-                            _labeledInput(
-                              fieldKey: _tangentRunFieldKey,
-                              label: 'X (distance along tangent)',
-                              currentValue: _tangentRunValue,
-                              hint: 'Example: 10',
-                              onTap: () => _focusInput(KeypadInputType.tangentRun),
-                            ),
-                            const SizedBox(height: 12),
-                            _labeledInput(
-                              fieldKey: _tangentOffsetFieldKey,
-                              label: 'Y (offset to curve)',
-                              currentValue: _tangentOffsetValue,
-                              hint: 'Example: 2',
-                              onTap: () => _focusInput(KeypadInputType.tangentOffset),
-                            ),
-                          ],
-                          if (_errorText != null) ...[
-                            const SizedBox(height: 14),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                _errorText!,
-                                style: const TextStyle(
-                                  color: Colors.redAccent,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _resetAll,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white,
-                                    side: const BorderSide(color: Colors.white30),
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  child: const Text('Reset'),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: ElevatedButton(
-                                  onPressed: _calculate,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF8E1515),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  child: const Text('Calculate'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _stepCard(
-                      key: _resultsCardKey,
-                      title: '3. RESULTS',
-                      isActive: _activeStep == RadiusStep.results,
-                      onHeaderTap: () {
-                        if (_hasResults) {
-                          setState(() {
-                            _activeStep = RadiusStep.results;
-                            _activeInputType = KeypadInputType.none;
-                          });
-                        }
-                      },
-                      child: _hasResults
-                          ? Column(
-                        children: [
-                          _resultRow(
-                            'Radius',
-                            _radius == null ? '—' : _fmtInchesFraction(_radius!),
-                          ),
-                          const SizedBox(height: 10),
-                          _resultRow(
-                            'Diameter',
-                            _diameter == null ? '—' : _fmtInchesFraction(_diameter!),
-                          ),
-                          if (_selectedMethod == RadiusMethod.acrossRise) ...[
-                            const SizedBox(height: 10),
-                            _resultRow(
-                              'Measured Segment Angle',
-                              _arcAngleDeg == null
-                                  ? '—'
-                                  : '${_fmtDouble(_arcAngleDeg)}°',
-                            ),
-                            const SizedBox(height: 10),
-                            _resultRow(
-                              'Measured Segment Length',
-                              _arcLength == null
-                                  ? '—'
-                                  : _fmtInchesFraction(_arcLength!),
-                            ),
-                          ],
-                          if (widget.returnRadiusToCaller) ...[
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () => Navigator.of(context).pop(_radius),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1D7F2C),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 15),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                                child: const Text('Use This Radius'),
-                              ),
-                            ),
-                          ],
-                        ],
-                      )
-                          : const SizedBox.shrink(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_activeInputType != KeypadInputType.none)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: NumericInputKeypad(onTap: _onKeypadTap),
-              ),
-          ],
-        ),
-      ),
     );
   }
 
-  Widget _stepCard({
-    Key? key,
-    required String title,
-    required bool isActive,
-    required Widget child,
-    VoidCallback? onHeaderTap,
-  }) {
-    return Container(
-      key: key,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF7A1212), width: 1.2),
-        color: Colors.black,
+  Widget _helpItem(String title, String desc) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  color: Color(0xFF4CAF50),
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15)),
+          const SizedBox(height: 2),
+          Text(desc,
+              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            InkWell(
-              onTap: onHeaderTap,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.white24),
-                  gradient: LinearGradient(
-                    colors: isActive
-                        ? const [Color(0xFF7D1111), Color(0xFFB02020)]
-                        : const [Color(0xFF555555), Color(0xFF1E1E1E)],
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            if (isActive) ...[
-              const SizedBox(height: 14),
-              child,
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-  Widget _methodChip({
-    required String label,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: selected ? const Color(0xFF9B2323) : Colors.white24,
-            width: 1.2,
-          ),
-          gradient: LinearGradient(
-            colors: selected
-                ? const [Color(0xFF3D3D3D), Color(0xFF191919)]
-                : const [Color(0xFF242424), Color(0xFF121212)],
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.white : Colors.white70,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-  Widget _labeledInput({
-    required GlobalKey fieldKey,
-    required String label,
-    required String currentValue,
-    required String hint,
-    required VoidCallback onTap,
-  }) {
-    return Row(
-      key: fieldKey,
-      children: [
-        Expanded(
-          flex: 7,
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          flex: 5,
-          child: GestureDetector(
-            onTap: onTap,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF060606),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _isFieldActive(fieldKey)
-                      ? const Color(0xFF45B85C)
-                      : const Color(0xFF2D6A39),
-                  width: _isFieldActive(fieldKey) ? 1.8 : 1.2,
-                ),
-              ),
-              child: Text(
-                _displayInputValue(currentValue, hint),
-                style: TextStyle(
-                  color: currentValue.isEmpty ? Colors.white38 : Colors.white,
-                  fontSize: currentValue.isEmpty ? 13 : 16,
-                  fontWeight:
-                  _isFieldActive(fieldKey) ? FontWeight.w700 : FontWeight.w500,
-                ),
-                textAlign: TextAlign.right,
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -1158,45 +937,445 @@ class _RadiusArcFinderScreenState extends State<RadiusArcFinderScreen> {
       case KeypadInputType.circumference:
         return fieldKey == _circumferenceFieldKey;
       case KeypadInputType.tangentRun:
+        return fieldKey == _tangentRunFieldKey;
       case KeypadInputType.tangentOffset:
-
+        return fieldKey == _tangentOffsetFieldKey;
       case KeypadInputType.none:
         return false;
     }
   }
 
-  Widget _resultRow(String label, String value) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-            ),
+  Widget _buildInfoBar() {
+    String infoText = '';
+
+    if (_activeStep == RadiusStep.method) {
+      infoText = 'Step 1: Select a measurement method based on the curve type.';
+    } else if (_activeStep == RadiusStep.measurements) {
+      infoText = 'Step 2: Enter dimensions. Use fractions (1/2, 3/4) for high precision.';
+    } else if (_activeStep == RadiusStep.results) {
+      infoText =
+          'Step 3: Calculations Complete. Segment Angle represents the arc coverage. Arc Length is the developed distance along the curve.';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.black.withAlpha(128),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5),
+        ),
+        child: Text(
+          infoText,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 15,
+            height: 1.4,
           ),
         ),
-        Container(
-          constraints: const BoxConstraints(minWidth: 120),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF050505),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFF2D6A39), width: 1.2),
-          ),
-          child: Text(
-            value,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF1F1F1F),
+        foregroundColor: Colors.white,
+        centerTitle: true,
+        leadingWidth: widget.returnRadiusToCaller ? 100 : 150,
+        leading: Row(
+          children: [
+            if (!widget.returnRadiusToCaller)
+              IconButton(
+                icon: const Icon(Icons.home),
+                onPressed: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+                  (route) => false,
+                ),
+              ),
+            IconButton(
+              icon: const RotatedBox(
+                quarterTurns: 2,
+                child: Text(
+                  "➜",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              onPressed: () {
+                if (_activeStep == RadiusStep.method) {
+                  Navigator.of(context).pop();
+                } else {
+                  setState(() {
+                    _activeStep = RadiusStep.values[_activeStep.index - 1];
+                    _activeInputType = KeypadInputType.none;
+                  });
+                }
+              },
             ),
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _resetAll,
+            ),
+          ],
+        ),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Radius Finder',
+            style: TextStyle(fontWeight: FontWeight.w700),
           ),
         ),
-      ],
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                if (!_hasViewedInfo)
+                  RotationTransition(
+                    turns: _infoAnimCtrl,
+                    child: AnimatedBuilder(
+                      animation: _infoAnimCtrl,
+                      builder: (context, child) {
+                        return ShaderMask(
+                          shaderCallback: (rect) {
+                            return SweepGradient(
+                              colors: [
+                                Colors.white.withValues(alpha: 0.0),
+                                Colors.white.withValues(alpha: 0.2 +
+                                    (0.7 *
+                                        (0.5 +
+                                            0.5 *
+                                                math.sin(_infoAnimCtrl.value *
+                                                    2 *
+                                                    math.pi)))),
+                                Colors.white.withValues(alpha: 0.0),
+                              ],
+                              stops: const [0.0, 0.5, 1.0],
+                            ).createShader(rect);
+                          },
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2.0),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.info_outline, color: Colors.white),
+                  onPressed: () {
+                    setState(() => _hasViewedInfo = true);
+                    _showInfoSheet();
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+              child: ListView(
+                controller: _scrollController,
+                children: [
+                  _buildMethodSection(),
+                  const SizedBox(height: 6),
+                  _buildMeasurementsSection(),
+                  const SizedBox(height: 6),
+                  _buildResultsSection(),
+                ],
+              ),
+            ),
+          ),
+          if (!_isKeypadVisible) _buildInfoBar(),
+          if (_isKeypadVisible)
+            NumericInputKeypad(onTap: _onKeypadTap),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMethodSection() {
+    return _buildGroupContainer(
+      child: Column(
+        children: [
+          _buildSilverButton(
+            label: '1. SELECT METHOD',
+            fontSize: 19,
+            height: 60,
+            isActive: _activeStep == RadiusStep.method,
+            onTap: () => setState(() {
+              _activeStep = RadiusStep.method;
+              _activeInputType = KeypadInputType.none;
+            }),
+          ),
+          if (_activeStep == RadiusStep.method)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Inside Arc',
+                          height: 40,
+                          isActive: _selectedMethod == RadiusMethod.acrossRise,
+                          onTap: () => _selectMethod(RadiusMethod.acrossRise),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Diameter',
+                          height: 40,
+                          isActive: _selectedMethod == RadiusMethod.diameter,
+                          onTap: () => _selectMethod(RadiusMethod.diameter),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Circumference',
+                          height: 40,
+                          isActive: _selectedMethod == RadiusMethod.circumference,
+                          onTap: () => _selectMethod(RadiusMethod.circumference),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Outside Arc',
+                          height: 40,
+                          isActive: _selectedMethod == RadiusMethod.tangentOffset,
+                          onTap: () => _selectMethod(RadiusMethod.tangentOffset),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  _buildSilverButton(
+                    label: 'Next',
+                    height: 44,
+                    isActive: true,
+                    isCheckmark: true,
+                    onTap: () => setState(() => _activeStep = RadiusStep.measurements),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMeasurementsSection() {
+    final bool isEnabled = _activeStep.index >= RadiusStep.measurements.index;
+
+    return _buildGroupContainer(
+      child: Column(
+        children: [
+          _buildSilverButton(
+            label: '2. MEASUREMENTS',
+            fontSize: 19,
+            height: 60,
+            isActive: _activeStep == RadiusStep.measurements,
+            onTap: isEnabled
+                ? () => setState(() {
+                      _activeStep = RadiusStep.measurements;
+                      _activeInputType = KeypadInputType.none;
+                    })
+                : null,
+          ),
+          if (_activeStep == RadiusStep.measurements)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Column(
+                children: [
+                  if (_selectedMethod == RadiusMethod.acrossRise) ...[
+                    _diagramCard(),
+                    const SizedBox(height: 10),
+                    _labeledInput(
+                      fieldKey: _acrossFieldKey,
+                      label: 'Across (chord line)',
+                      currentValue: _acrossValue,
+                      hint: '',
+                      onTap: () => _focusInput(KeypadInputType.across),
+                    ),
+                    const SizedBox(height: 4),
+                    _labeledInput(
+                      fieldKey: _riseFieldKey,
+                      label: 'Rise (depth of arc)',
+                      currentValue: _riseValue,
+                      hint: '',
+                      onTap: () => _focusInput(KeypadInputType.rise),
+                    ),
+                  ],
+                  if (_selectedMethod == RadiusMethod.diameter) ...[
+                    _labeledInput(
+                      fieldKey: _diameterFieldKey,
+                      label: 'Full Diameter',
+                      currentValue: _diameterValue,
+                      hint: '',
+                      onTap: () => _focusInput(KeypadInputType.diameter),
+                    ),
+                  ],
+                  if (_selectedMethod == RadiusMethod.circumference) ...[
+                    _labeledInput(
+                      fieldKey: _circumferenceFieldKey,
+                      label: 'Circumference',
+                      currentValue: _circumferenceValue,
+                      hint: '',
+                      onTap: () => _focusInput(KeypadInputType.circumference),
+                    ),
+                  ],
+                  if (_selectedMethod == RadiusMethod.tangentOffset) ...[
+                    _tangentDiagramCard(),
+                    const SizedBox(height: 10),
+                    _labeledInput(
+                      fieldKey: _tangentRunFieldKey,
+                      label: 'X (Tangent Distance)',
+                      currentValue: _tangentRunValue,
+                      hint: '',
+                      onTap: () => _focusInput(KeypadInputType.tangentRun),
+                    ),
+                    const SizedBox(height: 4),
+                    _labeledInput(
+                      fieldKey: _tangentOffsetFieldKey,
+                      label: 'Y (Offset to Arc)',
+                      currentValue: _tangentOffsetValue,
+                      hint: '',
+                      onTap: () => _focusInput(KeypadInputType.tangentOffset),
+                    ),
+                  ],
+                  if (_errorText != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _errorText!,
+                      style: const TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Reset',
+                          height: 44,
+                          onTap: _resetAll,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildSilverButton(
+                          label: 'Calculate',
+                          height: 44,
+                          isActive: true,
+                          onTap: _calculate,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultsSection() {
+    final bool isEnabled = _activeStep.index >= RadiusStep.results.index;
+
+    return _buildGroupContainer(
+      child: Column(
+        children: [
+          _buildSilverButton(
+            label: '3. RESULTS',
+            fontSize: 19,
+            height: 60,
+            isActive: _activeStep == RadiusStep.results,
+            onTap: isEnabled
+                ? () => setState(() {
+                      _activeStep = RadiusStep.results;
+                      _activeInputType = KeypadInputType.none;
+                    })
+                : null,
+          ),
+          if (_activeStep == RadiusStep.results && _hasResults)
+            Padding(
+              padding: const EdgeInsets.only(top: 10.0, bottom: 6.0),
+              child: Column(
+                children: [
+                  _resultRow(
+                    'Calculated Radius',
+                    _radius == null ? '—' : _fmtInchesFraction(_radius!),
+                  ),
+                  const SizedBox(height: 6),
+                  _resultRow(
+                    'Full Diameter',
+                    _diameter == null ? '—' : _fmtInchesFraction(_diameter!),
+                  ),
+                  if (_selectedMethod == RadiusMethod.acrossRise) ...[
+                    const SizedBox(height: 6),
+                    _resultRow(
+                      'Segment Angle',
+                      _arcAngleDeg == null ? '—' : '${_fmtDouble(_arcAngleDeg)}°',
+                    ),
+                    const SizedBox(height: 6),
+                    _resultRow(
+                      'Arc Segment Length',
+                      _arcLength == null ? '—' : _fmtInchesFraction(_arcLength!),
+                    ),
+                  ],
+                  if (widget.returnRadiusToCaller) ...[
+                    const SizedBox(height: 12),
+                    _buildSilverButton(
+                      label: 'Use This Radius',
+                      height: 50,
+                      isActive: true,
+                      isCheckmark: true,
+                      onTap: () => Navigator.of(context).pop(_radius),
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  _buildSilverButton(
+                    label: 'New Calculation',
+                    height: 40,
+                    onTap: _resetAll,
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -1523,54 +1702,6 @@ class _TangentOffsetPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-  Offset _pointOnQuadratic(Offset p0, Offset p1, Offset p2, double t) {
-    final mt = 1 - t;
-    final x = (mt * mt * p0.dx) + (2 * mt * t * p1.dx) + (t * t * p2.dx);
-    final y = (mt * mt * p0.dy) + (2 * mt * t * p1.dy) + (t * t * p2.dy);
-    return Offset(x, y);
-  }
-
-  Offset _verticalIntersectOnQuadratic(
-      Offset p0,
-      Offset p1,
-      Offset p2,
-      double targetX,
-      ) {
-    double bestDx = double.infinity;
-    Offset bestPoint = _pointOnQuadratic(p0, p1, p2, 0.5);
-
-    for (int i = 0; i <= 500; i++) {
-      final t = i / 500.0;
-      final pt = _pointOnQuadratic(p0, p1, p2, t);
-      final dx = (pt.dx - targetX).abs();
-      if (dx < bestDx) {
-        bestDx = dx;
-        bestPoint = pt;
-      }
-    }
-
-    return bestPoint;
-  }
-
-  void _drawLabel(Canvas canvas, String text, Offset offset) {
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-
-    textPainter.paint(canvas, offset);
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
-
 class _InfoBlock extends StatelessWidget {
   const _InfoBlock({required this.title, required this.body});
 
@@ -1729,4 +1860,3 @@ class _ArcMeasurementPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
-

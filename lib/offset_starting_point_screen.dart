@@ -48,6 +48,8 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
   bool _showBendingMethodCard = false;
   bool _bendingMethodCardExpanded = false;
   bool _isCalculateReady = false;
+  bool _isSpaceBetweenMode = true;
+  int _parallelDirection = 0;
 
   late final AnimationController _infoAnimCtrl;
   bool _hasViewedInfo = false;
@@ -70,6 +72,7 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
   bool _showParallelSetup = false;
   bool _isRollingOffset = false;
   bool _isQuickMode = true;
+  bool _useFullStick = false;
   bool _modeTouched = false;
   bool _typeTouched = false;
 
@@ -95,6 +98,7 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
   String markC = '';
   String shrinkOut = '';
   String travelOut = '';
+  String straightFinishOut = '';
   String radiusAdjustmentOut = '';
   String referenceAdjustmentOut = '';
   String referenceAdjustmentLabel = 'Reference Adjustment';
@@ -145,13 +149,15 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
       if (_isQuickMode) {
         ready = rollingVerticalCtl.text.isNotEmpty && rollingHorizontalCtl.text.isNotEmpty && angleCtl.text.isNotEmpty;
       } else {
-        ready = rollingVerticalCtl.text.isNotEmpty && rollingHorizontalCtl.text.isNotEmpty && angleCtl.text.isNotEmpty && distanceCtl.text.isNotEmpty && overallCtl.text.isNotEmpty;
+        final bool baseInputs = rollingVerticalCtl.text.isNotEmpty && rollingHorizontalCtl.text.isNotEmpty && angleCtl.text.isNotEmpty && distanceCtl.text.isNotEmpty;
+        ready = baseInputs && (_useFullStick || overallCtl.text.isNotEmpty);
       }
     } else {
       if (_isQuickMode) {
         ready = offsetHeightCtl.text.isNotEmpty && angleCtl.text.isNotEmpty;
       } else {
-        ready = offsetHeightCtl.text.isNotEmpty && angleCtl.text.isNotEmpty && distanceCtl.text.isNotEmpty && overallCtl.text.isNotEmpty;
+        final bool baseInputs = offsetHeightCtl.text.isNotEmpty && angleCtl.text.isNotEmpty && distanceCtl.text.isNotEmpty;
+        ready = baseInputs && (_useFullStick || overallCtl.text.isNotEmpty);
       }
     }
     if (ready != _isCalculateReady) {
@@ -303,95 +309,45 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
 
   void calculate() {
     final distance = parseInches(distanceCtl.text);
-    final overall = parseInches(overallCtl.text);
 
-    final angle =
-        double.tryParse(
-          angleCtl.text.replaceAll('°', '').trim(),
-        ) ??
-            0.0;
+    final angle = parseInches(angleCtl.text);
 
     final double offsetHeight;
-
-    // ===========================================================================
-    // TRUE OFFSET HEIGHT
-    // ===========================================================================
-
     if (_isRollingOffset) {
       final vertical = parseInches(rollingVerticalCtl.text);
       final horizontal = parseInches(rollingHorizontalCtl.text);
-
-      if (vertical <= 0 || horizontal <= 0) {
-        return;
-      }
-
-      offsetHeight = math.sqrt(
-        (vertical * vertical) + (horizontal * horizontal),
-      );
+      if (vertical <= 0 || horizontal <= 0) return;
+      offsetHeight = math.sqrt((vertical * vertical) + (horizontal * horizontal));
     } else {
       offsetHeight = parseInches(offsetHeightCtl.text);
     }
 
-    // ===========================================================================
-    // INPUT VALIDATION
-    // ===========================================================================
-
     if (_isQuickMode) {
-      if (offsetHeight <= 0 || angle <= 0 || angle >= 90) {
-        return;
-      }
+      if (offsetHeight <= 0 || angle <= 0 || angle >= 90) return;
     } else {
-      if (distance <= 0 ||
-          offsetHeight <= 0 ||
-          overall <= 0 ||
-          angle <= 0 ||
-          angle >= 90) {
-        return;
-      }
+      if (distance <= 0 || offsetHeight <= 0 || angle <= 0 || angle >= 90) return;
+      if (!_useFullStick && parseInches(overallCtl.text) <= 0) return;
     }
 
     final angleRad = angle * math.pi / 180.0;
+    final shrink = offsetHeight * math.tan(angleRad / 2.0);
+    final distanceBetweenBends = offsetHeight / math.sin(angleRad);
 
-    // ===========================================================================
-    // BASIC OFFSET GEOMETRY
-    // ===========================================================================
-
-    final shrink =
-        offsetHeight * math.tan(angleRad / 2.0);
-
-    final distanceBetweenBends =
-        offsetHeight / math.sin(angleRad);
-
-    final cutLength = overall + shrink;
-
-    // ===========================================================================
-    // BENDER DATA
-    // ===========================================================================
+    final double cutLength, finishedOverallLength;
+    if (_useFullStick) {
+      cutLength = 120.0;
+      finishedOverallLength = 120.0 - shrink;
+    } else {
+      finishedOverallLength = parseInches(overallCtl.text);
+      cutLength = finishedOverallLength + shrink;
+    }
 
     final clr = parseInches(radiusCtl.text);
     final takeUp = parseInches(takeUpCtl.text);
     final gain = parseInches(gainCtl.text);
 
-    final pipeSizeKey = _getNumericalStringPipeSize(
-      _selectedPipeSize ?? '0.5',
-    );
-
-    final double pipeOD =
-        (_parallelConduitType == 'Rigid'
-            ? bending_data.grcOD[pipeSizeKey]
-            : bending_data.emtOD[pipeSizeKey]) ??
-            0.706;
-
-    // ===========================================================================
-    // STAGE 1: TRADITIONAL ARROW / START MARKS
-    // ===========================================================================
-    //
-    // Mark A is the farther mark near the obstruction.
-    //
-    // Mark B is found by subtracting the distance between bends.
-    //
-    // These two marks remain separated by the full offset hypotenuse.
-    //
+    final pipeSizeKey = _getNumericalStringPipeSize(_selectedPipeSize ?? '0.5');
+    final double pipeOD = (_parallelConduitType == 'Rigid' ? bending_data.grcOD[pipeSizeKey] : bending_data.emtOD[pipeSizeKey]) ?? 0.706;
 
     final arrowMarkA = distance + shrink;
     final arrowMarkB = arrowMarkA - distanceBetweenBends;
@@ -402,105 +358,27 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
     double referenceAdjustmentValue = 0.0;
     String adjustmentLabel = 'Reference Adjustment';
 
-    // ===========================================================================
-    // STAGE 2: TRUE CENTER-OF-BEND MARKS
-    // ===========================================================================
-    //
-    // Radius adjustment moves the ENTIRE offset mark layout together.
-    //
-    // It does not move Mark A and Mark B in opposite directions.
-    //
-    // Both marks receive the same subtraction:
-    //
-    // Center A = Arrow A - Radius Adjustment
-    // Center B = Arrow B - Radius Adjustment
-    //
-    // This preserves the exact distance between bends.
-    //
-    // Reversing the physical bender does not change these center marks.
-    //
-
     if (!_isArrowMethod && clr > 0) {
-      final radiusAdjustment =
-      bending_data.calculateRadiusAdjustment(
-        clr: clr,
-        angleDeg: angle,
-      );
-
+      final radiusAdjustment = bending_data.calculateRadiusAdjustment(clr: clr, angleDeg: angle);
       radiusAdjustmentValue = radiusAdjustment;
 
       if (_bendingMethod == bending_data.BendingMethod.notch) {
-        referenceAdjustmentValue =
-            bending_data.calculate45NotchCorrection(
-              clr: clr,
-              angleDeg: angle,
-            );
-
+        referenceAdjustmentValue = bending_data.calculate45NotchCorrection(clr: clr, angleDeg: angle);
         adjustmentLabel = 'Notch Adjustment';
       } else if (_bendingMethod == bending_data.BendingMethod.hook) {
-        referenceAdjustmentValue =
-            bending_data.calculateFrontHookAdjustment(
-              deduct: takeUp,
-              clr: clr,
-              pipeOD: pipeOD,
-              angleDeg: angle,
-            );
-
+        referenceAdjustmentValue = bending_data.calculateFrontHookAdjustment(deduct: takeUp, clr: clr, pipeOD: pipeOD, angleDeg: angle);
         adjustmentLabel = 'Front Hook Adjustment';
       } else {
         referenceAdjustmentValue = 0.0;
         adjustmentLabel = 'Centerline Adjustment';
       }
 
-      final centerMarkA =
-          arrowMarkA - radiusAdjustment;
+      final centerMarkA = arrowMarkA - radiusAdjustment;
+      final centerMarkB = arrowMarkB - radiusAdjustment;
 
-      final centerMarkB =
-          arrowMarkB - radiusAdjustment;
-
-      // =========================================================================
-      // STAGE 3: SELECTED BENDER REFERENCE
-      // =========================================================================
-      //
-      // CENTERLINE:
-      //   Returns the true center marks unchanged.
-      //
-      // NOTCH:
-      //   Translates the true center marks to the 45° notch / teardrop.
-      //
-      // HOOK:
-      //   Translates the true center marks to the front of the machine hook.
-      //
-      // Forward / Reverse applies only to the physical bender reference.
-      // It does not move or recalculate the offset geometry.
-      //
-
-      finalMarkA =
-          bending_data.convertCenterMarkToBenderReference(
-            centerMark: centerMarkA,
-            method: _bendingMethod,
-            clr: clr,
-            deduct: takeUp,
-            pipeOD: pipeOD,
-            angleDeg: angle,
-            reverse: _isBenderDirectionReversed,
-          );
-
-      finalMarkB =
-          bending_data.convertCenterMarkToBenderReference(
-            centerMark: centerMarkB,
-            method: _bendingMethod,
-            clr: clr,
-            deduct: takeUp,
-            pipeOD: pipeOD,
-            angleDeg: angle,
-            reverse: _isBenderDirectionReversed,
-          );
+      finalMarkA = bending_data.convertCenterMarkToBenderReference(centerMark: centerMarkA, method: _bendingMethod, clr: clr, deduct: takeUp, pipeOD: pipeOD, angleDeg: angle, reverse: _isBenderDirectionReversed);
+      finalMarkB = bending_data.convertCenterMarkToBenderReference(centerMark: centerMarkB, method: _bendingMethod, clr: clr, deduct: takeUp, pipeOD: pipeOD, angleDeg: angle, reverse: _isBenderDirectionReversed);
     }
-
-    // ===========================================================================
-    // OUTPUT
-    // ===========================================================================
 
     setState(() {
       _rawMarkA = finalMarkA;
@@ -515,15 +393,10 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
 
       shrinkOut = fmtInches(shrink);
       travelOut = fmtInches(distanceBetweenBends);
+      straightFinishOut = fmtInches(finishedOverallLength);
 
-      radiusAdjustmentOut =
-      _isArrowMethod ? '—' : fmtInches(radiusAdjustmentValue);
-
-      referenceAdjustmentOut =
-      _isArrowMethod || _bendingMethod == bending_data.BendingMethod.centerline
-          ? '—'
-          : fmtInches(referenceAdjustmentValue);
-
+      radiusAdjustmentOut = _isArrowMethod ? '—' : fmtInches(radiusAdjustmentValue);
+      referenceAdjustmentOut = _isArrowMethod || _bendingMethod == bending_data.BendingMethod.centerline ? '—' : fmtInches(referenceAdjustmentValue);
       referenceAdjustmentLabel = adjustmentLabel;
       _activeController = null;
       _isKeypadVisible = false;
@@ -566,18 +439,25 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
 
   void _openRackBuilder() {
     final int count = int.tryParse(parallelPipeCountCtl.text) ?? 3;
-    final String sizeStr = parallelPipeSizeCtl.text;
-    final double spaceBetween = parseInches(parallelSpacingCtl.text);
-    final List<String> sizes = List.generate(count, (_) => sizeStr);
+    final double spacing = parseInches(parallelSpacingCtl.text);
+    final String sizeName = _selectedPipeSize != null ? bending_data.pipeSizes[_selectedPipeSize] ?? '1/2"' : '1/2"';
+
     Navigator.push(context, MaterialPageRoute(builder: (context) => ChangeNotifierProvider(create: (_) => RackState(),
       child: RackBuilderScreen(
-        initialDistance: parseInches(distanceCtl.text),
+        initialDistance: parseInches(distanceCtl.text), 
         initialOffsetHeight: _isRollingOffset ? parseInches(rollingVerticalCtl.text) : parseInches(offsetHeightCtl.text),
-        initialHorizontalRoll: _isRollingOffset ? parseInches(rollingHorizontalCtl.text) : null,
-        initialOverallLength: parseInches(overallCtl.text),
+        initialHorizontalRoll: _isRollingOffset ? parseInches(rollingHorizontalCtl.text) : null, 
+        initialOverallLength: _useFullStick ? 120.0 : parseInches(overallCtl.text),
         initialAngle: double.tryParse(angleCtl.text.replaceAll('°', '').trim()) ?? 0,
-        initialSpacing: spaceBetween, initialPipeCount: count, initialPipeSizes: sizes, boxLayoutConduitType: _parallelConduitType,
-        startInOffsetMode: true, startInRollingOffsetMode: _isRollingOffset,
+        initialSpacing: spacing, 
+        initialPipeCount: count, 
+        initialPipeSizes: List.generate(count, (_) => sizeName), 
+        initialFullStick: _useFullStick,
+        boxLayoutConduitType: _parallelConduitType,
+        startInOffsetMode: true, 
+        startInRollingOffsetMode: _isRollingOffset,
+        initialDirection: _parallelDirection,
+        initialSpacingIsC2C: !_isSpaceBetweenMode,
       ))));
   }
 
@@ -834,7 +714,27 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
         _inlineField('Bend Angle', angleCtl, suffix: '°', onTap: () => _showKeypad(angleCtl)),
         if (!_isQuickMode) ...[
           _inlineField('Distance to Obstruction', distanceCtl, suffix: '"', onTap: () => _showKeypad(distanceCtl)),
-          _inlineField('Finished Overall Length', overallCtl, suffix: '"', onTap: () => _showKeypad(overallCtl)),
+          const SizedBox(height: 8),
+          Row(children: [
+            const Expanded(child: Text('Full Stick (10ft)?', style: TextStyle(color: kLight, fontSize: 16))),
+            _buildChoiceButton(
+              label: 'YES',
+              width: 70, height: 34, fontSize: 12,
+              selected: _useFullStick, touched: true,
+              onTap: () => setState(() { _useFullStick = true; overallCtl.clear(); _updateCalculateReady(); }),
+            ),
+            const SizedBox(width: 8),
+            _buildChoiceButton(
+              label: 'NO',
+              width: 70, height: 34, fontSize: 12,
+              selected: !_useFullStick, touched: true,
+              onTap: () => setState(() { _useFullStick = false; _updateCalculateReady(); }),
+            ),
+          ]),
+          if (!_useFullStick) ...[
+            const SizedBox(height: 4),
+            _inlineField('Finished Overall Length', overallCtl, suffix: '"', onTap: () => _showKeypad(overallCtl)),
+          ],
         ],
         if (_isCalculateReady) ...[
           const SizedBox(height: 10),
@@ -871,40 +771,20 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
               const Expanded(child: Text('Bender Orientation', style: TextStyle(color: Colors.white70, fontSize: 14, fontWeight: FontWeight.bold))),
               _buildChoiceButton(
                 label: 'FORWARD',
-                width: 90,
-                height: 34,
-                fontSize: 12,
-                selected: !_isBenderDirectionReversed,
-                touched: true,
+                width: 90, height: 34, fontSize: 12,
+                selected: !_isBenderDirectionReversed, touched: true,
                 onTap: () => setState(() => _isBenderDirectionReversed = false),
               ),
               const SizedBox(width: 4),
               _buildChoiceButton(
                 label: 'REVERSE',
-                width: 90,
-                height: 34,
-                fontSize: 12,
-                selected: _isBenderDirectionReversed,
-                touched: true,
+                width: 90, height: 34, fontSize: 12,
+                selected: _isBenderDirectionReversed, touched: true,
                 onTap: () => setState(() => _isBenderDirectionReversed = true),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          _buildSilverButton(
-            label: _selectedBrand ?? 'Select Bender Brand',
-            height: 40,
-            onTap: _showBrandPicker,
-          ),
-          const SizedBox(height: 6),
-          _buildPipeSizeSelector(),
-          const SizedBox(height: 10),
-          if (_selectedBrand != null) ...[
-            _inlineField('Take Up', takeUpCtl, suffix: '"', readOnly: true),
-            _inlineField('Gain90', gainCtl, suffix: '"', readOnly: true),
-            _inlineField('Radius / CLR', radiusCtl, suffix: '"', readOnly: true),
-            const SizedBox(height: 10),
-          ],
         ],
         Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8)), child: Text(_getBendingMethodExplanation(), textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.3))),
       ]
@@ -1029,6 +909,12 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
           const SizedBox(height: 6),
 
           _cleanResultRow(
+            _useFullStick ? 'Actual Finish Distance' : 'Straight Finish',
+            straightFinishOut,
+          ),
+          const SizedBox(height: 6),
+
+          _cleanResultRow(
             'Radius Adjustment',
             radiusAdjustmentOut,
           ),
@@ -1046,15 +932,51 @@ class _OffsetStartingPointScreenState extends State<OffsetStartingPointScreen> w
   Widget _parallelSetupCard() {
     return Container(padding: const EdgeInsets.fromLTRB(12, 10, 12, 10), decoration: BoxDecoration(color: Colors.black.withAlpha(180), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(_isRollingOffset ? 'Parallel Rolling Setup' : 'Parallel Setup', style: const TextStyle(color: kLight, fontSize: 17, fontWeight: FontWeight.w800)),
-        const SizedBox(height: 12),
-        _inlineField('Pipe Count', parallelPipeCountCtl, suffix: null, onTap: () { _showKeypad(parallelPipeCountCtl, clearFirst: true); Future.delayed(const Duration(milliseconds: 150), () { if (_scrollCtl.hasClients) _scrollCtl.animateTo(_scrollCtl.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut); }); }),
-        _inlineField('Pipe Size', parallelPipeSizeCtl, suffix: '"', onTap: () => _showKeypad(parallelPipeSizeCtl, clearFirst: true)),
-        _inlineField('Space Between Pipes', parallelSpacingCtl, suffix: '"', onTap: () { _showKeypad(parallelSpacingCtl, clearFirst: true); Future.delayed(const Duration(milliseconds: 150), () { if (_scrollCtl.hasClients) _scrollCtl.animateTo(_scrollCtl.position.maxScrollExtent, duration: const Duration(milliseconds: 250), curve: Curves.easeOut); }); }),
-        Padding(padding: const EdgeInsets.symmetric(vertical: 5), child: Row(children: [ const Expanded(child: Text('Conduit Type', style: TextStyle(fontSize: 16, color: kLight))), const SizedBox(width: 12), SizedBox(width: 152, child: Row(children: [ Expanded(child: _buildChoiceButton(label: 'EMT', fontSize: 13, height: 38, selected: _parallelConduitType == 'EMT', touched: true, onTap: () => setState(() => _parallelConduitType = 'EMT'))), const SizedBox(width: 4), Expanded(child: _buildChoiceButton(label: 'RIGID', fontSize: 13, height: 38, selected: _parallelConduitType == 'Rigid', touched: true, onTap: () => setState(() => _parallelConduitType = 'Rigid'))) ])) ])),
-        const SizedBox(height: 10),
-        _buildSilverButton(label: 'Build Rack', height: 44, isActive: parallelSpacingCtl.text.trim().isNotEmpty && parallelPipeCountCtl.text.trim().isNotEmpty && parallelPipeSizeCtl.text.trim().isNotEmpty, onTap: _openRackBuilder),
+        const Text('Parallel Setup', style: TextStyle(color: kLight, fontSize: 17, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        _inlineField('Pipe Count', parallelPipeCountCtl, suffix: null, onTap: () { _showKeypad(parallelPipeCountCtl, clearFirst: true); }),
+        const SizedBox(height: 4),
+        _inlineField('Spacing', parallelSpacingCtl, suffix: '"', onTap: () { _showKeypad(parallelSpacingCtl, clearFirst: true); }),
+        const SizedBox(height: 4),
+        Row(children: [
+          Expanded(child: _buildChoiceButton(
+            label: 'Space Between', height: 44, fontSize: 14,
+            selected: _isSpaceBetweenMode, touched: true,
+            onTap: () => setState(() => _isSpaceBetweenMode = true),
+          )),
+          const SizedBox(width: 4),
+          Expanded(child: _buildChoiceButton(
+            label: 'Center to Center', height: 44, fontSize: 14,
+            selected: !_isSpaceBetweenMode, touched: true,
+            onTap: () => setState(() => _isSpaceBetweenMode = false),
+          )),
+        ]),
+        const SizedBox(height: 8),
+        const Center(child: Text('OFFSET DIRECTION', style: TextStyle(color: kLight, fontSize: 13, fontWeight: FontWeight.w900))),
+        const SizedBox(height: 6),
+        Row(children: [
+          Expanded(child: Column(children: [
+            _directionArrow(2, -1), // Left
+            const SizedBox(height: 4),
+            _directionArrow(1, 2), // Down
+          ])),
+          const SizedBox(width: 4),
+          Expanded(child: Column(children: [
+            _directionArrow(-1, 0), // Up
+            const SizedBox(height: 4),
+            _directionArrow(0, 1), // Right
+          ])),
+        ]),
+        const SizedBox(height: 8),
+        const Center(child: Text('3-7-10 Support Rule Aware', style: TextStyle(color: kGreen, fontSize: 12, fontWeight: FontWeight.bold))),
+        const SizedBox(height: 4),
+        _buildSilverButton(label: 'SHOW RESULTS', height: 60, fontSize: 20, isActive: parallelSpacingCtl.text.trim().isNotEmpty && parallelPipeCountCtl.text.trim().isNotEmpty, onTap: _openRackBuilder),
       ]));
+  }
+
+  Widget _directionArrow(int turns, int val) {
+    final active = _parallelDirection == val;
+    return GestureDetector(onTap: () => setState(() => _parallelDirection = val), child: Container(height: 50, decoration: BoxDecoration(gradient: active ? const LinearGradient(colors: [Color(0xFF8A1010), Color(0xFFD12A2A)]) : const LinearGradient(colors: [Color(0xFF3A3A3D), Color(0xFF1F1F21)]), borderRadius: BorderRadius.circular(10), border: Border.all(color: active ? kRed : const Color(0xFF8C8C8C), width: active ? 2.0 : 1.2)), child: RotatedBox(quarterTurns: turns, child: const Center(child: Text("➜", style: TextStyle(color: kLight, fontSize: 24, fontWeight: FontWeight.w900))))));
   }
 
   Widget _offsetMarksCard() {

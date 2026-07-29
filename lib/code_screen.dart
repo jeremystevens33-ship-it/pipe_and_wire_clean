@@ -18,6 +18,7 @@ import 'code_sections/disconnect_requirements_code_screen.dart';
 import 'code_sections/panelboards_overcurrent_code_screen.dart';
 import 'code_sections/continuous_load_code_screen.dart';
 import 'code_sections/branch_circuit_load_basics_code_screen.dart';
+import 'code_sections/motor_calculations_code_screen.dart';
 /// --------------------
 /// FONT SCALE CONTROL
 /// --------------------
@@ -35,7 +36,7 @@ const Color kPanelOuter = Color(0xFF0B0B0D);
 const Color kPanelInner = Color(0xFF121214);
 const Color kRowBg = Color(0xFF17171A);
 
-enum CodeCategory { conductors, raceways, boxes, equipment, grounding, loads, voltage }
+enum CodeCategory { conductors, raceways, boxes, equipment, grounding, loads, voltage, motors }
 
 class CodeScreen extends StatefulWidget {
   final CodeCategory? initialCategory;
@@ -53,6 +54,7 @@ class _CodeScreenState extends State<CodeScreen> {
   final _groundingCtrl = ExpansionTileController();
   final _loadsCtrl = ExpansionTileController();
   final _voltageCtrl = ExpansionTileController();
+  final _motorsCtrl = ExpansionTileController();
 
   @override
   void initState() {
@@ -67,6 +69,7 @@ class _CodeScreenState extends State<CodeScreen> {
           case CodeCategory.grounding: _groundingCtrl.expand(); break;
           case CodeCategory.loads: _loadsCtrl.expand(); break;
           case CodeCategory.voltage: _voltageCtrl.expand(); break;
+          case CodeCategory.motors: _motorsCtrl.expand(); break;
         }
       });
     }
@@ -268,6 +271,21 @@ class _CodeScreenState extends State<CodeScreen> {
                     title: 'Voltage Drop Basics',
                     codeHint: 'Info Note',
                     onTap: () => _go(const VoltageDropCodeScreen()),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              _CategoryTile(
+                controller: _motorsCtrl,
+                onOpened: () => _openOnly(_motorsCtrl),
+                title: 'Motors & Controllers',
+                subtitle: 'FLC, sizing, protection, Art. 430',
+                children: [
+                  _TopicRow(
+                    title: 'Motor Calculations',
+                    codeHint: '430',
+                    onTap: () => _go(const MotorCalculationsCodeScreen()),
                   ),
                 ],
               ),

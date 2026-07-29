@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pipe_and_wire_clean/keypad_5.dart';
 import 'package:pipe_and_wire_clean/bending_data.dart' as bending_data;
 import 'package:pipe_and_wire_clean/radius_arc_finder_screen.dart';
+import 'main_menu_screen.dart';
 import 'code_screen.dart';
 
 void main() {
@@ -36,15 +37,18 @@ class Segmented90PlusRadiusScreen extends StatefulWidget {
 }
 
 class _Segmented90PlusRadiusScreenState
-    extends State<Segmented90PlusRadiusScreen> {
+    extends State<Segmented90PlusRadiusScreen> with TickerProviderStateMixin {
   // Workflow state
   int _currentStep = 0;
   bool _isBenderExpanded = true;
-  bool _isMeasurementsExpanded = false;
+  bool _isRadiusExpanded = false;
+  bool _isDetailsExpanded = false;
   bool _isResultsExpanded = false;
   bool _isCalculateReady = false;
   SegmentedMode _segmentedMode = SegmentedMode.arcOnly;
   ArcInputMode _arcInputMode = ArcInputMode.boxToBox;
+
+  late AnimationController _infoAnimCtrl;
 
   // Bender & conduit state
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
@@ -102,10 +106,18 @@ class _Segmented90PlusRadiusScreenState
   // Keypad state
   bool _isKeypadVisible = false;
   TextEditingController? _activeController;
+  bool _isNameEntryMode = false;
+  String _customBenderName = '';
+
+  bool _hasViewedInfo = false;
 
   @override
   void initState() {
     super.initState();
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
 
     final allInputCtrls = [
       measurement1Ctrl,
@@ -114,6 +126,7 @@ class _Segmented90PlusRadiusScreenState
       radiusCtrl,
       boxToBoxCtrl,
       arcAngleCtrl,
+      customStandoffCtrl,
     ];
     for (var ctrl in allInputCtrls) {
       ctrl.addListener(_updateCalculateButtonState);
@@ -122,6 +135,7 @@ class _Segmented90PlusRadiusScreenState
 
   @override
   void dispose() {
+    _infoAnimCtrl.dispose();
     final allCtrls = [
       measurement1Ctrl,
       measurement2Ctrl,
@@ -145,9 +159,8 @@ class _Segmented90PlusRadiusScreenState
     final bool hasRadius = radiusCtrl.text.isNotEmpty;
     final bool hasPipeSize = _selectedPipeSize != null;
 
-    final bool needsShots = _segmentedMode == SegmentedMode.stubbed90;
-    final bool needsStub = _segmentedMode == SegmentedMode.stubbed90;
-
+    final bool isStubMode = _segmentedMode == SegmentedMode.stubbed90;
+    
     final bool hasShots = measurement2Ctrl.text.isNotEmpty;
     final bool hasStub = measurement1Ctrl.text.isNotEmpty;
 
@@ -160,41 +173,24 @@ class _Segmented90PlusRadiusScreenState
 
     final bool isReady = hasRadius &&
         hasPipeSize &&
-        (!needsShots || hasShots) &&
-        (!needsStub || hasStub) &&
-        hasArcInput;
+        (!isStubMode || (hasShots && hasStub)) &&
+        (_segmentedMode != SegmentedMode.arcOnly || hasArcInput);
 
     if (isReady != _isCalculateReady) {
       setState(() {
         _isCalculateReady = isReady;
-        if (isReady) {
-          _currentStep = 2;
-        }
       });
     }
-  }
-
-  void _setShotPreset(int shots) {
-    setState(() {
-      measurement2Ctrl.text = shots.toString();
-    });
-    _updateCalculateButtonState();
-  }
-
-  void _updateBenderData() {
-    if (_selectedPipeSize == null) {
-      return;
-    }
-    _updateCalculateButtonState();
   }
 
   void _resetToStep(int step) {
     setState(() {
       _currentStep = step;
       _isBenderExpanded = step == 0;
-      _isMeasurementsExpanded = step == 1;
+      _isRadiusExpanded = step == 1;
+      _isDetailsExpanded = step == 2;
 
-      if (step < 3) {
+      if (step < 4) {
         _isResultsExpanded = false;
         markAOut = '';
         markBOut = '';
@@ -250,7 +246,8 @@ class _Segmented90PlusRadiusScreenState
       _isResultsExpanded = false;
       _currentStep = 0;
       _isBenderExpanded = true;
-      _isMeasurementsExpanded = false;
+      _isRadiusExpanded = false;
+      _isDetailsExpanded = false;
       _showArcOptions = false;
       _selectedArcOptionDeg = null;
       _arcOption3 = null;
@@ -259,8 +256,6 @@ class _Segmented90PlusRadiusScreenState
       _arcOption6 = null;
       _activeController = null;
       _isKeypadVisible = false;
-
-
     });
   }
 
@@ -572,9 +567,11 @@ class _Segmented90PlusRadiusScreenState
         _showArcOptions = false;
         _selectedArcOptionDeg = best['targetDeg'] as double;
 
-        _currentStep = 3;
+        _currentStep = 4;
         _isResultsExpanded = true;
-        _isMeasurementsExpanded = false;
+        _isBenderExpanded = false;
+        _isRadiusExpanded = false;
+        _isDetailsExpanded = false;
         _hideKeypad();
       });
 
@@ -611,9 +608,11 @@ class _Segmented90PlusRadiusScreenState
             ? '${anglePerShot.toStringAsFixed(0)}°'
             : '${anglePerShot.toStringAsFixed(1)}°';
 
-        _currentStep = 3;
+        _currentStep = 4;
         _isResultsExpanded = true;
-        _isMeasurementsExpanded = false;
+        _isBenderExpanded = false;
+        _isRadiusExpanded = false;
+        _isDetailsExpanded = false;
         _hideKeypad();
       });
     }
@@ -778,7 +777,7 @@ class _Segmented90PlusRadiusScreenState
     final double? solvedRadius = await Navigator.push<double>(
       context,
       MaterialPageRoute(
-        builder: (_) => const RadiusArcFinderScreen(),
+        builder: (_) => const RadiusArcFinderScreen(returnRadiusToCaller: true),
       ),
     );
 
@@ -1042,97 +1041,135 @@ class _Segmented90PlusRadiusScreenState
   void _showHelpDialog() {
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF212121),
-          title: const Text(
-            'Segmented 90 + Radius',
-            style: TextStyle(color: kLight),
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+        ),
+        title: const Text(
+          'Segmented 90 Help',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
           ),
-          content: const SingleChildScrollView(
-            child: ListBody(
-              children: <Widget>[
-                Text(
-                  'Use this screen to lay out either a stubbed segmented 90 or an arc-only bend from a chosen radius.',
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _helpItem('Step 1: Conduit & Mode',
+                    'Choose EMT or Rigid. Arc Only is for circular segments (like a bridge or large curve). Stubbed 90 is for a full 90-degree bend with a specific vertical stub height.'),
+                const SizedBox(height: 12),
+                _helpItem('Step 2: Radius Setup',
+                    'Enter your measured radius. Use "Find Radius" tool, or "From Length" if you only know the total pipe length.'),
+                const SizedBox(height: 12),
+                _helpItem('Step 3: Bending Details',
+                    'Specify "shots" (number of bends) for the 90, or enter dimensions for the Arc.'),
+                const SizedBox(height: 12),
+                _helpItem('Step 4: Results',
+                    'Mark A, B, and C provide precise layout from the pipe end. For Arcs, follow the "Recommended Angle" for the smoothest result.'),
+                const SizedBox(height: 16),
+                const Text(
+                  'Developed Length is automatically solved to ensure spacing is exact across the entire curve.',
                   style: TextStyle(
-                    color: kLight,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                SizedBox(height: 10),
-
-                Text(
-                  '1. Select conduit type and pipe size.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                SizedBox(height: 10),
-
-                Text(
-                  '2. Set your radius. Enter a measured radius, use Find Radius, or create one from pipe length.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                SizedBox(height: 10),
-
-                Text(
-                  '3. Choose the surface followed and support type. The app updates the adjusted bend radius automatically.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                SizedBox(height: 10),
-
-                Text(
-                  '4. For Arc Only, enter either box-to-box length or arc angle. Radius from Length can also fill the arc angle automatically.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                SizedBox(height: 10),
-
-                Text(
-                  '5. For Stubbed 90, choose a shot count, then enter stub height and optional leg length.',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                SizedBox(height: 10),
-
-                Text(
-                  '6. The app calculates spacing, bend angle, bend marks, and cut layout based on your inputs.',
-                  style: TextStyle(color: Colors.white70),
+                      color: Colors.white60,
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic),
                 ),
               ],
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text(
-                'Close',
-                style: TextStyle(color: kRed),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildInfoBar() {
-    String infoText = 'Step 1: Select conduit type and pipe size.';
+  Widget _helpItem(String title, String desc) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  color: kGreen, fontWeight: FontWeight.bold, fontSize: 15)),
+          const SizedBox(height: 2),
+          Text(desc,
+              style: const TextStyle(color: Colors.white70, fontSize: 14)),
+        ],
+      ),
+    );
+  }
 
-    if (_currentStep == 1) {
-      if (_segmentedMode == SegmentedMode.arcOnly) {
+  void _setShotPreset(int shots) {
+    setState(() {
+      measurement2Ctrl.text = shots.toString();
+    });
+    _updateCalculateButtonState();
+  }
+
+  void _updateBenderData() {
+    _updateCalculateButtonState();
+  }
+
+  Widget _buildInfoBar() {
+    String infoText = '';
+
+    if (_currentStep == 0) {
+      infoText =
+          'Select pipe type and size. Choose if you are bending only an arc of less than 90 degrees or a full 90 with a stub and leg.';
+    } else if (_currentStep == 1) {
+      if (_showPipeLengthHelper) {
         infoText =
-        'Step 2: Enter radius, then choose Arc Input (box-to-box or 0–360° angle).';
+            'From Length: Enter your cut pipe length and desired arc angle. The tool will calculate the exact radius needed to fit that length.';
+      } else if (radiusCtrl.text.isNotEmpty) {
+        infoText =
+            'Choose Surface & Support: Selecting Inside/Outside and Mount type solves for the Adjusted Radius by compensating for pipe thickness and standoff.';
       } else {
         infoText =
-        'Step 2: Enter radius, then choose shots, stub height, and optional leg length.';
+            'Enter a measured radius, or use the "Find Radius" tool. Choose "From Length" to solve radius based on a specific cut length of pipe.';
       }
     } else if (_currentStep == 2) {
-      infoText = 'Step 3: Press CALCULATE.';
+      if (_segmentedMode == SegmentedMode.stubbed90) {
+        infoText =
+            'Stubbed 90: Enter your vertical Stub height and optional Leg. Shots determines how many small bends form the 90° turn.';
+      } else {
+        if (_arcInputMode == ArcInputMode.boxToBox) {
+          infoText =
+              'Box-to-Box: Radius is the circle size. This step defines how much of that circle you use (Length) to solve for layout marks.';
+        } else {
+          infoText =
+              'Arc Angle: Radius is the circle size. This step defines how much of that circle you use (Degrees) to solve for layout marks.';
+        }
+      }
     } else if (_currentStep == 3) {
+      infoText = 'Step 4: All inputs ready. Press CALCULATE to see results.';
+    } else if (_currentStep == 4) {
       if (_segmentedMode == SegmentedMode.arcOnly) {
         infoText =
-        'Step 4: Use the selected bend angle. Tap More Options if needed.';
+            'Step 5: Follow layout marks. Use More Options for coupling avoidance.';
       } else {
         infoText =
-        'Step 4: Measure Mark A, B, and C from the same end of the pipe.';
+            'Layout: Mark A is your first bend. Apply each bend at the calculated spacing until you reach Mark B (last bend). Mark C is your cut length.';
       }
     }
 
@@ -1151,7 +1188,7 @@ class _Segmented90PlusRadiusScreenState
           textAlign: TextAlign.center,
           style: const TextStyle(
             color: kLight,
-            fontSize: 16,
+            fontSize: 15,
             height: 1.4,
           ),
         ),
@@ -1161,10 +1198,10 @@ class _Segmented90PlusRadiusScreenState
 
   Widget _buildGroupContainer({required Widget child}) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 6),
-      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(4.0),
+      margin: const EdgeInsets.symmetric(vertical: 2),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5),
       ),
       child: child,
@@ -1188,19 +1225,22 @@ class _Segmented90PlusRadiusScreenState
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: isActive
-              ? [kRed, const Color(0xFFD43D37)]
+              ? const [Color(0xFF8A1010), Color(0xFFD12A2A)]
               : (isEnabled
-              ? [const Color(0xFF4E4E52), const Color(0xFF2C3030)]
-              : [Colors.grey.shade800, Colors.grey.shade900]),
+                  ? const [Color(0xFF4E4E52), Color(0xFF2C3030)]
+                  : [Colors.grey.shade800, Colors.grey.shade900]),
         ),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFF9E9E9E), width: 1.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: const Color(0xFF9E9E9E),
+          width: 1.1,
+        ),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(12),
           child: Center(
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1236,57 +1276,60 @@ class _Segmented90PlusRadiusScreenState
     final bool isEditable = !isReadOnly;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 16, color: kLight),
+              style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600),
             ),
           ),
           const SizedBox(width: 12),
-          SizedBox(
-            width: 140,
-            height: 48,
-            child: GestureDetector(
-              onTap: isReadOnly ? null : () => _showKeypad(c),
-              child: AbsorbPointer(
-                child: TextField(
-                  controller: c,
-                  readOnly: true,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(fontSize: 18, color: kLight),
-                  decoration: InputDecoration(
-                    suffixText: suffix,
-                    suffixStyle: const TextStyle(fontSize: 18, color: kLight),
-                    isDense: true,
-                    filled: true,
-                    fillColor: kBlack.withAlpha(128),
-                    contentPadding: const EdgeInsets.symmetric(
-                      vertical: 14,
-                      horizontal: 10,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(4),
-                      borderSide: BorderSide(
-                        color: isActive
-                            ? kGreen
-                            : (isEditable
-                            ? kGreen.withAlpha(100)
-                            : Colors.white54),
-                        width: isActive || isEditable ? 2 : 1,
+          GestureDetector(
+            onTap: isReadOnly ? null : () => _showKeypad(c),
+            child: Container(
+              width: 135,
+              height: 44,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: kBlack.withAlpha(160),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isActive ? kGreen : Colors.white38,
+                  width: isActive ? 1.8 : 1.2,
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: AbsorbPointer(
+                      child: TextField(
+                        controller: c,
+                        readOnly: true,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                            fontSize: 18,
+                            color: kLight,
+                            fontWeight: FontWeight.w800),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                          suffixText: suffix,
+                          suffixStyle: const TextStyle(
+                              fontSize: 18,
+                              color: kLight,
+                              fontWeight: FontWeight.w500),
+                        ),
                       ),
                     ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(4),
-                      borderSide: const BorderSide(color: kGreen, width: 2),
-                    ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
@@ -1297,35 +1340,37 @@ class _Segmented90PlusRadiusScreenState
 
   Widget _readOnlyValueField(String label, String value) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(fontSize: 16, color: kLight),
+              style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600),
             ),
           ),
           const SizedBox(width: 12),
-          SizedBox(
-            width: 140,
-            height: 48,
-            child: Container(
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-              decoration: BoxDecoration(
-                color: kBlack.withAlpha(128),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: value.isNotEmpty ? kGreen : Colors.white54,
-                  width: value.isNotEmpty ? 2 : 1,
-                ),
+          Container(
+            width: 135,
+            height: 44,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            alignment: Alignment.centerRight,
+            decoration: BoxDecoration(
+              color: kBlack.withAlpha(160),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: value.isNotEmpty ? const Color(0xFFC0C0C0) : Colors.white38,
+                width: 1.2,
               ),
-              child: Text(
-                value,
-                textAlign: TextAlign.right,
-                style: const TextStyle(fontSize: 18, color: kLight),
-              ),
+            ),
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                  fontSize: 18, color: kLight, fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -1338,7 +1383,7 @@ class _Segmented90PlusRadiusScreenState
       margin: const EdgeInsets.symmetric(vertical: 14),
       height: 2,
       decoration: BoxDecoration(
-        gradient: LinearGradient(
+        gradient: const LinearGradient(
           colors: [
             Colors.transparent,
             Colors.white38,
@@ -1384,6 +1429,7 @@ class _Segmented90PlusRadiusScreenState
             'Pipe Length',
             pipeLengthRadiusCtrl,
             onTap: () => _showKeypad(pipeLengthRadiusCtrl),
+            suffix: '"',
           ),
           const SizedBox(height: 8),
 
@@ -1455,70 +1501,34 @@ class _Segmented90PlusRadiusScreenState
       child: Column(
         children: [
           _buildSilverButton(
-            label: '1. CONDUIT',
-            fontSize: 18,
-            height: 50,
+            label: '1. CONDUIT & MODE',
+            fontSize: 19,
+            height: 60,
             isActive: _currentStep == 0,
             onTap: () => _resetToStep(0),
           ),
           if (_isBenderExpanded)
-            Column(
-              children: [
-                _buildBenderSetupFields(),
-                const SizedBox(height: 12),
-                _buildSilverButton(
-                  label: 'Done',
-                  height: 40,
-                  onTap: () {
-                    setState(() {
-                      _isBenderExpanded = false;
-                      _currentStep = 1;
-                      _isMeasurementsExpanded = true;
-                    });
-                  },
-                ),
-              ],
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMeasurementsSection() {
-    final bool isEnabled = _currentStep >= 1;
-    final double? adjustedRadius = _computedAdjustedBendRadius();
-    final String adjustedRadiusText =
-    adjustedRadius == null ? '' : fmtInches(adjustedRadius);
-
-    return _buildGroupContainer(
-      child: Column(
-        children: [
-          _buildSilverButton(
-            label: '2. MEASUREMENTS',
-            fontSize: 18,
-            height: 50,
-            isActive: _currentStep == 1,
-            onTap: isEnabled ? () => _resetToStep(1) : null,
-          ),
-          if (_isMeasurementsExpanded)
             Padding(
-              padding: const EdgeInsets.only(top: 12.0),
+              padding: const EdgeInsets.only(top: 4.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _buildBenderSetupFields(),
+                  const SizedBox(height: 4),
                   const Align(
                     alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Mode',
-                      style: TextStyle(
-                        color: kLight,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
+                    child: Padding(
+                      padding: EdgeInsets.only(left: 4),
+                      child: Text(
+                        'Select Mode',
+                        style: TextStyle(
+                          color: Color(0xFFE0E0E0),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 8),
-
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       Expanded(
@@ -1529,14 +1539,12 @@ class _Segmented90PlusRadiusScreenState
                           onTap: () {
                             setState(() {
                               _segmentedMode = SegmentedMode.arcOnly;
-                              measurement1Ctrl.clear();
-                              measurement3Ctrl.clear();
                             });
                             _updateCalculateButtonState();
                           },
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: _buildSilverButton(
                           label: 'Stubbed 90',
@@ -1545,7 +1553,6 @@ class _Segmented90PlusRadiusScreenState
                           onTap: () {
                             setState(() {
                               _segmentedMode = SegmentedMode.stubbed90;
-                              boxToBoxCtrl.clear();
                             });
                             _updateCalculateButtonState();
                           },
@@ -1553,220 +1560,151 @@ class _Segmented90PlusRadiusScreenState
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 12),
-                  _thinSectionDivider(),
-
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Radius Setup',
-                      style: TextStyle(
-                        color: kLight,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  const SizedBox(height: 6),
+                  _buildSilverButton(
+                    label: 'Next',
+                    height: 44,
+                    isActive: _selectedPipeSize != null,
+                    isCheckmark: _selectedPipeSize != null,
+                    onTap: _selectedPipeSize == null
+                        ? null
+                        : () => _resetToStep(1),
                   ),
-                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
-                  _inlineField(
-                    'Measured Radius',
-                    radiusCtrl,
-                    onTap: () => _showKeypad(radiusCtrl),
-                  ),
-                  const SizedBox(height: 8),
+  Widget _buildRadiusSection() {
+    final bool isEnabled = _currentStep >= 1;
+    final double? adjustedRadius = _computedAdjustedBendRadius();
+    final String adjustedRadiusText =
+        adjustedRadius == null ? '' : fmtInches(adjustedRadius);
+    final bool hasRadius = radiusCtrl.text.isNotEmpty;
 
-                  Column(
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildSilverButton(
-                              label: 'Find Radius',
-                              height: 40,
-                              fontSize: 14,
-                              onTap: _openRadiusFinderScreen,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildSilverButton(
-                              label: _showPipeLengthHelper
-                                  ? 'Hide Length Tool'
-                                  : 'Radius from Length',
-                              height: 40,
-                              fontSize: 13,
-                              isActive: _showPipeLengthHelper,
-                              onTap: () {
-                                setState(() {
-                                  _showPipeLengthHelper = !_showPipeLengthHelper;
-
-                                  if (!_showPipeLengthHelper) {
-                                    pipeLengthRadiusCtrl.clear();
-                                    pipeLengthArcAngleCtrl.clear();
-                                  }
-                                });
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_showPipeLengthHelper) _buildPipeLengthHelper(),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Surface Followed',
-                      style: TextStyle(
-                        color: kLight,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Inside Surface',
-                          height: 40,
-                          isActive: _surfaceFollowed == SurfaceFollowed.inside,
-                          onTap: () {
-                            setState(() {
-                              _surfaceFollowed = SurfaceFollowed.inside;
-                            });
-                            _updateCalculateButtonState();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Outside Surface',
-                          height: 40,
-                          isActive: _surfaceFollowed == SurfaceFollowed.outside,
-                          onTap: () {
-                            setState(() {
-                              _surfaceFollowed = SurfaceFollowed.outside;
-                            });
-                            _updateCalculateButtonState();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Support',
-                      style: TextStyle(
-                        color: kLight,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Surface Mount',
-                          height: 40,
-                          isActive: _supportType == SupportType.surface,
-                          onTap: () {
-                            setState(() {
-                              _supportType = SupportType.surface;
-                            });
-                            _updateCalculateButtonState();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Strut',
-                          height: 40,
-                          isActive: _supportType == SupportType.strut,
-                          onTap: () {
-                            setState(() {
-                              _supportType = SupportType.strut;
-                            });
-                            _updateCalculateButtonState();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  if (_supportType == SupportType.strut) ...[
-                    const SizedBox(height: 12),
+    return _buildGroupContainer(
+      child: Column(
+        children: [
+          _buildSilverButton(
+            label: '2. RADIUS SETUP',
+            fontSize: 19,
+            height: 60,
+            isActive: _currentStep == 1,
+            onTap: isEnabled ? () => _resetToStep(1) : null,
+          ),
+          if (_isRadiusExpanded)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!hasRadius) ...[
                     const Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Strut Size',
-                        style: TextStyle(
-                          color: kLight,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Enter Radius',
+                          style: TextStyle(
+                            color: Color(0xFFE0E0E0),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-
+                    const SizedBox(height: 4),
+                    _inlineField(
+                      'Measured Radius',
+                      radiusCtrl,
+                      onTap: () => _showKeypad(radiusCtrl),
+                      suffix: '"',
+                    ),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Expanded(
                           child: _buildSilverButton(
-                            label: '7/8"',
-                            height: 40,
-                            isActive:
-                            _strutSizeOption == StrutSizeOption.sevenEighths,
-                            onTap: () {
-                              setState(() {
-                                _strutSizeOption =
-                                    StrutSizeOption.sevenEighths;
-                              });
-                              _updateCalculateButtonState();
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildSilverButton(
-                            label: '1-5/8"',
+                            label: 'Find Radius',
                             height: 40,
                             fontSize: 14,
-                            isActive: _strutSizeOption ==
-                                StrutSizeOption.oneAndFiveEighths,
+                            onTap: _openRadiusFinderScreen,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: _buildSilverButton(
+                            label: _showPipeLengthHelper
+                                ? 'Hide Tool'
+                                : 'From Length',
+                            height: 40,
+                            fontSize: 13,
+                            isActive: _showPipeLengthHelper,
                             onTap: () {
                               setState(() {
-                                _strutSizeOption =
-                                    StrutSizeOption.oneAndFiveEighths;
+                                _showPipeLengthHelper = !_showPipeLengthHelper;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_showPipeLengthHelper) _buildPipeLengthHelper(),
+                  ] else ...[
+                    _inlineField(
+                      'Radius',
+                      radiusCtrl,
+                      onTap: () => _showKeypad(radiusCtrl),
+                      suffix: '"',
+                    ),
+                  ],
+                  if (hasRadius) ...[
+                    const SizedBox(height: 4),
+                    _thinSectionDivider(),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Surface Followed',
+                          style: TextStyle(
+                            color: Color(0xFFE0E0E0),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildSilverButton(
+                            label: 'Inside Surface',
+                            height: 40,
+                            isActive:
+                                _surfaceFollowed == SurfaceFollowed.inside,
+                            onTap: () {
+                              setState(() {
+                                _surfaceFollowed = SurfaceFollowed.inside;
                               });
                               _updateCalculateButtonState();
                             },
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: _buildSilverButton(
-                            label: 'Custom',
+                            label: 'Outside Surface',
                             height: 40,
-                            isActive: _strutSizeOption == StrutSizeOption.custom,
+                            isActive:
+                                _surfaceFollowed == SurfaceFollowed.outside,
                             onTap: () {
                               setState(() {
-                                _strutSizeOption = StrutSizeOption.custom;
+                                _surfaceFollowed = SurfaceFollowed.outside;
                               });
                               _updateCalculateButtonState();
                             },
@@ -1774,38 +1712,185 @@ class _Segmented90PlusRadiusScreenState
                         ),
                       ],
                     ),
-
-                    if (_strutSizeOption == StrutSizeOption.custom) ...[
-                      const SizedBox(height: 10),
-                      _inlineField(
-                        'Custom Standoff',
-                        customStandoffCtrl,
-                        onTap: () => _showKeypad(customStandoffCtrl),
-                      ),
-                    ],
-                  ],
-
-                  const SizedBox(height: 10),
-
-                  _readOnlyValueField('Adjusted Bend Radius', adjustedRadiusText),
-
-                  const SizedBox(height: 12),
-                  _thinSectionDivider(),
-
-                  if (_segmentedMode == SegmentedMode.stubbed90) ...[
+                    const SizedBox(height: 6),
                     const Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Shot Count',
-                        style: TextStyle(
-                          color: kLight,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Support',
+                          style: TextStyle(
+                            color: Color(0xFFE0E0E0),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildSilverButton(
+                            label: 'Surface Mount',
+                            height: 40,
+                            isActive: _supportType == SupportType.surface,
+                            onTap: () {
+                              setState(() {
+                                _supportType = SupportType.surface;
+                              });
+                              _updateCalculateButtonState();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: _buildSilverButton(
+                            label: 'Strut',
+                            height: 40,
+                            isActive: _supportType == SupportType.strut,
+                            onTap: () {
+                              setState(() {
+                                _supportType = SupportType.strut;
+                              });
+                              _updateCalculateButtonState();
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_supportType == SupportType.strut) ...[
+                      const SizedBox(height: 6),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Padding(
+                          padding: EdgeInsets.only(left: 4),
+                          child: Text(
+                            'Strut Size',
+                            style: TextStyle(
+                              color: Color(0xFFE0E0E0),
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildSilverButton(
+                              label: '7/8"',
+                              height: 40,
+                              isActive: _strutSizeOption ==
+                                  StrutSizeOption.sevenEighths,
+                              onTap: () {
+                                setState(() {
+                                  _strutSizeOption =
+                                      StrutSizeOption.sevenEighths;
+                                });
+                                _updateCalculateButtonState();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: _buildSilverButton(
+                              label: '1-5/8"',
+                              height: 40,
+                              fontSize: 14,
+                              isActive: _strutSizeOption ==
+                                  StrutSizeOption.oneAndFiveEighths,
+                              onTap: () {
+                                setState(() {
+                                  _strutSizeOption =
+                                      StrutSizeOption.oneAndFiveEighths;
+                                });
+                                _updateCalculateButtonState();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: _buildSilverButton(
+                              label: 'Custom',
+                              height: 40,
+                              isActive:
+                                  _strutSizeOption == StrutSizeOption.custom,
+                              onTap: () {
+                                setState(() {
+                                  _strutSizeOption = StrutSizeOption.custom;
+                                });
+                                _updateCalculateButtonState();
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_strutSizeOption == StrutSizeOption.custom) ...[
+                        const SizedBox(height: 4),
+                        _inlineField(
+                          'Custom Standoff',
+                          customStandoffCtrl,
+                          onTap: () => _showKeypad(customStandoffCtrl),
+                          suffix: '"',
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 6),
+                    _readOnlyValueField('Adjusted Radius', adjustedRadiusText),
+                    const SizedBox(height: 6),
+                    _buildSilverButton(
+                      label: 'Next',
+                      height: 44,
+                      isActive: true,
+                      isCheckmark: true,
+                      onTap: () => _resetToStep(2),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
+  Widget _buildDetailsSection() {
+    final bool isEnabled = _currentStep >= 2;
+
+    return _buildGroupContainer(
+      child: Column(
+        children: [
+          _buildSilverButton(
+            label: '3. BENDING DETAILS',
+            fontSize: 19,
+            height: 60,
+            isActive: _currentStep == 2,
+            onTap: isEnabled ? () => _resetToStep(2) : null,
+          ),
+          if (_isDetailsExpanded)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_segmentedMode == SegmentedMode.stubbed90) ...[
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Shot Count',
+                          style: TextStyle(
+                            color: Color(0xFFE0E0E0),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Expanded(
@@ -1816,7 +1901,7 @@ class _Segmented90PlusRadiusScreenState
                             onTap: () => _setShotPreset(15),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: _buildSilverButton(
                             label: '18 / 5°',
@@ -1825,7 +1910,7 @@ class _Segmented90PlusRadiusScreenState
                             onTap: () => _setShotPreset(18),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: _buildSilverButton(
                             label: '30 / 3°',
@@ -1836,16 +1921,13 @@ class _Segmented90PlusRadiusScreenState
                         ),
                       ],
                     ),
-
-                    const SizedBox(height: 10),
-
+                    const SizedBox(height: 6),
                     _inlineField(
                       'Custom Shots',
                       measurement2Ctrl,
                       onTap: () => _showKeypad(measurement2Ctrl),
                     ),
-
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 4),
                     _inlineField(
                       'Stub Height',
                       measurement1Ctrl,
@@ -1853,26 +1935,27 @@ class _Segmented90PlusRadiusScreenState
                       suffix: '"',
                     ),
                     _inlineField(
-                      'Leg Length (optional)',
+                      'Leg Length (opt)',
                       measurement3Ctrl,
                       onTap: () => _showKeypad(measurement3Ctrl),
+                      suffix: '"',
                     ),
-                  ],
-
-                  if (_segmentedMode == SegmentedMode.arcOnly) ...[
+                  ] else ...[
                     const Align(
                       alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Arc Input',
-                        style: TextStyle(
-                          color: kLight,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
+                      child: Padding(
+                        padding: EdgeInsets.only(left: 4),
+                        child: Text(
+                          'Arc Input',
+                          style: TextStyle(
+                            color: Color(0xFFE0E0E0),
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Expanded(
@@ -1889,7 +1972,7 @@ class _Segmented90PlusRadiusScreenState
                             },
                           ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 4),
                         Expanded(
                           child: _buildSilverButton(
                             label: 'Arc Angle',
@@ -1906,25 +1989,32 @@ class _Segmented90PlusRadiusScreenState
                         ),
                       ],
                     ),
-
-                    const SizedBox(height: 12),
-
-                    _inlineField(
-                      _arcInputMode == ArcInputMode.boxToBox
-                          ? 'Box-to-Box Length'
-                          : 'Arc Angle (0–360°)',
-                      _arcInputMode == ArcInputMode.boxToBox ? boxToBoxCtrl : arcAngleCtrl,
-                      onTap: () => _showKeypad(
-                        _arcInputMode == ArcInputMode.boxToBox ? boxToBoxCtrl : arcAngleCtrl,
+                    const SizedBox(height: 6),
+                      _inlineField(
+                        _arcInputMode == ArcInputMode.boxToBox
+                            ? 'Run Length'
+                            : 'Arc Angle',
+                        _arcInputMode == ArcInputMode.boxToBox
+                            ? boxToBoxCtrl
+                            : arcAngleCtrl,
+                        onTap: () => _showKeypad(
+                          _arcInputMode == ArcInputMode.boxToBox
+                              ? boxToBoxCtrl
+                              : arcAngleCtrl,
+                        ),
+                        suffix:
+                            _arcInputMode == ArcInputMode.arcAngle ? '°' : '"',
                       ),
-                      suffix: _arcInputMode == ArcInputMode.arcAngle ? '°' : null,
-                    ),
                   ],
-
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 6),
+                  _buildSilverButton(
+                    label: 'Next',
+                    height: 44,
+                    isActive: true,
+                    isCheckmark: true,
+                    onTap: () => _resetToStep(3),
+                  ),
                 ],
-
-
               ),
             ),
         ],
@@ -1935,37 +2025,37 @@ class _Segmented90PlusRadiusScreenState
   Widget _buildCalculateSection() {
     return _buildGroupContainer(
       child: _buildSilverButton(
-        label: '3. CALCULATE',
-        isActive: _currentStep == 2 && _isCalculateReady,
+        label: '4. CALCULATE',
+        isActive: _currentStep == 3 && _isCalculateReady,
         isCheckmark: _isCalculateReady,
-        height: 50,
-        fontSize: 18,
+        height: 60,
+        fontSize: 19,
         onTap: _isCalculateReady ? calculate : null,
       ),
     );
   }
 
   Widget _buildResultsSection() {
-    final bool isEnabled = _currentStep >= 3;
+    final bool isEnabled = _currentStep >= 4;
     final double? adjustedRadius = _computedAdjustedBendRadius();
     final String radiusText =
-    adjustedRadius == null ? '' : fmtInches(adjustedRadius);
+        adjustedRadius == null ? '' : fmtInches(adjustedRadius);
 
     return _buildGroupContainer(
       child: Column(
         children: [
           _buildSilverButton(
-            label: '4. RESULTS',
-            fontSize: 18,
-            height: 50,
-            isActive: _currentStep == 3,
+            label: '5. RESULTS',
+            fontSize: 19,
+            height: 60,
+            isActive: _currentStep == 4,
             onTap: isEnabled
                 ? () => setState(() => _isResultsExpanded = !_isResultsExpanded)
                 : null,
           ),
           if (_isResultsExpanded)
             Padding(
-              padding: const EdgeInsets.only(top: 18.0, bottom: 12.0),
+              padding: const EdgeInsets.only(top: 10.0, bottom: 6.0),
               child: Column(
                 children: [
                   if (_segmentedMode == SegmentedMode.arcOnly) ...[
@@ -1982,7 +2072,7 @@ class _Segmented90PlusRadiusScreenState
                     _resultRow('Total Bend Marks', bendsFirstStickOut),
                     _resultRow('Actual Angle Per Bend', anglePerShotOut),
 
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
 
                     _resultRow('First Bend From Start', markAOut),
                     _resultRow('Last Bend From End', markBOut),
@@ -1990,11 +2080,11 @@ class _Segmented90PlusRadiusScreenState
                     _resultRow('Final Stick Cut Length', finalStickCutOut),
 
                     if (lastBendFromEndOut.isNotEmpty) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
                       _resultRow('Coupling Warning', lastBendFromEndOut),
                     ],
 
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 10),
 
                     _buildSilverButton(
                       label: _showArcOptions ? 'Hide More Options' : 'More Options',
@@ -2007,19 +2097,19 @@ class _Segmented90PlusRadiusScreenState
                     ),
 
                     if (_showArcOptions) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           _buildArcOptionButton(3.0, _arcOption3),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 4),
                           _buildArcOptionButton(4.0, _arcOption4),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 4),
                           _buildArcOptionButton(5.0, _arcOption5),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 4),
                           _buildArcOptionButton(6.0, _arcOption6),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       const Text(
                         '* indicates option may place a bend near a coupling.',
                         textAlign: TextAlign.center,
@@ -2034,12 +2124,12 @@ class _Segmented90PlusRadiusScreenState
                     _resultRow('Mark A — First Bend', markAOut),
                     _resultRow('Mark B — Last Bend', markBOut),
                     _resultRow('Mark C — Cut Length', markCOut),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
                     _resultRow('Number of Bends', shotsOut),
                     _resultRow('Spacing Between Bends', spacingOut),
                     _resultRow('Bend Angle', anglePerShotOut),
                   ],
-                  const SizedBox(height: 15),
+                  const SizedBox(height: 10),
                   _buildSilverButton(
                     label: 'Start New Bend',
                     height: 40,
@@ -2054,21 +2144,37 @@ class _Segmented90PlusRadiusScreenState
   }
 
   Widget _resultRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 1.5),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+      decoration: BoxDecoration(
+          color: kBlack.withAlpha(160),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFC8C8C8), width: 1.1)),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 16, color: Colors.white70),
-          ),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 18,
-              color: kLight,
-              fontWeight: FontWeight.bold,
+          Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontSize: 15,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w600))),
+          const SizedBox(width: 12),
+          Container(
+            width: 132,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF8A1010), Color(0xFFD12A2A)]),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFB0B0B0), width: 1)),
+            child: Text(
+              value.isEmpty ? '—' : value,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontSize: 19,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800),
             ),
           ),
         ],
@@ -2078,13 +2184,12 @@ class _Segmented90PlusRadiusScreenState
 
   Widget _buildBenderSetupFields() {
     return Padding(
-      padding: const EdgeInsets.only(top: 12.0),
+      padding: const EdgeInsets.only(top: 4.0),
       child: Column(
         children: [
           _buildConduitTypeSelector(),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
           _buildPipeSizeSelector(),
-          const SizedBox(height: 12),
         ],
       ),
     );
@@ -2104,7 +2209,7 @@ class _Segmented90PlusRadiusScreenState
             },
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 6),
         Expanded(
           child: _buildSilverButton(
             label: 'Rigid',
@@ -2121,34 +2226,84 @@ class _Segmented90PlusRadiusScreenState
   }
 
   Widget _buildPipeSizeSelector() {
-    return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 4),
-      decoration: BoxDecoration(
-        color: kBlack.withAlpha(128),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.white54),
+    final bool needsPipeSize = _selectedPipeSize == null;
+
+    return Theme(
+      data: Theme.of(context).copyWith(
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
       ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedPipeSize,
-          isExpanded: true,
-          hint: const Text(
-            'Select Pipe Size',
-            style: TextStyle(color: Colors.white70),
-          ),
-          dropdownColor: const Color(0xFF333333),
-          style: const TextStyle(color: kLight, fontSize: 18),
-          items: _getFilteredPipeSizes().keys.map((String value) {
-            return DropdownMenuItem<String>(
+      child: PopupMenuButton<String>(
+        offset: const Offset(0, 50),
+        color: const Color(0xFF151515),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: const BorderSide(color: Color(0xFFC8C8C8), width: 1.5),
+        ),
+        onSelected: (newValue) {
+          setState(() => _selectedPipeSize = newValue);
+          _updateBenderData();
+        },
+        itemBuilder: (context) {
+          return _getFilteredPipeSizes().keys.map((String value) {
+            final bool selected = value == _selectedPipeSize;
+            return PopupMenuItem<String>(
               value: value,
-              child: Text(bending_data.pipeSizes[value]!),
+              height: 44,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: selected
+                        ? [const Color(0xFF8A1010), const Color(0xFFD12A2A)]
+                        : [const Color(0xFF3A3A3A), const Color(0xFF1E1E1E)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white24, width: 1),
+                ),
+                child: Text(
+                  bending_data.pipeSizes[value]!,
+                  style: const TextStyle(
+                      color: kLight, fontSize: 17, fontWeight: FontWeight.w800),
+                ),
+              ),
             );
-          }).toList(),
-          onChanged: (newValue) {
-            setState(() => _selectedPipeSize = newValue);
-            _updateBenderData();
-          },
+          }).toList();
+        },
+        child: Container(
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111111),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: needsPipeSize ? kGreen : const Color(0xFFC0C0C0),
+              width: needsPipeSize ? 2.0 : 1.2,
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _selectedPipeSize == null
+                      ? 'Select Pipe Size'
+                      : (bending_data.pipeSizes[_selectedPipeSize] ?? ''),
+                  style: TextStyle(
+                    color: _selectedPipeSize == null ? Colors.white70 : kLight,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Icon(
+                  Icons.arrow_drop_down, color: needsPipeSize ? kGreen : Colors.white54, size: 28),
+            ],
+          ),
         ),
       ),
     );
@@ -2165,17 +2320,109 @@ class _Segmented90PlusRadiusScreenState
       backgroundColor: kBlack,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
-        title: const Text('Segmented 90 + Radius'),
         foregroundColor: kLight,
+        centerTitle: true,
+        leadingWidth: 150,
+        leading: Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.home),
+              onPressed: () => Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+                (route) => false,
+              ),
+            ),
+            IconButton(
+              icon: const RotatedBox(
+                quarterTurns: 2,
+                child: Text(
+                  "➜",
+                  style: TextStyle(
+                    color: kLight,
+                    fontSize: 26,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              onPressed: () {
+                _hideKeypad();
+                if (_currentStep > 0) {
+                  _resetToStep(_currentStep - 1);
+                } else {
+                  Navigator.of(context).pop();
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.refresh, color: kLight),
+              onPressed: _startNewBend,
+            ),
+          ],
+        ),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Segmented 90',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: _showHelpDialog,
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!_hasViewedInfo)
+                RotationTransition(
+                  turns: _infoAnimCtrl,
+                  child: AnimatedBuilder(
+                    animation: _infoAnimCtrl,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        shaderCallback: (rect) {
+                          return SweepGradient(
+                            colors: [
+                              kLight.withValues(alpha: 0.0),
+                              kLight.withValues(alpha: 0.2 +
+                                  (0.7 *
+                                      (0.5 +
+                                          0.5 *
+                                              math.sin(_infoAnimCtrl.value *
+                                                  2 *
+                                                  math.pi)))),
+                              kLight.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ).createShader(rect);
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: kLight, width: 2.0),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.info_outline, color: kLight),
+                onPressed: () {
+                  setState(() => _hasViewedInfo = true);
+                  _showHelpDialog();
+                },
+              ),
+            ],
           ),
           TextButton(
             onPressed: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => const CodeScreen()),
+              MaterialPageRoute(
+                builder: (context) => CodeScreen(
+                  initialCategory: CodeCategory.raceways,
+                ),
+              ),
             ),
             child: const Text(
               'NEC',
@@ -2188,32 +2435,29 @@ class _Segmented90PlusRadiusScreenState
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: kRed.withAlpha(178), width: 2),
-          ),
-          clipBehavior: Clip.none,
-          child: Column(
-            children: [
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(8),
-                  children: [
-                    _buildBenderSection(),
-                    _buildMeasurementsSection(),
-                    _buildCalculateSection(),
-                    _buildResultsSection(),
-                  ],
-                ),
+      body: Column(
+        children: [
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
+              child: ListView(
+                children: [
+                  _buildBenderSection(),
+                  const SizedBox(height: 6),
+                  _buildRadiusSection(),
+                  const SizedBox(height: 6),
+                  _buildDetailsSection(),
+                  const SizedBox(height: 6),
+                  _buildCalculateSection(),
+                  const SizedBox(height: 6),
+                  _buildResultsSection(),
+                ],
               ),
-              if (!_isKeypadVisible) _buildInfoBar(),
-              if (_isKeypadVisible) NumericInputKeypad(onTap: _onKeypadTap),
-            ],
+            ),
           ),
-        ),
+          if (!_isKeypadVisible && !_isNameEntryMode) _buildInfoBar(),
+          if (_isKeypadVisible) NumericInputKeypad(onTap: _onKeypadTap),
+        ],
       ),
     );
   }

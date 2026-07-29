@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
 
 void main() {
   runApp(const LoadCalculator2App());
@@ -23,8 +24,11 @@ class LoadCalculator2 extends StatefulWidget {
   State<LoadCalculator2> createState() => _LoadCalculator2State();
 }
 
-class _LoadCalculator2State extends State<LoadCalculator2> {
+class _LoadCalculator2State extends State<LoadCalculator2> with TickerProviderStateMixin {
   int _activeStep = 0;
+
+  late final AnimationController _infoAnimCtrl;
+  bool _hasViewedInfo = false;
 
   String _selectedMode = 'Basic Circuit';
   String _selectedLoadStyle = 'Repeating Load';
@@ -40,11 +44,92 @@ class _LoadCalculator2State extends State<LoadCalculator2> {
   TextEditingController(text: '1');
 
   @override
+  void initState() {
+    super.initState();
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
   void dispose() {
+    _infoAnimCtrl.dispose();
     _unitWattsController.dispose();
     _unitAmpsController.dispose();
     _quantityController.dispose();
     super.dispose();
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+        ),
+        title: const Text(
+          'Load Calculator Help',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: const SingleChildScrollView(
+            child: ListBody(
+              children: [
+                Text(
+                  'Calculate circuit capacity and connected load usage.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Workflow:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  '1. Select your calculation mode and load style.\n'
+                  '2. Enter circuit details (Breaker size, Voltage).\n'
+                  '3. Enter the load details (Watts/Amps and Quantity).\n'
+                  '4. Review the circuit usage and unit maximums.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Continuous Load:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'When continuous load is enabled, the usable capacity is automatically limited to 80% per NEC Art 210.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _openStep(int step) {
@@ -134,14 +219,73 @@ class _LoadCalculator2State extends State<LoadCalculator2> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF111111),
         elevation: 0,
-        title: const Text(
-          'Load Calculator 2',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 24,
-            fontWeight: FontWeight.w700,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.home),
+          onPressed: () {
+            Navigator.of(context).popUntil((route) => route.isFirst);
+          },
+        ),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Load Calculator 2',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
+        actions: [
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!_hasViewedInfo)
+                RotationTransition(
+                  turns: _infoAnimCtrl,
+                  child: AnimatedBuilder(
+                    animation: _infoAnimCtrl,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        shaderCallback: (rect) {
+                          return SweepGradient(
+                            colors: [
+                              Colors.white.withValues(alpha: 0.0),
+                              Colors.white.withValues(alpha: 0.2 +
+                                  (0.7 *
+                                      (0.5 +
+                                          0.5 *
+                                              math.sin(_infoAnimCtrl.value *
+                                                  2 *
+                                                  math.pi)))),
+                              Colors.white.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ).createShader(rect);
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2.0),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.info_outline, color: Colors.white),
+                onPressed: () {
+                  setState(() => _hasViewedInfo = true);
+                  _showHelpDialog();
+                },
+              ),
+            ],
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(

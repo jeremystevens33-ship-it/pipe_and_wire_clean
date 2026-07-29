@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'package:fraction/fraction.dart';
 import 'main_menu_screen.dart';
-import 'dart:ui';
 
 class TriangleCalculatorScreen extends StatelessWidget {
   const TriangleCalculatorScreen({super.key});
@@ -44,6 +44,7 @@ class TriangleDiagram extends StatelessWidget {
     this.oppValue,
     this.hypValue,
     this.angleValue,
+    this.onFieldTap,
   });
 
   final TriangleField? selectedField;
@@ -51,6 +52,7 @@ class TriangleDiagram extends StatelessWidget {
   final String? oppValue;
   final String? hypValue;
   final String? angleValue;
+  final ValueChanged<TriangleField>? onFieldTap;
 
   static const double _height = 200;
   static const double _labelOffset = 6; // 🔧 ONLY tuning knob
@@ -60,17 +62,71 @@ class TriangleDiagram extends StatelessWidget {
     return SizedBox(
       height: _height,
       width: double.infinity,
-      child: CustomPaint(
-        painter: _TriangleDiagramPainter(
-            selectedField: selectedField,
-            labelOffset: _labelOffset,
-            adjValue: adjValue,
-            oppValue: oppValue,
-            hypValue: hypValue,
-            angleValue: angleValue,
-          ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double width = constraints.maxWidth;
+          final double height = constraints.maxHeight;
+
+          const double scale = 0.92;
+          final double triangleWidth = width * scale;
+          final double triangleHeight = triangleWidth * 0.42;
+
+          final double hStart = (width - triangleWidth) / 2;
+          final double vStart = (height - triangleHeight) / 2;
+
+          final A = Offset(hStart + triangleWidth, vStart + triangleHeight);
+          final B = Offset(hStart, vStart + triangleHeight);
+          final C = Offset(hStart + triangleWidth, vStart);
+
+          // Calculate base positions for hit areas (same as painter)
+          final adjBasePos = (A + B) / 2 + const Offset(40, -7 - _labelOffset);
+          final oppBasePos = (A + C) / 2 + const Offset(-8 - _labelOffset, 5);
+          final hypBasePos = (B + C) / 2 + const Offset(15, -25 - _labelOffset);
+          final angleBasePos = Offset(B.dx + 70, adjBasePos.dy);
+
+          return Stack(
+            children: [
+              CustomPaint(
+                size: Size(width, height),
+                painter: _TriangleDiagramPainter(
+                  selectedField: selectedField,
+                  labelOffset: _labelOffset,
+                  adjValue: adjValue,
+                  oppValue: oppValue,
+                  hypValue: hypValue,
+                  angleValue: angleValue,
+                ),
+              ),
+              // Hit Areas
+              _buildHitArea(adjBasePos, TriangleField.adj),
+              _buildHitArea(oppBasePos, TriangleField.opp),
+              _buildHitArea(hypBasePos, TriangleField.hyp),
+              _buildHitArea(angleBasePos, TriangleField.angle),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildHitArea(Offset pos, TriangleField field) {
+    const double size = 60; // generous hit area
+    return Positioned(
+      left: pos.dx - size / 2,
+      top: pos.dy - size / 2,
+      child: GestureDetector(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          onFieldTap?.call(field);
+        },
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: size,
+          height: size,
+          color: Colors.transparent,
         ),
-      );
+      ),
+    );
   }
 }
 
@@ -108,7 +164,7 @@ class _TriangleDiagramPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..color = Colors.white;
 
-    final double scale = 0.92; // Back to a larger size to match calculator width
+    const double scale = 0.92; // Back to a larger size to match calculator width
     final double triangleWidth = size.width * scale;
     final double triangleHeight = triangleWidth * 0.42;
 
@@ -128,6 +184,38 @@ class _TriangleDiagramPainter extends CustomPainter {
 
     canvas.drawPath(path, paintFill);
     canvas.drawPath(path, paintStroke);
+
+    // --- Active Highlight Glow ---
+    if (selectedField != null) {
+      final glowPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4.0
+        ..color = const Color(0xFFFF3B30).withAlpha(150)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6.0);
+
+      final glowPath = Path();
+      switch (selectedField!) {
+        case TriangleField.adj:
+          glowPath.moveTo(A.dx, A.dy);
+          glowPath.lineTo(B.dx, B.dy);
+          break;
+        case TriangleField.opp:
+          glowPath.moveTo(A.dx, A.dy);
+          glowPath.lineTo(C.dx, C.dy);
+          break;
+        case TriangleField.hyp:
+          glowPath.moveTo(B.dx, B.dy);
+          glowPath.lineTo(C.dx, C.dy);
+          break;
+        case TriangleField.angle:
+          // Just draw a small arc or glow at the angle corner (B)
+          canvas.drawCircle(B + const Offset(15, -10), 12, glowPaint);
+          break;
+      }
+      if (selectedField != TriangleField.angle) {
+        canvas.drawPath(glowPath, glowPaint);
+      }
+    }
 
     // --- Labels & Values (linked for easy adjustment) ---
     // Note: Adjust the 'basePosition' line for each group to move them together.
@@ -149,7 +237,8 @@ class _TriangleDiagramPainter extends CustomPainter {
     }
 
     // --- HYP (Right-Aligned) ---
-    final hypBasePos = (B + C) / 2 + Offset(-8 - labelOffset, -3 - labelOffset);
+    // Moved up and right to be more towards the middle of the hypotenuse
+    final hypBasePos = (B + C) / 2 + Offset(15, -25 - labelOffset);
     _drawLabelRightAligned(canvas, 'HYP', hypBasePos);
     if (hypValue != null && hypValue!.isNotEmpty) {
       _drawLabelRightAligned(
@@ -217,8 +306,11 @@ class TriangleCalculator extends StatefulWidget {
   State<TriangleCalculator> createState() => _TriangleCalculatorState();
 }
 
-class _TriangleCalculatorState extends State<TriangleCalculator> {
+class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProviderStateMixin {
   final GlobalKey<_RulerPadState> _padKey = GlobalKey<_RulerPadState>();
+
+  late final AnimationController _infoAnimCtrl;
+  bool _hasViewedInfo = false;
 
   List<String> _highlightedKeys = [];
   bool _flashTriangleResult = false;
@@ -251,6 +343,21 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
     Future.delayed(const Duration(milliseconds: 280), () {
       if (mounted) setState(() => _flashTriangleResult = false);
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _infoAnimCtrl.dispose();
+    super.dispose();
   }
 
     String _formatAngleValue(double angle) {
@@ -375,16 +482,21 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
             final decimal = value - whole;
             int sixteenths = (decimal * 16).round();
 
-            if (sixteenths == 0) _triCurrentInput = '$whole';
-            else if (sixteenths == 16) _triCurrentInput = '${whole + 1}';
-            else {
+            if (sixteenths == 0) {
+              _triCurrentInput = '$whole';
+            } else if (sixteenths == 16) {
+              _triCurrentInput = '${whole + 1}';
+            } else {
               int num = sixteenths;
               int den = 16;
               final common = _gcd(num, den);
               num ~/= common;
               den ~/= common;
-              if (whole == 0) _triCurrentInput = '$num/$den';
-              else _triCurrentInput = '$whole $num/$den';
+              if (whole == 0) {
+                _triCurrentInput = '$num/$den';
+              } else {
+                _triCurrentInput = '$whole $num/$den';
+              }
             }
           }
         }
@@ -573,6 +685,77 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
     });
   }
 
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+        ),
+        title: const Text(
+          'Triangle Solver Help',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 22,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: const SingleChildScrollView(
+            child: ListBody(
+              children: [
+                Text(
+                  'Solve any right triangle by entering any two known values.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                const Text(
+                  'How to use:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                const Text(
+                  '1. Tap a field in the table or touch a part of the Triangle diagram directly.\n'
+                  '2. Enter the measurement using the keypad.\n'
+                  '3. Tap the checkmark (✔) to confirm.\n'
+                  '4. After confirming two values, the remaining sides and angle will be solved automatically.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                const Text(
+                  'Visual Guide:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                const Text(
+                  'The diagram updates live to show which part you are entering. The active selection is highlighted with a red glow.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _calculateTriangle() {
     if (_inputHistory.length >= 2) {
       final keysToKeep = _inputHistory.toSet();
@@ -715,7 +898,10 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: Colors.white,
-        title: const Text('Triangle Calculator'),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text('Triangle Calculator'),
+        ),
         centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.home),
@@ -723,40 +909,63 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
             Navigator.pushAndRemoveUntil(
               context,
               MaterialPageRoute(builder: (context) => const MainMenuScreen()),
-              (route) => false,
+                  (route) => false,
             );
           },
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (_) => AlertDialog(
-                  backgroundColor: Colors.black,
-                  title: const Text('How to Use'),
-                  content: const Text(
-                    '• Select ANG, OPP, ADJ, or HYP, enter a value, and press ✓. Enter a second value and press ✓ to solve the triangle.\n\n'
-                    '• After a result is shown, you can select any field again to experiment with different angles or side lengths and see how the results change instantly.\n\n'
-                    '• The Shrink value is also calculated. This is useful in pipe bending for determining the total length of pipe to cut before it is bent, as well as determining the proper placement for offset marks.\n\n'
-                    '• Tip: To clear all values and start a new calculation, press and hold the ← (backspace) key.',
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!_hasViewedInfo)
+                RotationTransition(
+                  turns: _infoAnimCtrl,
+                  child: AnimatedBuilder(
+                    animation: _infoAnimCtrl,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        shaderCallback: (rect) {
+                          return SweepGradient(
+                            colors: [
+                              Colors.white.withValues(alpha: 0.0),
+                              Colors.white.withValues(alpha: 0.2 +
+                                  (0.7 *
+                                      (0.5 +
+                                          0.5 *
+                                              math.sin(_infoAnimCtrl.value *
+                                                  2 *
+                                                  math.pi)))),
+                              Colors.white.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ).createShader(rect);
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2.0),
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('OK'),
-                    ),
-                  ],
                 ),
-              );
-            },
+              IconButton(
+                icon: const Icon(Icons.info_outline),
+                onPressed: () {
+                  setState(() => _hasViewedInfo = true);
+                  _showHelpDialog();
+                },
+              ),
+            ],
           ),
         ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
+          padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -766,9 +975,10 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
                 oppValue: _oppForDiagram,
                 hypValue: _hypForDiagram,
                 angleValue: _angleForDiagram,
+                onFieldTap: _onTriangleFieldSelect,
               ),
 
-              const SizedBox(height: 8),
+              const SizedBox(height: 20),
 
               Container(
                 width: double.infinity,
@@ -799,9 +1009,7 @@ class _TriangleCalculatorState extends State<TriangleCalculator> {
                     ),
                     const SizedBox(height: 6),
                     _BottomDisplayBar(
-                      value: isTriangleResult
-                          ? null
-                          : (_triDisplay.isEmpty ? '​' : _triDisplay),
+                      value: _triDisplay,
                       isTriangleResult: isTriangleResult,
                       triAngle: _triAngleStr,
                       triOpp: _triOppStr,
@@ -1346,28 +1554,28 @@ class _RulerPadState extends State<RulerPad> {
         final numPad = <Widget>[
           for (int i = 1; i <= 10; i++)
             _textBtn(
-              i.toString(),
+              i == 10 ? '10°' : i.toString(),
               active: _selectedKeys.contains(i.toString()),
               onTap: () => widget.onKey?.call(i.toString()),
             ),
           _textBtn(
-            '22 ½',
+            '22 ½°',
             font: 14,
             active: _selectedKeys.contains('22 ½'),
             onTap: () => widget.onKey?.call('22 ½'),
           ),
           _textBtn(
-            '30',
+            '30°',
             active: _selectedKeys.contains('30'),
             onTap: () => widget.onKey?.call('30'),
           ),
           _textBtn(
-            '45',
+            '45°',
             active: _selectedKeys.contains('45'),
             onTap: () => widget.onKey?.call('45'),
           ),
           _textBtn(
-            '60',
+            '60°',
             active: _selectedKeys.contains('60'),
             onTap: () => widget.onKey?.call('60'),
           ),

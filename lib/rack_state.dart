@@ -6,6 +6,33 @@ import 'package:pipe_and_wire_clean/box_layout_mode.dart';
 
 enum RackCalcMode { kick90, parallel90, offset, rollingOffset, parallelOffset, parallelRollingOffset }
 enum Kick90RackStyle { parallel, perpendicular, sameAngle, sameStart, sameAngleSamePlane, sameStartSamePlane }
+enum RunSegmentType { straight, bend, fitting }
+
+class RunSegment {
+  final RunSegmentType type;
+  final String label;
+  final double length;
+  final double degrees;
+  final double? stub; // Tracks back-of-90 for Hub display
+  final double? leg;  // Tracks distance after 90 for Hub display
+  double inSupportOffset; // Distance from back of 90 (incoming)
+  double outSupportOffset; // Distance from back of 90 (outgoing)
+  final bool isBoxTransition;
+  final Map<String, int> materials; // e.g. {"stick": 2, "coupling": 1}
+
+  RunSegment({
+    required this.type,
+    required this.label,
+    this.length = 0.0,
+    this.degrees = 0.0,
+    this.stub,
+    this.leg,
+    this.inSupportOffset = 24.0,
+    this.outSupportOffset = 24.0,
+    this.isBoxTransition = false,
+    this.materials = const {},
+  });
+}
 
 class ConduitData {
   String id = UniqueKey().toString();
@@ -17,11 +44,15 @@ class ConduitData {
   double markD = 0.0;
   double ol = 0.0;
   double angle = 30.0;
+  bool measureFromTail = false;
   
   // Bender override for individual pipe results
   String? benderBrand;
   double? benderGain;
   double? benderTakeup;
+  double? benderCLR;
+  double? pipeOD;
+  bool benderOverridden = false;
 
   ConduitData({required this.size, required this.conduitType});
 }
@@ -47,11 +78,26 @@ class RackState extends ChangeNotifier {
   // Logic states
   bool _isFromBox = false;
   bool get isFromBox => _isFromBox;
+
+  void setIsFromBox(bool val) {
+    _isFromBox = val;
+    notifyListeners();
+  }
+
   double _distanceFromBox = 0.0;
   double get distanceFromBox => _distanceFromBox;
 
   bool _measureToTop = true;
   bool get measureToTop => _measureToTop;
+
+  double _supportDepth = 1.625; // Default to 1-5/8"
+  double get supportDepth => _supportDepth;
+
+  double _distanceFromWall = 0.0;
+  double get distanceFromWall => _distanceFromWall;
+
+  bool _isFullStick = false;
+  bool get isFullStick => _isFullStick;
 
   int _offsetDirectionSign = 0; // -1: left, 0: up, 1: right
   int get offsetDirectionSign => _offsetDirectionSign;
@@ -84,6 +130,8 @@ class RackState extends ChangeNotifier {
 
   bending_data.BendingMethod bendingMethod =
       bending_data.BendingMethod.notch;
+  bool isArrowMethod = false;
+  bool isBenderDirectionReversed = false;
 
   // Parallel 90 specific inputs
   double parallel90Stub = 0.0;
@@ -93,6 +141,282 @@ class RackState extends ChangeNotifier {
   List<double> _pipeProgressionOffsets = [0.0];
   List<double> get pipeProgressionOffsets => _pipeProgressionOffsets;
   Map<int, double> _pipeODs = {0: 0.706};
+
+  // --- Run Planner Sequence ---
+  final List<RunSegment> _runSequence = [];
+  List<RunSegment> get runSequence => _runSequence;
+
+  final List<double> _supportPositions = [];
+  final Map<double, String> _supportLabels = {};
+
+  List<double> get supportPositions => _supportPositions;
+  String? getSupportLabel(double pos) {
+    if (_supportLabels.containsKey(pos)) return _supportLabels[pos];
+    
+    // Default labels for code-required locations
+    if (pos == 36.0 && _isFromBox) return 'Support (from Box)';
+    
+    return null;
+  }
+
+  void addStraightSegment(double lengthInInches, {int multiplier = 1, String? customLabel, int? atIndex}) {
+    final double startPos = totalRunLength;
+    
+    // Correct calculation for long runs with multiple pipes
+    final sticksPerRun = (lengthInInches / 120.0);
+    final sticksRounded = sticksPerRun.ceil();
+    final couplingsPerRun = sticksRounded > 0 ? sticksRounded - 1 : 0;
+
+    final totalSticks = sticksRounded * multiplier;
+    final totalCouplings = couplingsPerRun * multiplier;
+    
+    final segment = RunSegment(
+      type: RunSegmentType.straight,
+      label: customLabel ?? (multiplier > 1 
+        ? 'Straight Pipes'
+        : 'Straight Pipe'),
+      length: lengthInInches,
+      materials: {"stick": totalSticks, "coupling": totalCouplings},
+    );
+
+    if (atIndex != null && atIndex < _runSequence.length) {
+      _runSequence.insert(atIndex + 1, segment);
+    } else {
+      _runSequence.add(segment);
+    }
+
+    recalculateSupports();
+    notifyListeners();
+  }
+
+  void addBendSegment(String name, double deg, double effectiveLength, {
+    int multiplier = 1, 
+    int? atIndex,
+    double? stub,
+    double? leg,
+    double? gain,
+    double? takeup,
+  }) {
+    // STRICT DUPLICATE GUARD: Prevent identical segments from being added by multiple button taps.
+    if (_runSequence.isNotEmpty) {
+      final last = _runSequence.last;
+      // Compare core identity: Label and Stub/Leg geometry
+      if (last.label == name && last.stub == stub && last.leg == leg && last.length == effectiveLength) {
+        return;
+      }
+    }
+
+    final segment = RunSegment(
+      type: RunSegmentType.bend,
+      label: name,
+      degrees: deg,
+      length: effectiveLength,
+      materials: {"stick": multiplier, "coupling": multiplier},
+      stub: stub,
+      leg: leg,
+      isBoxTransition: _isFromBox && _runSequence.isEmpty,
+    );
+
+    if (atIndex != null && atIndex < _runSequence.length) {
+      _runSequence.insert(atIndex + 1, segment);
+    } else {
+      _runSequence.add(segment);
+    }
+
+    recalculateSupports();
+    notifyListeners();
+  }
+
+  void addFittingSegment(String name, double length, {int? atIndex}) {
+    final segment = RunSegment(
+      type: RunSegmentType.fitting,
+      label: name,
+      length: length,
+      materials: {"fitting": 1},
+    );
+
+    if (atIndex != null && atIndex < _runSequence.length) {
+      _runSequence.insert(atIndex + 1, segment);
+    } else {
+      _runSequence.add(segment);
+    }
+    _autoUpdateSupports();
+    notifyListeners();
+  }
+
+  void updateSegment(int index, {double? length, String? label}) {
+    if (index < 0 || index >= _runSequence.length) return;
+    final old = _runSequence[index];
+    
+    Map<String, int> newMaterials = Map.from(old.materials);
+    if (length != null && old.type == RunSegmentType.straight) {
+      final sticks = (length / 120.0).ceil();
+      final couplings = sticks > 0 ? sticks - 1 : 0;
+      newMaterials = {"stick": sticks, "coupling": couplings};
+    }
+
+    _runSequence[index] = RunSegment(
+      type: old.type,
+      label: label ?? old.label,
+      length: length ?? old.length,
+      degrees: old.degrees,
+      materials: newMaterials,
+    );
+    _autoUpdateSupports();
+    notifyListeners();
+  }
+
+  void removeSegment(int index) {
+    if (index >= 0 && index < _runSequence.length) {
+      _runSequence.removeAt(index);
+      _autoUpdateSupports();
+      notifyListeners();
+    }
+  }
+
+  void addSupport(double position, {String? label}) {
+    // Prevent exact duplicates
+    if (_supportPositions.contains(position) && _supportLabels[position] == label) return;
+
+    _supportPositions.add(position);
+    if (label != null) {
+      _supportLabels[position] = label;
+    }
+    _supportPositions.sort();
+    notifyListeners();
+  }
+
+  void removeSupportsByLabel(String labelPrefix) {
+    final List<double> toRemove = [];
+    _supportLabels.forEach((pos, label) {
+      if (label.startsWith(labelPrefix)) {
+        toRemove.add(pos);
+      }
+    });
+    
+    for (final pos in toRemove) {
+      _supportPositions.remove(pos);
+      _supportLabels.remove(pos);
+    }
+    notifyListeners();
+  }
+
+  void updateSupport(int index, double position, {String? label}) {
+    if (index >= 0 && index < _supportPositions.length) {
+      final oldPos = _supportPositions[index];
+      _supportLabels.remove(oldPos);
+      
+      _supportPositions[index] = position;
+      if (label != null) {
+        _supportLabels[position] = label;
+      }
+      _supportPositions.sort();
+      notifyListeners();
+    }
+  }
+
+  void removeSupport(int index) {
+    if (index >= 0 && index < _supportPositions.length) {
+      final pos = _supportPositions.removeAt(index);
+      _supportLabels.remove(pos);
+      notifyListeners();
+    }
+  }
+
+  void recalculateSupports() {
+    // Save manual starting supports
+    final List<Map<String, dynamic>> startingSupports = [];
+    _supportLabels.forEach((pos, label) {
+      if (label.contains('from Box') || label.contains('off Wall')) {
+        startingSupports.add({'pos': pos, 'label': label});
+      }
+    });
+
+    _supportPositions.clear();
+    _supportLabels.clear();
+    
+    // Restore manual starting supports
+    for (var s in startingSupports) {
+      addSupport(s['pos'], label: s['label']);
+    }
+
+    double currentPos = 0.0;
+    for (int i = 0; i < _runSequence.length; i++) {
+      final seg = _runSequence[i];
+      final double start = currentPos;
+      final double end = start + seg.length;
+
+      if (seg.type == RunSegmentType.straight) {
+        // Find where to start placing supports for this segment.
+        // It must be at least 120" past the LAST actual support.
+        double lastSup = _supportPositions.isEmpty ? 0.0 : _supportPositions.last;
+        double next = lastSup + 120.0;
+        
+        while (next <= end) {
+          if (next > start) {
+            // Label it with the gap for the green box logic
+            double gap = next - lastSup;
+            addSupport(next, label: 'Support | ${inchFmt(gap)}');
+            lastSup = next;
+          }
+          next += 120.0;
+        }
+      } else if (seg.type == RunSegmentType.bend) {
+        if (seg.degrees == 90.0 && seg.stub != null) {
+          if (!seg.isBoxTransition) {
+            final corner = start + seg.stub!;
+            
+            // IN Side: 24" back from back of 90
+            final double before = (corner - seg.inSupportOffset).roundToDouble();
+            if (before > start + 1.0) {
+              double gap = before - start;
+              addSupport(before, label: 'Support (Before Turn) | ${inchFmt(seg.inSupportOffset)} | ${inchFmt(gap)} from last coupling');
+            }
+
+            // OUT Side: 24" past back of 90
+            final double after = (corner + seg.outSupportOffset).roundToDouble();
+            if (after < end - 1.0) {
+              addSupport(after, label: 'Support (After Turn) | ${inchFmt(seg.outSupportOffset)} | from back of 90');
+            }
+          }
+        }
+      }
+      currentPos = end;
+    }
+    notifyListeners();
+  }
+
+  void _autoUpdateSupports() {
+    // Disabled auto-population to give user full control.
+    // Supports will only be added via the Proactive Planner or manual Hub entries.
+  }
+
+  double get totalRunLength => _runSequence.fold(0.0, (sum, seg) => sum + seg.length);
+  double get totalRunDegrees {
+    double total = 0;
+    for (var seg in _runSequence.reversed) {
+      if (seg.type == RunSegmentType.fitting) break; // Pull points reset count
+      total += seg.degrees;
+    }
+    return total;
+  }
+
+  void setFullStick(bool val) {
+    _isFullStick = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  double get actualFinishDistance {
+    final shrink = _shrink(offsetHeight, bendAngle);
+    return 120.0 - shrink;
+  }
+
+  void clearRunSequence() {
+    _runSequence.clear();
+    _supportPositions.clear();
+    notifyListeners();
+  }
 
   void setCalcMode(RackCalcMode mode) {
     _calcMode = mode;
@@ -125,15 +449,26 @@ class RackState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setParallel90BenderData({required double gain, required double takeup, String? brand}) {
+  void setParallel90BenderData({
+    required double gain, 
+    required double takeup, 
+    double? clr, 
+    double? pipeOD, 
+    String? brand
+  }) {
     benderGain = gain;
     benderTakeup = takeup;
+    if (clr != null) kickCLR = clr;
+    if (pipeOD != null) kickPipeOD = pipeOD;
     
     // Also apply to current conduit for persistent individual results
     if (_selectedPipeIndex >= 0 && _selectedPipeIndex < _allConduits.length) {
-      if (brand != null) _allConduits[_selectedPipeIndex].benderBrand = brand;
-      _allConduits[_selectedPipeIndex].benderGain = gain;
-      _allConduits[_selectedPipeIndex].benderTakeup = takeup;
+      final p = _allConduits[_selectedPipeIndex];
+      if (brand != null) p.benderBrand = brand;
+      p.benderGain = gain;
+      p.benderTakeup = takeup;
+      if (clr != null) p.benderCLR = clr;
+      if (pipeOD != null) p.pipeOD = pipeOD;
     }
 
     _recalculate();
@@ -157,18 +492,47 @@ class RackState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setConduitType(String typeStr) {
+    final type = typeStr == 'RMC' || typeStr == 'Rigid' ? BoxLayoutConduitType.grc : BoxLayoutConduitType.emt;
+    for (var pipe in _allConduits) {
+      pipe.conduitType = type;
+    }
+    _recalculate();
+    notifyListeners();
+  }
+
   void setPipeProgressionOffsets(List<double> offsets, {List<String>? sizes}) {
     _pipeProgressionOffsets = offsets;
-    final oldType = _allConduits.isNotEmpty ? _allConduits.first.conduitType : BoxLayoutConduitType.emt;
-    
-    _allConduits.clear();
-    for (var i = 0; i < offsets.length; i++) {
-      String pipeSize = '0.5';
-      if (sizes != null && i < sizes.length) {
-        pipeSize = sizes[i].replaceAll('"', '').trim();
-      }
-      _allConduits.add(ConduitData(size: pipeSize, conduitType: oldType));
+    final type = _allConduits.isNotEmpty ? _allConduits.first.conduitType : BoxLayoutConduitType.emt;
+
+    // Remove extra conduits
+    if (_allConduits.length > offsets.length) {
+      _allConduits.removeRange(offsets.length, _allConduits.length);
     }
+
+    // Update existing or add new ones
+    for (var i = 0; i < offsets.length; i++) {
+      String sizeStr = '0.5';
+      if (sizes != null && i < sizes.length) {
+        sizeStr = sizes[i].replaceAll('"', '').trim();
+      }
+
+      if (i < _allConduits.length) {
+        // KEEP EXISTING DATA if size/type hasn't changed drastically
+        _allConduits[i].size = sizeStr;
+        _allConduits[i].conduitType = type;
+      } else {
+        // ADD NEW
+        _allConduits.add(ConduitData(size: sizeStr, conduitType: type));
+      }
+    }
+
+    // Guard: Ensure we always have at least one conduit
+    if (_allConduits.isEmpty) {
+      _allConduits.add(ConduitData(size: '0.5', conduitType: type));
+    }
+    
+    _selectedPipeIndex = _selectedPipeIndex.clamp(0, _allConduits.length - 1);
 
     _recalculate();
     notifyListeners();
@@ -186,6 +550,13 @@ class RackState extends ChangeNotifier {
     for (var size in pipeSizes) {
       _allConduits.add(ConduitData(size: size, conduitType: type));
     }
+
+    // Guard: Ensure we always have at least one conduit to prevent RangeErrors
+    if (_allConduits.isEmpty) {
+      _allConduits.add(ConduitData(size: '0.5', conduitType: type));
+    }
+
+    _selectedPipeIndex = 0;
     centerToCenterSpacing = spacing;
     _recalculate();
     notifyListeners();
@@ -200,6 +571,18 @@ class RackState extends ChangeNotifier {
 
   void setMeasureToTop(bool val) {
     _measureToTop = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setSupportDepth(double val) {
+    _supportDepth = val;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setDistanceFromWall(double val) {
+    _distanceFromWall = val;
     _recalculate();
     notifyListeners();
   }
@@ -237,6 +620,13 @@ class RackState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void startOffsetDown() {
+    _calcMode = RackCalcMode.parallelOffset;
+    _offsetDirectionSign = 2; // Use 2 for Down
+    _recalculate();
+    notifyListeners();
+  }
+
   void startRollingOffset() {
     _calcMode = RackCalcMode.rollingOffset;
     _recalculate();
@@ -245,6 +635,14 @@ class RackState extends ChangeNotifier {
 
   void setKick90RackStyle(Kick90RackStyle style) {
     _kick90RackStyle = style;
+    _recalculate();
+    notifyListeners();
+  }
+
+  void setBendingMethod(bending_data.BendingMethod method, {bool? arrow, bool? reverse}) {
+    bendingMethod = method;
+    if (arrow != null) isArrowMethod = arrow;
+    if (reverse != null) isBenderDirectionReversed = reverse;
     _recalculate();
     notifyListeners();
   }
@@ -341,12 +739,19 @@ class RackState extends ChangeNotifier {
     return centers;
   }
 
+  void forceRefresh() {
+    _recalculate();
+    notifyListeners();
+  }
+
   void _recalculate() {
     // 1. Sync bender data for each conduit if a brand is selected
     final type = _allConduits.isNotEmpty ? _allConduits.first.conduitType : BoxLayoutConduitType.emt;
     final bendingType = type == BoxLayoutConduitType.grc ? bending_data.ConduitType.rigid : bending_data.ConduitType.emt;
     
     for (var pipe in _allConduits) {
+      if (pipe.benderOverridden) continue;
+
       final activeBrand = pipe.benderBrand ?? benderBrand;
       if (activeBrand != null) {
         final match = bending_data.benderDatabase.firstWhereOrNull((b) => 
@@ -357,6 +762,12 @@ class RackState extends ChangeNotifier {
         if (match != null) {
           pipe.benderGain = match.gain;
           pipe.benderTakeup = match.deduct;
+          pipe.benderCLR = match.clr;
+          
+          final numericalSize = _pipeSizeKey(pipe.size);
+          pipe.pipeOD = bendingType == bending_data.ConduitType.rigid 
+              ? bending_data.grcOD[numericalSize] 
+              : bending_data.emtOD[numericalSize];
         }
       }
     }
@@ -382,7 +793,7 @@ class RackState extends ChangeNotifier {
   void _calculateKick90Rack() {
     if (_allConduits.isEmpty) return;
 
-    final double baseStub = _isFromBox ? _distanceFromBox : kickStubLength;
+    final double baseToStrut = _isFromBox ? _distanceFromBox : 0.0;
 
     for (int i = 0; i < _allConduits.length; i++) {
       final pipe = _allConduits[i];
@@ -396,14 +807,16 @@ class RackState extends ChangeNotifier {
         final boxOffset =
             spacingOffset * bending_data.calculateCosecant(kickAngle);
         final adjustedLeg = kickLegLength + boxOffset;
+        
+        final double totalStub = baseToStrut + kickStubLength;
 
         pipe.markA = bending_data.calculateKick90MarkA(
-          stub: baseStub,
+          stub: totalStub,
           takeUp: t,
         );
 
         pipe.markB = bending_data.calculateKick90MarkB(
-          stub: baseStub,
+          stub: totalStub,
           kickHeight: pipeKickHeight,
           angleDeg: kickAngle,
           gain90: g,
@@ -414,7 +827,7 @@ class RackState extends ChangeNotifier {
         );
 
         pipe.ol = bending_data.calculateKick90CutLength(
-          stub: baseStub,
+          stub: totalStub,
           leg: adjustedLeg,
           kickHeight: pipeKickHeight,
           angleDeg: kickAngle,
@@ -426,15 +839,16 @@ class RackState extends ChangeNotifier {
 
       else if (_kick90RackStyle == Kick90RackStyle.perpendicular) {
         final firstPipe = _allConduits.first;
+        final double totalStub = baseToStrut + kickStubLength;
 
         if (i == 0) {
           pipe.markA = bending_data.calculateKick90MarkA(
-            stub: baseStub,
+            stub: totalStub,
             takeUp: t,
           );
 
           pipe.markB = bending_data.calculateKick90MarkB(
-            stub: baseStub,
+            stub: totalStub,
             kickHeight: kickHeight,
             angleDeg: kickAngle,
             gain90: g,
@@ -445,7 +859,7 @@ class RackState extends ChangeNotifier {
           );
 
           pipe.ol = bending_data.calculateKick90CutLength(
-            stub: baseStub,
+            stub: totalStub,
             leg: kickLegLength,
             kickHeight: kickHeight,
             angleDeg: kickAngle,
@@ -466,9 +880,10 @@ class RackState extends ChangeNotifier {
       }
 
       else if (_kick90RackStyle == Kick90RackStyle.sameAngle) {
-        final result = bending_data.calculateKick90SameAnglePlaneChange(
+        final result =
+        bending_data.calculateKick90SameAnglePlaneChange(
           pipeIndex: i,
-          baseStub: baseStub,
+          baseStub: baseToStrut + kickStubLength,
           baseKickHeight: kickHeight,
           spacingOffset: spacingOffset,
           angleDeg: kickAngle,
@@ -476,8 +891,10 @@ class RackState extends ChangeNotifier {
           takeUp: t,
           gain90: g,
           pipeOD: kickPipeOD,
+          clr: kickCLR,
+          method: bendingMethod,
+          reverse: isBenderDirectionReversed,
         );
-
         pipe.markA = result.markA;
         pipe.markB = result.markB;
         pipe.ol = result.markC;
@@ -487,7 +904,7 @@ class RackState extends ChangeNotifier {
       else if (_kick90RackStyle == Kick90RackStyle.sameStart) {
         final result = bending_data.calculateKick90SameStartPlaneChange(
           pipeIndex: i,
-          baseStub: baseStub,
+          baseStub: baseToStrut + kickStubLength,
           baseKickHeight: kickHeight,
           spacingOffset: spacingOffset,
           sameStartRun: kickMatchBendDistance,
@@ -514,7 +931,7 @@ class RackState extends ChangeNotifier {
       else if (_kick90RackStyle == Kick90RackStyle.sameAngleSamePlane) {
         final result = bending_data.calculateKick90SameAngleSamePlane(
           pipeIndex: i,
-          baseStub: baseStub,
+          baseStub: baseToStrut + kickStubLength,
           baseLeg: kickLegLength,
           kickHeight: kickHeight,
           spacingOffset: spacingOffset,
@@ -533,7 +950,7 @@ class RackState extends ChangeNotifier {
       else if (_kick90RackStyle == Kick90RackStyle.sameStartSamePlane) {
         final result = bending_data.calculateKick90SameStartSamePlane(
           pipeIndex: i,
-          baseStub: baseStub,
+          baseStub: baseToStrut + kickStubLength,
           baseLeg: kickLegLength,
           kickHeight: kickHeight,
           baseMatchBendDistance: kickMatchBendDistance,
@@ -555,7 +972,9 @@ class RackState extends ChangeNotifier {
   void _calculateParallel90s() {
     if (_allConduits.isEmpty) return;
 
-    final bool isGraduated = _parallel90Direction == 'left' || _parallel90Direction == 'right';
+    // Graduation only happens for Side-to-Side racks (Left/Right)
+    // Professional Vision: Box transitions are side-by-side off a wall, so they are uniform (no graduation).
+    final bool isGraduated = (_parallel90Direction == 'left' || _parallel90Direction == 'right') && !_isFromBox;
 
     for (int i = 0; i < _allConduits.length; i++) {
       final pipe = _allConduits[i];
@@ -565,10 +984,21 @@ class RackState extends ChangeNotifier {
 
       final double currentGain = pipe.benderGain ?? benderGain;
       final double currentTakeup = pipe.benderTakeup ?? benderTakeup;
+      
+      final double totalStub = parallel90Stub + spacingOffset;
+      final double totalLeg = parallel90Leg + spacingOffset;
 
-      pipe.markA = bending_data.calculateBtbMarkA(parallel90Stub + spacingOffset, currentTakeup);
-      pipe.ol = bending_data.calculateBtbCutLength(parallel90Stub + spacingOffset, 0.0, parallel90Leg + spacingOffset, currentGain);
-      pipe.markB = 0.0; // Not used for simple 90
+      // Smart Side Logic: Measure from shorter end
+      if (totalStub <= totalLeg) {
+        pipe.markA = totalStub - currentTakeup;
+        pipe.measureFromTail = false;
+      } else {
+        pipe.markA = totalLeg - currentTakeup;
+        pipe.measureFromTail = true;
+      }
+
+      pipe.ol = totalStub + totalLeg - currentGain;
+      pipe.markB = 0.0; 
     }
   }
 
@@ -577,15 +1007,53 @@ class RackState extends ChangeNotifier {
 
     final firstPipe = _allConduits.first;
 
+    if (bendAngle <= 0 || !bendAngle.isFinite) {
+      for (var p in _allConduits) {
+        p.markA = 0; p.markB = 0; p.ol = 0; p.angle = 0;
+      }
+      return;
+    }
+
     final shrink = _shrink(offsetHeight, bendAngle);
-    final travelBetweenBends = offsetHeight * bending_data.calculateCosecant(bendAngle);
+    final double cosecant = bending_data.calculateCosecant(bendAngle);
+    if (!cosecant.isFinite) return;
+
+    final travelBetweenBends = offsetHeight * cosecant;
 
     final baseA = offsetDistance + shrink;
     final baseB = baseA - travelBetweenBends;
-    final baseC = overallLength + shrink;
+    final baseC = _isFullStick ? 120.0 : overallLength + shrink;
 
-    firstPipe.markA = baseA;
-    firstPipe.markB = baseB;
+    final firstDeduct = firstPipe.benderTakeup ?? benderTakeup;
+    final firstCLR = firstPipe.benderCLR ?? kickCLR;
+    final firstOD = firstPipe.pipeOD ?? kickPipeOD;
+
+    if (isArrowMethod || bendingMethod == bending_data.BendingMethod.centerline) {
+      firstPipe.markA = baseA;
+      firstPipe.markB = baseB;
+    } else if (firstCLR > 0) {
+      firstPipe.markA = bending_data.convertCenterMarkToBenderReference(
+        centerMark: baseA,
+        method: bendingMethod,
+        clr: firstCLR,
+        deduct: firstDeduct,
+        pipeOD: firstOD,
+        angleDeg: bendAngle,
+        reverse: isBenderDirectionReversed,
+      );
+      firstPipe.markB = bending_data.convertCenterMarkToBenderReference(
+        centerMark: baseB,
+        method: bendingMethod,
+        clr: firstCLR,
+        deduct: firstDeduct,
+        pipeOD: firstOD,
+        angleDeg: bendAngle,
+        reverse: isBenderDirectionReversed,
+      );
+    } else {
+      firstPipe.markA = baseA;
+      firstPipe.markB = baseB;
+    }
     firstPipe.ol = baseC;
     firstPipe.angle = bendAngle;
 
@@ -593,15 +1061,44 @@ class RackState extends ChangeNotifier {
       final pipe = _allConduits[i];
       final spacingOffset = i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0;
       
-      if (_calcMode == RackCalcMode.offset) {
-        pipe.markA = baseA;
-        pipe.markB = baseB;
-        pipe.ol = baseC;
-        pipe.angle = bendAngle;
-      } else {
-        final markShift = spacingOffset * _tanHalf(bendAngle);
-        pipe.markA = baseA + markShift;
-        pipe.markB = baseB + markShift;
+      final pDeduct = pipe.benderTakeup ?? benderTakeup;
+      final pCLR = pipe.benderCLR ?? kickCLR;
+      final pOD = pipe.pipeOD ?? kickPipeOD;
+
+      if (_calcMode == RackCalcMode.offset || _calcMode == RackCalcMode.parallelOffset) {
+        final markShift = (_offsetDirectionSign == 0 || _offsetDirectionSign == 2) 
+            ? 0.0 // No shift for straight Up (0) or Down (2)
+            : spacingOffset * _tanHalf(bendAngle);
+        
+        final centerA = baseA + markShift;
+        final centerB = baseB + markShift;
+
+        if (isArrowMethod || bendingMethod == bending_data.BendingMethod.centerline) {
+          pipe.markA = centerA;
+          pipe.markB = centerB;
+        } else if (pCLR > 0) {
+          pipe.markA = bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerA,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+          pipe.markB = bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerB,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+        } else {
+          pipe.markA = centerA;
+          pipe.markB = centerB;
+        }
         pipe.ol = baseC;
         pipe.angle = bendAngle;
       }
@@ -613,16 +1110,54 @@ class RackState extends ChangeNotifier {
 
     final firstPipe = _allConduits.first;
 
+    if (bendAngle <= 0 || !bendAngle.isFinite) {
+      for (var p in _allConduits) {
+        p.markA = 0; p.markB = 0; p.ol = 0; p.angle = 0;
+      }
+      return;
+    }
+
     final trueOffset = _trueOffset(offsetHeight, offsetHorizontal);
     final shrink = _shrink(trueOffset, bendAngle);
-    final travelBetweenBends = trueOffset * bending_data.calculateCosecant(bendAngle);
+    final double cosecant = bending_data.calculateCosecant(bendAngle);
+    if (!cosecant.isFinite) return;
+
+    final travelBetweenBends = trueOffset * cosecant;
 
     final baseA = offsetDistance + shrink;
     final baseB = baseA - travelBetweenBends;
-    final baseC = overallLength + shrink;
+    final baseC = _isFullStick ? 120.0 : overallLength + shrink;
 
-    firstPipe.markA = baseA;
-    firstPipe.markB = baseB;
+    final firstDeduct = firstPipe.benderTakeup ?? benderTakeup;
+    final firstCLR = firstPipe.benderCLR ?? kickCLR;
+    final firstOD = firstPipe.pipeOD ?? kickPipeOD;
+
+    if (isArrowMethod || bendingMethod == bending_data.BendingMethod.centerline) {
+      firstPipe.markA = baseA;
+      firstPipe.markB = baseB;
+    } else if (firstCLR > 0) {
+      firstPipe.markA = bending_data.convertCenterMarkToBenderReference(
+        centerMark: baseA,
+        method: bendingMethod,
+        clr: firstCLR,
+        deduct: firstDeduct,
+        pipeOD: firstOD,
+        angleDeg: bendAngle,
+        reverse: isBenderDirectionReversed,
+      );
+      firstPipe.markB = bending_data.convertCenterMarkToBenderReference(
+        centerMark: baseB,
+        method: bendingMethod,
+        clr: firstCLR,
+        deduct: firstDeduct,
+        pipeOD: firstOD,
+        angleDeg: bendAngle,
+        reverse: isBenderDirectionReversed,
+      );
+    } else {
+      firstPipe.markA = baseA;
+      firstPipe.markB = baseB;
+    }
     firstPipe.ol = baseC;
     firstPipe.angle = bendAngle;
 
@@ -630,15 +1165,103 @@ class RackState extends ChangeNotifier {
       final pipe = _allConduits[i];
       final spacingOffset = i < _pipeProgressionOffsets.length ? _pipeProgressionOffsets[i] : 0.0;
       
-      if (_calcMode == RackCalcMode.rollingOffset) {
-        pipe.markA = baseA;
-        pipe.markB = baseB;
+      final pDeduct = pipe.benderTakeup ?? benderTakeup;
+      final pCLR = pipe.benderCLR ?? kickCLR;
+      final pOD = pipe.pipeOD ?? kickPipeOD;
+
+      if (_calcMode == RackCalcMode.offset || _calcMode == RackCalcMode.parallelOffset) {
+        final markShift = (_offsetDirectionSign == 0 || _offsetDirectionSign == 2)
+            ? 0.0 // No shift for straight Up (0) or Down (2)
+            : spacingOffset * _tanHalf(bendAngle);
+
+        final centerA = baseA + markShift;
+        final centerB = baseB + markShift;
+
+        if (isArrowMethod || bendingMethod == bending_data.BendingMethod.centerline) {
+          pipe.markA = centerA;
+          pipe.markB = centerB;
+        } else if (pCLR > 0) {
+          pipe.markA = bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerA,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+          pipe.markB = bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerB,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+        } else {
+          pipe.markA = centerA;
+          pipe.markB = centerB;
+        }
+        pipe.ol = baseC;
+        pipe.angle = bendAngle;
+      } else if (_calcMode == RackCalcMode.rollingOffset) {
+        if (isArrowMethod || bendingMethod == bending_data.BendingMethod.centerline) {
+          pipe.markA = baseA;
+          pipe.markB = baseB;
+        } else {
+          pipe.markA = bending_data.convertCenterMarkToBenderReference(
+            centerMark: baseA,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+          pipe.markB = bending_data.convertCenterMarkToBenderReference(
+            centerMark: baseB,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+        }
         pipe.ol = baseC;
         pipe.angle = bendAngle;
       } else {
         final markShift = spacingOffset * _tanHalf(bendAngle);
-        pipe.markA = baseA + markShift;
-        pipe.markB = baseB + markShift;
+        final centerA = baseA + markShift;
+        final centerB = baseB + markShift;
+
+        if (isArrowMethod || bendingMethod == bending_data.BendingMethod.centerline) {
+          pipe.markA = centerA;
+          pipe.markB = centerB;
+        } else if (pCLR > 0) {
+          pipe.markA = bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerA,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+          pipe.markB = bending_data.convertCenterMarkToBenderReference(
+            centerMark: centerB,
+            method: bendingMethod,
+            clr: pCLR,
+            deduct: pDeduct,
+            pipeOD: pOD,
+            angleDeg: bendAngle,
+            reverse: isBenderDirectionReversed,
+          );
+        } else {
+          pipe.markA = centerA;
+          pipe.markB = centerB;
+        }
         pipe.ol = baseC;
         pipe.angle = bendAngle;
       }
@@ -678,9 +1301,13 @@ class RackState extends ChangeNotifier {
   double get legLength => parallel90Leg;
   bool get isRollingMode => _calcMode == RackCalcMode.rollingOffset || _calcMode == RackCalcMode.parallelRollingOffset;
 
-  double shiftFromPreviousPipe(int index) {
-    if (index <= 0 || index >= _pipeProgressionOffsets.length) return 0;
-    return _pipeProgressionOffsets[index] - _pipeProgressionOffsets[index - 1];
+  double graduationForPipe(int index) {
+    if (index <= 0 || index >= _allConduits.length) return 0.0;
+    
+    // Difference from previous pipe
+    final double stepShift = _allConduits[index].markA - _allConduits[index - 1].markA;
+    
+    return stepShift;
   }
 
   // --- Static Helpers ---
@@ -712,8 +1339,22 @@ class RackState extends ChangeNotifier {
     }
   }
 
+  static String feetInchFmt(double inches) {
+    if (inches == 0) return '0"';
+    if (!inches.isFinite) return '—';
+    
+    final int feet = (inches / 12).floor();
+    final double remainingInches = inches % 12;
+    
+    if (feet == 0) return inchFmt(remainingInches);
+    if (remainingInches == 0) return "$feet'";
+    
+    return "$feet' ${inchFmt(remainingInches)}";
+  }
+
   static String inchFmt(double x, {bool addInchMark = true}) {
     if (x == 0) return addInchMark ? '0"' : '0';
+    if (!x.isFinite) return '—';
     final sign = x < 0 ? -1 : 1;
     double ax = x.abs();
     int whole = ax.floor();

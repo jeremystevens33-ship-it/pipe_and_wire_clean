@@ -993,7 +993,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
                       });
                     },
                     child: Text(
-                      '${size}"',
+                      '$size"',
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                     ),
                   ),

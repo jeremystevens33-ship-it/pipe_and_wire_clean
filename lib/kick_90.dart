@@ -9,9 +9,8 @@ import 'package:pipe_and_wire_clean/keypad_6.dart';
 import 'package:pipe_and_wire_clean/rack_builder_11.dart';
 import 'package:provider/provider.dart';
 import 'package:pipe_and_wire_clean/rack_state.dart';
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'main_menu_screen.dart';
+import 'bender_picker_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,7 +44,7 @@ class Kick90Screen extends StatefulWidget {
   State<Kick90Screen> createState() => _Kick90ScreenState();
 }
 
-class _Kick90ScreenState extends State<Kick90Screen> {
+class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMixin {
   // State management for workflow
   int _currentStep = 0;
   bool _isBenderExpanded = true;
@@ -61,6 +60,9 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   static const double _spaceBetweenTopAndBottomGraphic = 1.0;
   static const double _bottomMeasurementGraphicHeight = 110.0;
 
+  late final AnimationController _infoAnimCtrl;
+  bool _hasViewedInfo = false;
+
   // Bender & Conduit State
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
@@ -70,6 +72,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
   // --- NEW: Custom Bender State ---
   bool _isEditMode = false;
+  bool _isNewBender = false; // Flag to distinguish between Creating and Editing
   final List<bending_data.Bender> _customBenders = []; // Uses Bender from bending_data.dart
   List<Map<String, String>> _allBrands = []; // Combined list for dropdown
 
@@ -98,6 +101,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   double _rawTakeUp = 0.0;
   double _rawGain = 0.0;
 
+
+  String? _clearanceWarning;
 
   // Keypad State
   bool _isKeypadVisible = false;
@@ -132,10 +137,67 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     takeUpCtrl.addListener(_updateSetback);
     gainCtrl.addListener(_updateSetback);
     gainCtrl.addListener(_updateRadiusFromGain);
+    radiusCtrl.addListener(_updateGainFromRadius);
+
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
+  }
+
+  void _updateGainFromRadius() {
+    if (!_isEditMode || _activeController != radiusCtrl) return;
+
+    final radiusText = radiusCtrl.text.trim();
+    if (radiusText.isEmpty || _selectedPipeSize == null) {
+      gainCtrl.text = '';
+      return;
+    }
+
+    final radius = _parseInches(radiusText);
+    final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
+        ? bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]
+        : bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
+
+    if (pipeOD <= 0 || radius <= 0) return;
+
+    final gain = bending_data.calculateGain90(radius, pipeOD);
+    gainCtrl.text = fmtInches(gain, addInchMark: false);
+
+    // Also update travel
+    travelCtrl.text = fmtInches((math.pi * radius) / 2, addInchMark: false);
+  }
+
+  void _updateRadiusFromGain() {
+    if (!_isEditMode || _activeController != gainCtrl) return;
+
+    final gainText = gainCtrl.text.trim();
+    if (gainText.isEmpty || _selectedPipeSize == null) {
+      radiusCtrl.text = '';
+      return;
+    }
+
+    final gain = _parseInches(gainText);
+
+    final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
+        ? bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]
+        : bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
+
+    if (pipeOD <= 0 || gain <= pipeOD) {
+      radiusCtrl.text = '';
+      return;
+    }
+
+    final clr = bending_data.calculateCLRFromGain(gain, pipeOD);
+    radiusCtrl.text = fmtInches(clr, addInchMark: false);
+
+    // Also update travel
+    travelCtrl.text = fmtInches((math.pi * clr) / 2, addInchMark: false);
   }
 
   @override
   void dispose() {
+    _infoAnimCtrl.dispose();
     final allCtrls = [
       stubCtrl,
       kickCtrl,
@@ -154,6 +216,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     }
 
     gainCtrl.removeListener(_updateRadiusFromGain);
+    radiusCtrl.removeListener(_updateGainFromRadius);
 
     for (var ctrl in allCtrls) {
       ctrl.dispose();
@@ -163,13 +226,15 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   }
 
   void _updateBrandDropdown() {
+    final Set<String> uniqueCustomNames = _customBenders.map((b) => b.brand).toSet();
+
     setState(() {
       _allBrands = [
         ..._brands,
         {'type': 'header', 'name': 'SAVED BENDERS'},
-        ..._customBenders.map((b) => {
-          'type': 'bender',
-          'name': b.brand,
+        ...uniqueCustomNames.map((name) => {
+          'type': 'custom_bender',
+          'name': name,
         }),
       ];
     });
@@ -185,7 +250,6 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     if (isReady != _isCalculateReady) {
       setState(() {
         _isCalculateReady = isReady;
-        // Logic removed from here to prevent premature reveal of Step 3
       });
     }
   }
@@ -205,31 +269,6 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
     setbackCtrl.text = fmtInches(setback, addInchMark: false);
   }
-  void _updateRadiusFromGain() {
-    if (!_isEditMode) return;
-
-    final gainText = gainCtrl.text.trim();
-    if (gainText.isEmpty || _selectedPipeSize == null) {
-      radiusCtrl.text = '';
-      return;
-    }
-
-    final gain = _parseInches(gainText);
-
-    final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
-        ? bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]
-        : bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
-
-    final double factor = 2 - (math.pi / 2);
-
-    if (pipeOD <= 0 || gain <= pipeOD || factor == 0) {
-      radiusCtrl.text = '';
-      return;
-    }
-
-    final clr = (gain - pipeOD) / factor;
-    radiusCtrl.text = fmtInches(clr, addInchMark: false);
-  }
 
   String _getNumericalStringPipeSize(String pipeSizeDisplayString) {
     if (pipeSizeDisplayString.isEmpty) return '';
@@ -238,12 +277,13 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   }
 
   void _updateBenderData() {
+    if (_isEditMode) return; // Prevent clearing fields while user is typing in Edit Mode
+
     if (_selectedBrand == null || _selectedPipeSize == null) {
       setState(() {
         travelCtrl.text = '';
         takeUpCtrl.text = '';
         gainCtrl.text = '';
-        setbackCtrl.text = '';
         radiusCtrl.text = '';
         _showTravelField = false;
         _isBenderExpanded = true;
@@ -253,10 +293,10 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
     // Try to find a custom bender first
     bending_data.Bender? bender = _customBenders.firstWhereOrNull(
-            (b) => b.model == _selectedBrand && b.conduitSize == _selectedPipeSize &&
+            (b) => b.brand == _selectedBrand && b.conduitSize == _selectedPipeSize &&
             (b.conduitType == (
                 _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
-                bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
+                bending_data.ConduitType.rigid
             )
             )
     );
@@ -266,7 +306,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
             (b) => b.brand == _selectedBrand && b.conduitSize == _selectedPipeSize &&
             (b.conduitType == (
                 _selectedConduitType == BoxLayoutConduitType.emt ? bending_data.ConduitType.emt :
-                bending_data.ConduitType.rigid // Only EMT or GRC (Rigid) allowed
+                bending_data.ConduitType.rigid
             )
             )
     );
@@ -349,13 +389,17 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
       _isCalculateReady = false;
       _isEditMode = false;
+      _isNewBender = false;
       _showTravelField = false;
+      _customBenderName = '';
 
       _currentStep = 0;
       _isBenderExpanded = true;
       _isMeasurementsExpanded = false;
       _isResultsExpanded = false;
     });
+
+    _hideKeypad();
   }
 
   String fmtInches(double x, {bool addInchMark = true}) {
@@ -481,6 +525,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       gain90: gain90,
       pipeOD: pipeOD,
       clr: clr,
+      deduct: takeUp,
       method: _bendingMethod,
     );
 
@@ -491,6 +536,54 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       angleDeg: angleDeg,
       gain90: gain90,
     );
+
+    // BENDER CLEARANCE CHECK
+    final curveEnd = bending_data.calculateCurveEnd(
+      stub: stub,
+      clr: clr,
+      pipeOD: pipeOD,
+    );
+    
+    // We use a professional 5-inch safety buffer as requested
+    const double safetyBuffer = 5.0;
+    final bool isSafe = bending_data.isBenderClearanceSafe(
+      markB: markB,
+      curveEnd: curveEnd,
+      buffer: 0.5, // Check for actual physical hit first
+    );
+
+    String? warning;
+    if (!isSafe) {
+      // Solve for the maximum safe angle to maintain 5" clearance
+      double suggestedAngle = angleDeg;
+      while (suggestedAngle > 1.0) {
+        suggestedAngle -= 0.5;
+        final testMarkB = bending_data.calculateKick90MarkB(
+          stub: stub,
+          kickHeight: kickHeight,
+          angleDeg: suggestedAngle,
+          gain90: gain90,
+          pipeOD: pipeOD,
+          clr: clr,
+          deduct: takeUp,
+          method: _bendingMethod,
+        );
+        if (bending_data.isBenderClearanceSafe(
+          markB: testMarkB,
+          curveEnd: curveEnd,
+          buffer: safetyBuffer,
+        )) {
+          break;
+        }
+      }
+      
+      final String angleStr = suggestedAngle % 1 == 0 
+          ? suggestedAngle.toStringAsFixed(0) 
+          : suggestedAngle.toStringAsFixed(1);
+          
+      warning = "BENDER COLLISION: The shoe will hit the stub. Use a kick angle of $angleStr° or smaller. (Calculated with 5-inch safety clearance)";
+    }
+
     setState(() {
       _rawMarkA = markA;
       _rawMarkB = markB;
@@ -499,6 +592,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       markAOut = fmtInches(markA);
       markBOut = fmtInches(markB);
       markCOut = fmtInches(olVal);
+
+      _clearanceWarning = warning;
 
       _currentStep = 3;
       _isResultsExpanded = true;
@@ -612,51 +707,14 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
 
   Future<void> _loadCustomBenders() async {
-    final prefs = await SharedPreferences.getInstance();
-    // This key matches the one used in Rack Builder 11
-    final raw = prefs.getString('rack_custom_benders');
-
-    if (raw == null || raw.isEmpty) return;
-
-    final List decoded = jsonDecode(raw);
-
+    final benders = await bending_data.BenderStore.load();
     setState(() {
       _customBenders.clear();
-      _customBenders.addAll(decoded.map((item) {
-        return bending_data.Bender(
-          brand: item['brand'],
-          model: item['model'] ?? item['brand'],
-          conduitSize: item['conduitSize'],
-          conduitType: item['conduitType'] == 'rigid'
-              ? bending_data.ConduitType.rigid
-              : bending_data.ConduitType.emt,
-          clr: (item['clr'] as num).toDouble(),
-          deduct: (item['deduct'] as num).toDouble(),
-          gain: (item['gain'] as num).toDouble(),
-        );
-      }));
+      _customBenders.addAll(benders);
       _updateBrandDropdown();
     });
   }
 
-
-  Future<void> _saveCustomBendersToDevice() async {
-    final prefs = await SharedPreferences.getInstance();
-    final encoded = jsonEncode(_customBenders.map((b) =>
-    {
-      'brand': b.brand,
-      'model': b.model,
-      'conduitSize': b.conduitSize,
-      'conduitType': b.conduitType == bending_data.ConduitType.rigid
-          ? 'rigid'
-          : 'emt',
-      'clr': b.clr,
-      'deduct': b.deduct,
-      'gain': b.gain,
-    }).toList());
-
-    await prefs.setString('rack_custom_benders', encoded);
-  }
 
   void _finishSaveCustomBender() {
     final name = _customBenderName.trim();
@@ -675,10 +733,17 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     );
 
     setState(() {
+      // Centralized store handles overwrite logic
+      _customBenders.removeWhere((b) =>
+      b.brand == name &&
+          b.conduitSize == newBender.conduitSize &&
+          b.conduitType == newBender.conduitType
+      );
+
       _customBenders.add(newBender);
-      _saveCustomBendersToDevice(); // ADD THIS LINE HERE
+      bending_data.BenderStore.save(newBender);
       _updateBrandDropdown();
-      _selectedBrand = newBender.model;
+      _selectedBrand = newBender.brand;
 
       _isEditMode = false;
       _isNameEntryMode = false;
@@ -723,6 +788,9 @@ class _Kick90ScreenState extends State<Kick90Screen> {
 
     setState(() {
       _isEditMode = true;
+      _isNewBender = true;
+      _selectedBrand = null; // Ensure brand is null to show "Editing: [Name]" correctly
+      _customBenderName = ''; // Reset name so it says "Custom" when creating new
 
       travelCtrl.clear();
       takeUpCtrl.clear();
@@ -731,13 +799,15 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       radiusCtrl.clear();
     });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_showTravelField) {
-        _showKeypad(travelCtrl);
-      } else {
-        _showKeypad(takeUpCtrl);
-      }
-    });
+    if (_selectedPipeSize != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_showTravelField) {
+          _showKeypad(travelCtrl);
+        } else {
+          _showKeypad(takeUpCtrl);
+        }
+      });
+    }
   }
   void _cancelEditMode() {
     setState(() {
@@ -758,8 +828,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: kLight,
         centerTitle: true,
-        leadingWidth: 100,
-        // Balanced for Home + Back Arrow
+        leadingWidth: 160,
+        // Balanced for Home + Back Arrow + Reset
         leading: Row(
           children: [
             IconButton(
@@ -786,6 +856,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                 ),
               ),
               onPressed: () {
+                _hideKeypad();
                 if (_currentStep > 0) {
                   setState(() {
                     _currentStep -= 1;
@@ -800,23 +871,76 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                 }
               },
             ),
+            IconButton(
+              icon: const Icon(Icons.refresh, color: kLight),
+              onPressed: _startNewBend,
+            ),
           ],
         ),
-        title: const Text(
-          'Kick 90',
-          style: TextStyle(fontWeight: FontWeight.w700),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Kick 90',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => _showHelpDialog(context),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!_hasViewedInfo)
+                RotationTransition(
+                  turns: _infoAnimCtrl,
+                  child: AnimatedBuilder(
+                    animation: _infoAnimCtrl,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        shaderCallback: (rect) {
+                          return SweepGradient(
+                            colors: [
+                              kLight.withValues(alpha: 0.0),
+                              kLight.withValues(alpha: 0.2 +
+                                  (0.7 *
+                                      (0.5 +
+                                          0.5 *
+                                              math.sin(_infoAnimCtrl.value *
+                                                  2 *
+                                                  math.pi)))),
+                              kLight.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ).createShader(rect);
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: kLight, width: 2.0),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.info_outline, color: kLight),
+                onPressed: () {
+                  setState(() => _hasViewedInfo = true);
+                  _showHelpDialog(context);
+                },
+              ),
+            ],
           ),
           TextButton(
-            onPressed: () =>
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const CodeScreen(initialCategory: CodeCategory.raceways)),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CodeScreen(
+                  initialCategory: CodeCategory.raceways,
                 ),
+              ),
+            ),
             child: const Text(
               'NEC',
               style: TextStyle(
@@ -1158,27 +1282,6 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                   if (_isBenderSetupComplete || _isEditMode) ...[
                     const SizedBox(height: 10),
 
-                    if (!_isEditMode)
-                      _inlineField(
-                        'Bender Model',
-                        TextEditingController(
-                          text: bending_data.benderDatabase
-                              .firstWhereOrNull(
-                                (b) =>
-                            b.brand == _selectedBrand &&
-                                b.conduitSize == _selectedPipeSize &&
-                                b.conduitType == (
-                                    _selectedConduitType ==
-                                        BoxLayoutConduitType.emt ? bending_data
-                                        .ConduitType.emt :
-                                    bending_data.ConduitType.rigid
-                                ),
-                          )
-                              ?.model ?? 'Custom',
-                        ),
-                        onTap: null,
-                      ),
-
                     if (_showTravelField)
                       _inlineField('90° Travel', travelCtrl, suffix: '"'),
 
@@ -1188,7 +1291,6 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                     _inlineField('Gain90', gainCtrl,
                         onTap: _isEditMode ? () => _showKeypad(gainCtrl) : null,
                         suffix: '"'),
-                    _inlineField('Setback', setbackCtrl, suffix: '"'),
                     _inlineField('Radius / CLR', radiusCtrl, onTap: _isEditMode
                         ? () => _showKeypad(radiusCtrl) : null, suffix: '"'),
 
@@ -1312,6 +1414,9 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   }
 
   Widget _buildBendingMethodCard() {
+    final bool isMachineBender =
+        bending_data.mechanicalElectricBenderBrands.contains(_selectedBrand);
+
     return _buildGroupContainer(
       child: Column(
         children: [
@@ -1354,13 +1459,16 @@ class _Kick90ScreenState extends State<Kick90Screen> {
               children: [
                 Expanded(
                   child: _buildSilverButton(
-                    label: 'USE NOTCH',
+                    label: isMachineBender ? 'USE HOOK' : 'USE NOTCH',
                     height: 40,
-                    isActive: _bendingMethod ==
-                        bending_data.BendingMethod.notch,
+                    isActive: isMachineBender
+                        ? _bendingMethod == bending_data.BendingMethod.hook
+                        : _bendingMethod == bending_data.BendingMethod.notch,
                     onTap: () {
                       setState(() {
-                        _bendingMethod = bending_data.BendingMethod.notch;
+                        _bendingMethod = isMachineBender
+                            ? bending_data.BendingMethod.hook
+                            : bending_data.BendingMethod.notch;
                       });
                     },
                   ),
@@ -1448,8 +1556,26 @@ class _Kick90ScreenState extends State<Kick90Screen> {
               padding: const EdgeInsets.only(top: 6.0, bottom: 6.0),
               child: Column(
                 children: [
-
-
+                  if (_clearanceWarning != null)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3D2E00),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber, width: 1.5),
+                      ),
+                      child: Text(
+                        _clearanceWarning!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.amber,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   _resultRow('Mark A — Bend A', markAOut),
                   _resultRow('Mark B — Bend B', markBOut),
                   _resultRow('Mark C — Cut Length', markCOut),
@@ -1650,7 +1776,6 @@ class _Kick90ScreenState extends State<Kick90Screen> {
               onTap: _isEditMode ? () => _showKeypad(takeUpCtrl) : null, suffix: '"'),
           _inlineField('Gain90', gainCtrl,
               onTap: _isEditMode ? () => _showKeypad(gainCtrl) : null, suffix: '"'),
-          _inlineField('Setback', setbackCtrl, suffix: '"'),
           _inlineField('Radius / CLR', radiusCtrl,
               onTap: _isEditMode ? () => _showKeypad(radiusCtrl) : null, suffix: '"'),
           const SizedBox(height: 12),
@@ -1729,83 +1854,60 @@ class _Kick90ScreenState extends State<Kick90Screen> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withAlpha(220),
-      builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF151515),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: const Color(0xFFC8C8C8),
-                width: 1.6,
-              ),
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              children: _allBrands.map((brandData) {
-                final type = brandData['type']!;
-                final name = brandData['name']!;
+      builder: (context) => BenderPickerDialog(
+        allBrands: _allBrands,
+        selectedBrand: _selectedBrand,
+        onSelected: (name) {
+          final custom = _customBenders.firstWhereOrNull((b) => b.brand == name);
+          setState(() {
+            _selectedBrand = name;
+            if (custom != null) {
+              _selectedPipeSize = custom.conduitSize;
+              _selectedConduitType = custom.conduitType == bending_data.ConduitType.emt
+                  ? BoxLayoutConduitType.emt
+                  : BoxLayoutConduitType.grc;
+            }
+          });
+          _updateBenderData();
+        },
+        onDelete: (name) {
+          setState(() {
+            _customBenders.removeWhere((b) => b.brand == name);
+            bending_data.BenderStore.delete(name);
+            _updateBrandDropdown();
+            if (_selectedBrand == name) {
+              _selectedBrand = null;
+              _updateBenderData();
+            }
+          });
+        },
+        onEdit: (name) {
+          final bender = _customBenders.firstWhereOrNull((b) => b.brand == name);
+          if (bender != null) {
+            setState(() {
+              _isEditMode = true;
+              _isNewBender = false;
+              _selectedBrand = null; // Clear selection to show fields
+              _selectedPipeSize = bender.conduitSize;
+              _selectedConduitType = bender.conduitType == bending_data.ConduitType.emt
+                  ? BoxLayoutConduitType.emt
+                  : BoxLayoutConduitType.grc;
 
-                if (type == 'header') {
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            color: kLight,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Container(
-                          height: 1,
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ),
-                  );
-                }
+              takeUpCtrl.text = fmtInches(bender.deduct, addInchMark: false);
+              gainCtrl.text = fmtInches(bender.gain, addInchMark: false);
+              radiusCtrl.text = fmtInches(bender.clr, addInchMark: false);
+              
+              // Force Setback calculation immediately
+              final setback = bender.deduct - bender.gain;
+              setbackCtrl.text = fmtInches(setback, addInchMark: false);
 
-                final bool selected = name == _selectedBrand;
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: _BeveledButton(
-                    active: selected,
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      setState(() => _selectedBrand = name);
-                      _updateBenderData();
-                    },
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 14),
-                        child: Text(
-                          name,
-                          style: const TextStyle(
-                            color: kLight,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        );
-      },
+              _customBenderName = bender.brand;
+            });
+            // Focus on takeup to start editing
+            _showKeypad(takeUpCtrl);
+          }
+        },
+      ),
     );
   }
 
@@ -1827,9 +1929,13 @@ class _Kick90ScreenState extends State<Kick90Screen> {
           children: [
             Expanded(
               child: Text(
-                _selectedBrand ?? 'Select Bender Brand',
+                _isEditMode
+                    ? (_isNewBender ? 'Custom' : 'Editing: $_customBenderName')
+                    : (_selectedBrand ?? 'Select Bender Brand'),
                 style: TextStyle(
-                  color: _selectedBrand == null ? Colors.white70 : kLight,
+                  color: (_selectedBrand == null && !_isEditMode)
+                      ? Colors.white70
+                      : kLight,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1843,6 +1949,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
   }
 
   Widget _buildPipeSizeSelector() {
+    final bool needsPipeSize = (_selectedBrand != null || _isEditMode) && _selectedPipeSize == null;
+
     return Theme(
       data: Theme.of(context).copyWith(
         hoverColor: Colors.transparent,
@@ -1859,6 +1967,9 @@ class _Kick90ScreenState extends State<Kick90Screen> {
         onSelected: (newValue) {
           setState(() => _selectedPipeSize = newValue);
           _updateBenderData();
+          if (_isEditMode) {
+            _showKeypad(takeUpCtrl);
+          }
         },
         itemBuilder: (context) {
           return _getFilteredPipeSizes().keys.map((String value) {
@@ -1897,8 +2008,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
             color: const Color(0xFF111111),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: const Color(0xFFC0C0C0), // Changed to stay silver
-              width: 1.2,
+              color: needsPipeSize ? kGreen : const Color(0xFFC0C0C0),
+              width: needsPipeSize ? 2.0 : 1.2,
             ),
           ),
           child: Row(
@@ -1915,8 +2026,8 @@ class _Kick90ScreenState extends State<Kick90Screen> {
                   ),
                 ),
               ),
-              const Icon(
-                  Icons.arrow_drop_down, color: Colors.white54, size: 28),
+              Icon(
+                  Icons.arrow_drop_down, color: needsPipeSize ? kGreen : Colors.white54, size: 28),
             ],
           ),
         ),
@@ -1929,6 +2040,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
@@ -1941,44 +2053,57 @@ class _Kick90ScreenState extends State<Kick90Screen> {
             fontSize: 22,
           ),
         ),
-        content: const SingleChildScrollView(
-          child: ListBody(
-            children: [
-              Text(
-                'Lay out your cut mark and bend marks in one pull of the tape measure.',
-                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Use Notch:',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Pipe & Wire automatically translates center-of-bend measurements of any angle to the notch on your bender.',
-                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Use Centerline:',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Choose this if your bender already has center-of-bend markings for the selected angle.',
-                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Parallel:',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
-              ),
-              SizedBox(height: 4),
-              Text(
-                'Sends your results into Rack Builder so you can build multiple parallel kicks and keep them aligned.',
-                style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
-              ),
-            ],
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: const SingleChildScrollView(
+            child: ListBody(
+              children: [
+                Text(
+                  'Lay out your cut mark and bend marks in one pull of the tape measure.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Use Notch:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Standard for hand benders. Pipe & Wire translates center-of-bend measurements to the 45° notch / teardrop.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Use Hook:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Standard for machine benders. Pipe & Wire translates center-of-bend measurements to the front edge of the hook.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Use Centerline:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Choose this if you have marked your own center-of-bend lines on the shoe.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Parallel:',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Sends your results into Rack Builder so you can build multiple parallel kicks and keep them aligned.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -2006,13 +2131,19 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       'Kick 90 complete. Marks are measured from one end before bending.\n '
           'Tap Parallel to send results to Rack Builder for aligned runs.';
     } else if (_showBendingMethodCard && _bendingMethodCardExpanded) {
-      message =
-      'USE NOTCH:\n'
-          'Pipe & Wire automatically translates center-of-bend measurements '
-          'of any angle to the notch on your bender.\n\n'
-          'USE CENTERLINE:\n'
-          'Choose this if your bender already has center-of-bend markings '
-          'for the selected angle.';
+      final bool isMachineBender =
+          bending_data.mechanicalElectricBenderBrands.contains(_selectedBrand);
+      if (isMachineBender) {
+        message = 'USE HOOK:\n'
+            'Translates center-of-bend measurements to the front edge of the bender hook.\n\n'
+            'USE CENTERLINE:\n'
+            'Choose this if you have marked your own center-of-bend lines on the shoe.';
+      } else {
+        message = 'USE NOTCH:\n'
+            'Translates center-of-bend measurements to the 45° notch / teardrop on your hand bender.\n\n'
+            'USE CENTERLINE:\n'
+            'Choose this if your bender already has center-of-bend markings.';
+      }
     } else if (_isBenderExpanded) {
       message =
       'Select your bender, conduit type, and pipe size.\nYou can also create and save your own custom bender.';
@@ -2176,7 +2307,7 @@ class _Kick90ScreenState extends State<Kick90Screen> {
       ),
     );
   }
-}
+} // END of _Kick90ScreenState
 
 class _StarterResultGraphic extends StatelessWidget {
   static const double _resultPipeBottomOffset = 15.0;

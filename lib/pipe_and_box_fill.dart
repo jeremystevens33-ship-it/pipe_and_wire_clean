@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
-import 'dart:math';
+import 'dart:math' as math;
 import 'dart:async'; // Added for Timer
 import 'package:pipe_and_wire_clean/keypad_volt_drop.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +10,7 @@ import 'package:pipe_and_wire_clean/code_sections/ampacity_derating_code_screen.
 import 'package:pipe_and_wire_clean/code_sections/box_fill_basics_code_screen.dart';
 import 'package:pipe_and_wire_clean/code_sections/conduit_fill_code_screen.dart';
 import 'package:pipe_and_wire_clean/code_sections/voltage_drop_code_screen.dart';
+import 'package:pipe_and_wire_clean/wire_data.dart';
 import 'main_menu_screen.dart';
 
 void main() {
@@ -53,417 +54,6 @@ enum EntrySide {
 } // NEW: For Junction Box Sizing
 
 enum VoltDropField { none, length, voltage, load }
-
-// --- DATA MODELS & DATABASE ---
-class ConduitDB {
-  // Conductor volume allowances from NEC Table 314.16(B) in cubic inches.
-  // Note: Table 314.16(B) stops at #6 AWG (5.00 in³). For #4 AWG and larger, 
-  // the NEC typically transitions to physical sizing rules (NEC 314.28) 
-  // based on conduit dimensions rather than per-conductor volume allowances.
-  static const Map<String, double> wireVolumes = {
-    "18 AWG": 1.50,
-    "16 AWG": 1.75,
-    "14 AWG": 2.00,
-    "12 AWG": 2.25,
-    "10 AWG": 2.50,
-    "8 AWG": 3.00,
-    "6 AWG": 5.00,
-    "4 AWG": 6.00, // Estimated (Refer to 314.28 for dimensional sizing)
-    "3 AWG": 6.50, // Estimated
-    "2 AWG": 7.00, // Estimated
-    "1 AWG": 7.50, // Estimated
-    "1/0 AWG": 8.00, // Estimated
-    "2/0 AWG": 9.00, // Estimated
-    "3/0 AWG": 10.0, // Estimated
-    "4/0 AWG": 12.0, // Estimated
-    "250 KCMIL": 14.0, // Estimated
-    "300 KCMIL": 16.0, // Estimated
-    "350 KCMIL": 18.0, // Estimated
-    "400 KCMIL": 20.0, // Estimated
-    "500 KCMIL": 22.0, // Estimated
-  };
-
-  // Standard box volumes in cubic inches from NEC Table 314.16(A)
-  static const Map<String, double> boxVolumes = {
-    "4o Shallow": 12.5,
-    "4o": 15.5,
-    "4o Deep": 21.5,
-    "4s Shallow": 18.0,
-    "4s": 21.0,
-    "4s Deep": 30.3,
-    "5s Shallow": 25.5,
-    "5s": 29.5,
-    "5s Deep": 42.0,
-    "Device 3x2x1.5": 7.5,
-    "Device 3x2x2": 10.0,
-    "Device 3x2x2.25": 10.5,
-    "Device 3x2x2.5": 12.5,
-    "Device 3x2x2.75": 14.0,
-    "Device 3x2x3.5": 18.0,
-    "Device 4x2.125x1.5": 10.3,
-    "Device 4x2.125x1.875": 13.0,
-    "Device 4x2.125x2.125": 14.5,
-    "Masonry 3.75x2x2.5": 14.0,
-    "Masonry 3.75x2x3.5": 21.0,
-    "FS Single Gang": 13.5,
-    "FD Single Gang": 18.0,
-    "FS Multi Gang": 18.0,
-    "FD Multi Gang": 24.0,
-    "6x6x4": 144.0,
-    "8x8x4": 256.0,
-    "10x10x4": 400.0,
-    "12x12x4": 576.0,
-    "12x12x6": 864.0,
-  };
-
-  // --- REORDERED POPULAR BOX SIZES ---
-  // (Order changed as per user request: 4s, 4s Deep, 5s, 5s Deep, 4o, 4o Deep, then larger general purpose)
-  static const List<String> popularBoxSizes = [
-    "4s", "4s Deep", "5s", "5s Deep", "4o", "4o Deep",
-    "6x6x4", "8x8x4", "10x10x4", "12x12x4",
-  ];
-
-  static const Map<String, double> mudRingVolumes = {
-    "Flat": 0.0,
-    "1/4\"": 2.5,
-    "1/2\"": 5.0,
-    "5/8\"": 5.5,
-    "3/4\"": 6.0,
-    "1\"": 7.5,
-  };
-
-  // NEW: Extension Ring Volumes with accurate data
-  static const Map<String, double> extensionRingVolumes = {
-    // 4S Extension Rings (for 4-inch square boxes)
-    "4S 1-1/2 inch": 21.0,
-    "4S 2-1/8 inch": 30.3,
-    "4S 2-1/2 inch": 34.0,
-    // 5S Extension Rings (for 4-11/16 inch square boxes)
-    "5S 1-1/2 inch": 30.3,
-    "5S 2-1/8 inch": 42.0,
-    "5S 2-1/2 inch": 49.5,
-  };
-
-  static const Map<String, Map<String, int>> copperAmpacities = {
-    "18 AWG": {"60C": 7, "75C": 7, "90C": 14}, // Cap at 7A per 240.4(D)
-    "16 AWG": {"60C": 10, "75C": 10, "90C": 18}, // Cap at 10A per 240.4(D)
-    "14 AWG": {"60C": 15, "75C": 20, "90C": 25},
-    "12 AWG": {"60C": 20, "75C": 25, "90C": 30},
-    "10 AWG": {"60C": 30, "75C": 35, "90C": 40},
-    "8 AWG": {"60C": 40, "75C": 50, "90C": 55},
-    "6 AWG": {"60C": 55, "75C": 65, "90C": 75},
-    "4 AWG": {"60C": 70, "75C": 85, "90C": 95},
-    "3 AWG": {"60C": 85, "75C": 100, "90C": 115},
-    "2 AWG": {"60C": 95, "75C": 115, "90C": 130},
-    "1 AWG": {"60C": 110, "75C": 130, "90C": 145},
-    "1/0 AWG": {"60C": 125, "75C": 150, "90C": 170},
-    "2/0 AWG": {"60C": 145, "75C": 175, "90C": 195},
-    "3/0 AWG": {"60C": 165, "75C": 200, "90C": 225},
-    "4/0 AWG": {"60C": 195, "75C": 230, "90C": 260},
-    "250 KCMIL": {"60C": 215, "75C": 255, "90C": 290},
-    "300 KCMIL": {"60C": 240, "75C": 285, "90C": 320},
-    "350 KCMIL": {"60C": 260, "75C": 310, "90C": 350},
-    "400 KCMIL": {"60C": 280, "75C": 335, "90C": 380},
-    "500 KCMIL": {"60C": 320, "75C": 380, "90C": 430},
-  };
-
-  // NEW: Aluminum Ampacities
-  static const Map<String, Map<String, int>> aluminumAmpacities = {
-
-    "14 AWG": {"60C": 15, "75C": 15, "90C": 20},
-    "12 AWG": {"60C": 20, "75C": 20, "90C": 25},
-    "10 AWG": {"60C": 25, "75C": 30, "90C": 35},
-    "8 AWG": {"60C": 30, "75C": 40, "90C": 45},
-    "6 AWG": {"60C": 40, "75C": 50, "90C": 60},
-    "4 AWG": {"60C": 55, "75C": 65, "90C": 75},
-    "3 AWG": {"60C": 65, "75C": 75, "90C": 85},
-    "2 AWG": {"60C": 75, "75C": 90, "90C": 100},
-    "1 AWG": {"60C": 85, "75C": 100, "90C": 115},
-    "1/0 AWG": {"60C": 100, "75C": 120, "90C": 135},
-    "2/0 AWG": {"60C": 115, "75C": 135, "90C": 155},
-    "3/0 AWG": {"60C": 130, "75C": 155, "90C": 175},
-    "4/0 AWG": {"60C": 150, "75C": 180, "90C": 205},
-    "250 KCMIL": {"60C": 170, "75C": 205, "90C": 230},
-    "300 KCMIL": {"60C": 190, "75C": 225, "90C": 255},
-    "350 KCMIL": {"60C": 205, "75C": 245, "90C": 280},
-    "400 KCMIL": {"60C": 220, "75C": 260, "90C": 300},
-    "500 KCMIL": {"60C": 255, "75C": 305, "90C": 345},
-  };
-
-
-  static const Map<String, Map<String, double>> wireAreas = {
-    "18 AWG": {
-      "THHN": 0.0059,
-      "THWN-2": 0.0059,
-      "TFN": 0.0059,
-      "TFFN": 0.0059,
-    },
-    "16 AWG": {
-      "THHN": 0.0082,
-      "THWN-2": 0.0082,
-      "TFN": 0.0082,
-      "TFFN": 0.0082,
-    },
-    "14 AWG": {
-      "THHN": 0.0097,
-      "THWN-2": 0.0097,
-      "THW": 0.0139,
-      "USE-2": 0.0139,
-      "XHHW-2": 0.0139,
-      "RHH/RHW-2": 0.0139
-    },
-    "12 AWG": {
-      "THHN": 0.0133,
-      "THWN-2": 0.0133,
-      "THW": 0.0181,
-      "USE-2": 0.0181,
-      "XHHW-2": 0.0181,
-      "RHH/RHW-2": 0.0181
-    },
-    "10 AWG": {
-      "THHN": 0.0211,
-      "THWN-2": 0.0211,
-      "THW": 0.0278,
-      "USE-2": 0.0278,
-      "XHHW-2": 0.0278,
-      "RHH/RHW-2": 0.0278
-    },
-    "8 AWG": {
-      "THHN": 0.0366,
-      "THWN-2": 0.0366,
-      "THW": 0.0437,
-      "USE-2": 0.0437,
-      "XHHW-2": 0.0437,
-      "RHH/RHW-2": 0.0437
-    },
-    "6 AWG": {
-      "THHN": 0.0507,
-      "THWN-2": 0.0507,
-      "THW": 0.0590,
-      "USE-2": 0.0590,
-      "XHHW-2": 0.0590,
-      "RHH/RHW-2": 0.0590
-    },
-    "4 AWG": {
-      "THHN": 0.0824,
-      "THWN-2": 0.0824,
-      "THW": 0.0955,
-      "USE-2": 0.0955,
-      "XHHW-2": 0.0955,
-      "RHH/RHW-2": 0.0955
-    },
-    "3 AWG": {
-      "THHN": 0.0973,
-      "THWN-2": 0.0973,
-      "THW": 0.1112,
-      "USE-2": 0.1112,
-      "XHHW-2": 0.1112,
-      "RHH/RHW-2": 0.1112
-    },
-    "2 AWG": {
-      "THHN": 0.1158,
-      "THWN-2": 0.1158,
-      "THW": 0.1332,
-      "USE-2": 0.1332,
-      "XHHW-2": 0.1332,
-      "RHH/RHW-2": 0.1332
-    },
-    "1 AWG": {
-      "THHN": 0.1562,
-      "THWN-2": 0.1562,
-      "THW": 0.1771,
-      "USE-2": 0.1771,
-      "XHHW-2": 0.1771,
-      "RHH/RHW-2": 0.1771
-    },
-    "1/0 AWG": {
-      "THHN": 0.1986,
-      "THWN-2": 0.1986,
-      "THW": 0.2241,
-      "USE-2": 0.2241,
-      "XHHW-2": 0.2241,
-      "RHH/RHW-2": 0.2241
-    },
-    "2/0 AWG": {
-      "THHN": 0.2371,
-      "THWN-2": 0.2371,
-      "THW": 0.2678,
-      "USE-2": 0.2678,
-      "XHHW-2": 0.2678,
-      "RHH/RHW-2": 0.2678
-    },
-    "3/0 AWG": {
-      "THHN": 0.2858,
-      "THWN-2": 0.2858,
-      "THW": 0.3230,
-      "USE-2": 0.3230,
-      "XHHW-2": 0.3230,
-      "RHH/RHW-2": 0.3230
-    },
-    "4/0 AWG": {
-      "THHN": 0.3424,
-      "THWN-2": 0.3424,
-      "THW": 0.3868,
-      "USE-2": 0.3868,
-      "XHHW-2": 0.3868,
-      "RHH/RHW-2": 0.3868
-    },
-    "250 KCMIL": {
-      "THHN": 0.4079,
-      "THWN-2": 0.4079,
-      "THW": 0.4608,
-      "USE-2": 0.4608,
-      "XHHW-2": 0.4608,
-      "RHH/RHW-2": 0.4608
-    },
-    "300 KCMIL": {
-      "THHN": 0.4674,
-      "THWN-2": 0.4674,
-      "THW": 0.5284,
-      "USE-2": 0.5284,
-      "XHHW-2": 0.5284,
-      "RHH/RHW-2": 0.5284
-    },
-    "350 KCMIL": {
-      "THHN": 0.5303,
-      "THWN-2": 0.5303,
-      "THW": 0.5992,
-      "USE-2": 0.5992,
-      "XHHW-2": 0.5992,
-      "RHH/RHW-2": 0.5992
-    },
-    "400 KCMIL": {
-      "THHN": 0.5932,
-      "THWN-2": 0.5932,
-      "THW": 0.6700,
-      "USE-2": 0.6700,
-      "XHHW-2": 0.6700,
-      "RHH/RHW-2": 0.6700
-    },
-    "500 KCMIL": {
-      "THHN": 0.7289,
-      "THWN-2": 0.7289,
-      "THW": 0.8236,
-      "USE-2": 0.8236,
-      "RHH/RHW-2": 0.8236
-    }
-  };
-
-  static const double copperK = 12.9;
-  static const double aluminumK = 21.2;
-
-  static const Map<String, int> wireCMA = {
-    "18 AWG": 1620,
-    "16 AWG": 2580,
-    "14 AWG": 4110,
-    "12 AWG": 6530,
-    "10 AWG": 10380,
-    "8 AWG": 16510,
-    "6 AWG": 26240,
-    "4 AWG": 41740,
-    "3 AWG": 52620,
-    "2 AWG": 66360,
-    "1 AWG": 83690,
-    "1/0 AWG": 105600,
-    "2/0 AWG": 133100,
-    "3/0 AWG": 167800,
-    "4/0 AWG": 211600,
-    "250 KCMIL": 250000,
-    "300 KCMIL": 300000,
-    "350 KCMIL": 350000,
-    "400 KCMIL": 400000,
-    "500 KCMIL": 500000,
-  };
-
-  // Total Internal Area of Conduit (100% Fill) from NEC Chapter 9, Table 4
-  static const Map<String, double> emtTotalArea = {
-    "1/2": 0.304,
-    "3/4": 0.533,
-    "1": 0.864,
-    "1-1/4": 1.496,
-    "1-1/2": 2.036,
-    "2": 3.356,
-    "2-1/2": 4.788,
-    "3": 7.313,
-    "3-1/2": 9.728,
-    "4": 12.513,
-  };
-
-  static const Map<String, double> rmcTotalArea = {
-    "1/2": 0.314,
-    "3/4": 0.556,
-    "1": 0.897,
-    "1-1/4": 1.557,
-    "1-1/2": 2.114,
-    "2": 3.459,
-    "2-1/2": 4.953,
-    "3": 7.601,
-    "3-1/2": 10.08,
-    "4": 12.93,
-  };
-
-  static const Map<String, double> tradeSizesInches = {
-    "1/2": 0.5, "3/4": 0.75, "1": 1.0, "1-1/4": 1.25, "1-1/2": 1.5, "2": 2.0,
-    "2-1/2": 2.5, "3": 3.0, "3-1/2": 3.5, "4": 4.0,
-  };
-
-  static const Map<String, Map<String, double>> temperatureCorrectionFactors = {
-    "75C": { // Keeping 75C as is, or you could update this too if needed.
-      "70-77": 1.04, "78-86": 1.00, "87-95": 0.96, "96-104": 0.91,
-      "105-113": 0.87, "114-122": 0.82, "123-131": 0.76, "132-140": 0.71,
-    },
-    "90C": { // <--- UPDATED 90C FACTORS ---
-      "50°F or less": 1.15,
-      "51-59°F": 1.12,
-      "60-68°F": 1.08,
-      "69-77°F": 1.04, // Updated range to align with user's lower bound
-      "78-86°F": 1.00,
-      "87-95°F": 0.96,
-      "96-104°F": 0.91,
-      "105-113°F": 0.87,
-      "114-122°F": 0.82,
-      "123-131°F": 0.76,
-      "132-140°F": 0.71,
-    }
-  };
-
-  static const Map<String, double> wireResistance = {
-
-    "14 AWG": 3.07,
-    "12 AWG": 1.93,
-    "10 AWG": 1.21,
-    "8 AWG": 0.778,
-    "6 AWG": 0.491,
-    "4 AWG": 0.308,
-    "3 AWG": 0.245,
-    "2 AWG": 0.194,
-    "1 AWG": 0.154,
-  };
-
-  static const List<int> standardBreakerSizes = [
-    15,
-    20,
-    25,
-    30,
-    40,
-    45,
-    50,
-    60,
-    70,
-    80,
-    90,
-    100,
-    110,
-    125,
-    150,
-    175,
-    200
-  ];
-
-  static const Map<int, String> groundWireSizes = {
-    15: "14 AWG", 20: "12 AWG", 60: "10 AWG", 100: "8 AWG", 200: "6 AWG",
-  };
-}
 
 class Wire {
   final String id = UniqueKey().toString();
@@ -564,7 +154,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
       ..repeat();
     _glowAnimationController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 3000))
-      ..repeat(reverse: true);
+      ..repeat();
     
     _infoBarAnimationController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200)); // Slowed down for noticeable slide
@@ -1062,7 +652,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
     final int capAmps75 = currentSelectedWireSize != null
         ? (ampacitiesMapForCap[currentSelectedWireSize]?["75C"] ?? 0)
         : 0;
-    final double finalAmps = min(newAmpacity, capAmps75.toDouble());
+    final double finalAmps = math.min(newAmpacity, capAmps75.toDouble());
 
     int overcurrentLimit = 1000; // A high default
     if (currentSelectedWireSize != null) {
@@ -1090,7 +680,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
 
     int finalBreakerSize = ConduitDB.standardBreakerSizes.lastWhere((s) =>
     s <= finalAmps, orElse: () => 0);
-    finalBreakerSize = min(overcurrentLimit, finalBreakerSize);
+    finalBreakerSize = math.min(overcurrentLimit, finalBreakerSize);
 
     // --- VOLTAGE DROP CALCULATIONS ---
     double voltageDrop = 0.0;
@@ -2130,21 +1720,39 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
               alignment: Alignment.center,
               children: [
                 if (!_hasViewedInfo)
-                  AnimatedBuilder(
-                    animation: _glowAnimationController,
-                    builder: (context, child) {
-                      return Container(
-                        width: 30,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withOpacity(0.2 + (0.7 * _glowAnimationController.value)),
-                            width: 1.2,
+                  RotationTransition(
+                    turns: _glowAnimationController,
+                    child: AnimatedBuilder(
+                      animation: _glowAnimationController,
+                      builder: (context, child) {
+                        return ShaderMask(
+                          shaderCallback: (rect) {
+                            return SweepGradient(
+                              colors: [
+                                kLight.withValues(alpha: 0.0),
+                                kLight.withValues(alpha: 0.2 +
+                                    (0.7 *
+                                        (0.5 +
+                                            0.5 *
+                                                math.sin(_glowAnimationController.value *
+                                                    2 *
+                                                    math.pi)))),
+                                kLight.withValues(alpha: 0.0),
+                              ],
+                              stops: const [0.0, 0.5, 1.0],
+                            ).createShader(rect);
+                          },
+                          child: Container(
+                            width: 30,
+                            height: 30,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(color: kLight, width: 2.0),
+                            ),
                           ),
-                        ),
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 IconButton(
                   icon: const Icon(Icons.info_outline),
@@ -2177,10 +1785,10 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
           clockwise: false,
           // You can change this to 'true' if you want it to rotate clockwise
           sweepColors: [
-            kRed.withOpacity(0.5), // Start with red
-            kLight.withOpacity(0.8), // Transition to white
-            kSilver.withOpacity(0.7), // Transition to silver
-            kRed.withOpacity(0.5), // Fade back to red to complete the loop
+            kRed.withValues(alpha: 0.5), // Start with red
+            kLight.withValues(alpha: 0.8), // Transition to white
+            kSilver.withValues(alpha: 0.7), // Transition to silver
+            kRed.withValues(alpha: 0.5), // Fade back to red to complete the loop
           ],
           sweepStops: const [0.0, 0.33, 0.66, 1.0],
           child: Container(
@@ -2658,7 +2266,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
         // During Hero reverse-flight, constraints can temporarily be smaller than 170.
         final maxW = constraints.hasBoundedWidth ? constraints.maxWidth : 170.0;
         final maxH = constraints.hasBoundedHeight ? constraints.maxHeight : 170.0;
-        final dim = min(170.0, min(maxW, maxH));
+        final dim = math.min(170.0, math.min(maxW, maxH));
 
         return SizedBox(
           width: dim,
@@ -2966,8 +2574,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
             ),
             const SizedBox(height: 4),
             Text(
-              "${voltageDrop.toStringAsFixed(1)}V (${voltageDropPercent
-                  .toStringAsFixed(1)}%)",
+              "${voltageDrop.toStringAsFixed(1)}V (${voltageDropPercent.toStringAsFixed(1)}%)",
               style: TextStyle(
                 color: isVoltageDropViolation ? kRed : Colors.green,
                 fontSize: 18,
@@ -3165,7 +2772,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
 
     _glowAnimationController = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 3000))
-      ..repeat(reverse: true);
+      ..repeat();
 
     _localActivePipeIndex = widget.activePipeIndex;
     _updateSelectedWireSummary();
@@ -3498,7 +3105,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
             tempCorrectionFactor;
 
         final capAmps75 = ampacitiesMap[firstWire.size]?["75C"] ?? 0;
-        final finalAmps = min(newAmpacity, capAmps75.toDouble());
+        final finalAmps = math.min(newAmpacity, capAmps75.toDouble());
 
         int overcurrentLimit = 1000;
         if (firstWire.size == "18 AWG") {
@@ -3516,7 +3123,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
           orElse: () => 0,
         );
 
-        finalBreakerSize = min(overcurrentLimit, finalBreakerSize);
+        finalBreakerSize = math.min(overcurrentLimit, finalBreakerSize);
       }
 
       deratingSummary[key] = {
@@ -3586,7 +3193,7 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.2 + (0.7 * _glowAnimationController.value)),
+                            color: Colors.white.withValues(alpha: 0.2 + (0.7 * _glowAnimationController.value)),
                             width: 1.2,
                           ),
                         ),
@@ -4430,18 +4037,18 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
         [];
 
     if (leftWallConduits.isNotEmpty) {
-      double largestLeft = leftWallConduits.reduce(max);
+      double largestLeft = leftWallConduits.reduce(math.max);
       double sumOthersLeft = leftWallConduits.fold(
           0.0, (sum, val) => sum + val) - largestLeft;
       maxLeftRightDimension =
-          max(maxLeftRightDimension, (largestLeft * 6) + sumOthersLeft);
+          math.max(maxLeftRightDimension, (largestLeft * 6) + sumOthersLeft);
     }
     if (rightWallConduits.isNotEmpty) {
-      double largestRight = rightWallConduits.reduce(max);
+      double largestRight = rightWallConduits.reduce(math.max);
       double sumOthersRight = rightWallConduits.fold(
           0.0, (sum, val) => sum + val) - largestRight;
       maxLeftRightDimension =
-          max(maxLeftRightDimension, (largestRight * 6) + sumOthersRight);
+          math.max(maxLeftRightDimension, (largestRight * 6) + sumOthersRight);
     }
     double minAngleLength = maxLeftRightDimension; // Initialize minAngleLength
 
@@ -4452,18 +4059,18 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
         .bottom] ?? [];
 
     if (topWallConduits.isNotEmpty) {
-      double largestTop = topWallConduits.reduce(max);
+      double largestTop = topWallConduits.reduce(math.max);
       double sumOthersTop = topWallConduits.fold(0.0, (sum, val) => sum + val) -
           largestTop;
       maxTopBottomDimension =
-          max(maxTopBottomDimension, (largestTop * 6) + sumOthersTop);
+          math.max(maxTopBottomDimension, (largestTop * 6) + sumOthersTop);
     }
     if (bottomWallConduits.isNotEmpty) {
-      double largestBottom = bottomWallConduits.reduce(max);
+      double largestBottom = bottomWallConduits.reduce(math.max);
       double sumOthersBottom = bottomWallConduits.fold(
           0.0, (sum, val) => sum + val) - largestBottom;
       maxTopBottomDimension =
-          max(maxTopBottomDimension, (largestBottom * 6) + sumOthersBottom);
+          math.max(maxTopBottomDimension, (largestBottom * 6) + sumOthersBottom);
     }
     double minAngleWidth = maxTopBottomDimension; // Initialize minAngleWidth
 
@@ -4472,14 +4079,14 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
     List<double> backWallConduits = anglePullConduitsByWall[EntrySide.back] ??
         [];
     if (backWallConduits.isNotEmpty) {
-      largestBackWallAngleConduit = backWallConduits.reduce(max);
+      largestBackWallAngleConduit = backWallConduits.reduce(math.max);
     }
 
     // If there's a largest angle pull conduit from the back, it requires 6x its size
     // in both the length and width dimensions to accommodate the turn.
     if (largestBackWallAngleConduit > 0) {
-      minAngleLength = max(minAngleLength, largestBackWallAngleConduit * 6);
-      minAngleWidth = max(minAngleWidth, largestBackWallAngleConduit * 6);
+      minAngleLength = math.max(minAngleLength, largestBackWallAngleConduit * 6);
+      minAngleWidth = math.max(minAngleWidth, largestBackWallAngleConduit * 6);
     }
 
     // NEW: Calculate the 6x distance requirement between entries enclosing same conductor
@@ -4487,7 +4094,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
     double largestAngleTradeSize = 0.0;
     for (final list in anglePullConduitsByWall.values) {
       if (list.isNotEmpty) {
-        double wallMax = list.reduce(max);
+        double wallMax = list.reduce(math.max);
         if (wallMax > largestAngleTradeSize) largestAngleTradeSize = wallMax;
       }
     }
@@ -4565,7 +4172,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
 
     // Calculate conductor volume: only "spliced/device" wires contribute 1 allowance.
     // "Pull-through" wires (up to the total non-ground wires) contribute 0 allowances.
-    final int effectivePullThroughCount = min(
+    final int effectivePullThroughCount = math.min(
         _pullThroughWireCountLocal, totalNonGroundWires); // Use local state
     final int splicedWiresCount = totalNonGroundWires -
         effectivePullThroughCount;
@@ -5761,7 +5368,7 @@ class PulsingGlowBorder extends StatelessWidget {
       animation: animationController,
       builder: (context, _) {
         final rotation = (clockwise ? 1.0 : -1.0) * animationController.value *
-            2 * pi;
+            2 * math.pi;
 
         // ✅ DEFAULT is back to simple start/end/start (NO yellow unless you pass it)
         final List<Color> colors = sweepColors ??
@@ -5776,7 +5383,7 @@ class PulsingGlowBorder extends StatelessWidget {
 
         final double pulse = isPulsing
             ? (0.55 +
-            0.45 * (0.5 + 0.5 * sin(animationController.value * 2 * pi)))
+            0.45 * (0.5 + 0.5 * math.sin(animationController.value * 2 * math.pi)))
             : 0.65;
 
         return Container(

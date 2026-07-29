@@ -155,8 +155,8 @@ final List<Bender> benderDatabase = [
   const Bender(brand: 'Ideal', model: '74-032', conduitSize: '0.5', conduitType: ConduitType.rigid, clr: 5.203125, deduct: 6.0, gain: 3.073),
   const Bender(brand: 'Ideal', model: '74-033', conduitSize: '1.0', conduitType: ConduitType.emt, clr: 7.0, deduct: 8.0, gain: 4.167),
   const Bender(brand: 'Ideal', model: '74-033', conduitSize: '0.75', conduitType: ConduitType.rigid, clr: 7.0, deduct: 8.0, gain: 4.054),
-  const Bender(brand: 'Ideal', model: '74-036', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.75, deduct: 11.0, gain: 5.694),
-  const Bender(brand: 'Ideal', model: '74-036', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 9.75, deduct: 11.0, gain: 5.499),
+  const Bender(brand: 'Ideal', model: '74-066', conduitSize: '1.25', conduitType: ConduitType.emt, clr: 9.75, deduct: 11.0, gain: 5.694),
+  const Bender(brand: 'Ideal', model: '74-066', conduitSize: '1.0', conduitType: ConduitType.rigid, clr: 9.75, deduct: 11.0, gain: 5.499),
 
   // Klein (Hand)
   const Bender(brand: 'Klein (Iron)', model: '56208', conduitSize: '0.5', conduitType: ConduitType.emt, clr: 4.3125, deduct: 5.0, gain: 2.557),
@@ -914,8 +914,8 @@ class Kick90SameAnglePlaneChangeResult {
   final double markB;
   final double markC;
 }
-
-Kick90SameAnglePlaneChangeResult calculateKick90SameAnglePlaneChange({
+Kick90SameAnglePlaneChangeResult
+calculateKick90SameAnglePlaneChange({
   required int pipeIndex,
   required double baseStub,
   required double baseKickHeight,
@@ -925,30 +925,49 @@ Kick90SameAnglePlaneChangeResult calculateKick90SameAnglePlaneChange({
   required double takeUp,
   required double gain90,
   required double pipeOD,
+  required double clr,
+  required BendingMethod method,
+  bool reverse = false,
 }) {
-  final pipeStub = baseStub + spacingOffset;
-  final pipeKickHeight = baseKickHeight + spacingOffset;
+  final double pipeStub = baseStub + spacingOffset;
+  final double pipeKickHeight = baseKickHeight + spacingOffset;
 
-  final distanceBetweenBends = calculateKickDistanceBetweenBends(
+  final double distanceBetweenBends =
+  calculateKickDistanceBetweenBends(
     kickHeight: pipeKickHeight,
     angleDeg: angleDeg,
   );
 
-  final shrink = calculateKickShrink(
+  final double shrink = calculateKickShrink(
     kickHeight: pipeKickHeight,
     angleDeg: angleDeg,
   );
 
-  final markA = calculateKick90MarkA(
+  final double markA = calculateKick90MarkA(
     stub: pipeStub,
     takeUp: takeUp,
   );
 
-  final markB = (pipeStub - gain90) +
-      distanceBetweenBends +
-      (pipeOD / 2.0);
+  // First calculate the true center-of-bend location.
+  final double centerlineMarkB =
+      (pipeStub - gain90) +
+          distanceBetweenBends +
+          (pipeOD / 2.0);
 
-  final markC = pipeStub + leg + shrink - gain90;
+  // Then translate that center mark to the selected
+  // physical bender reference.
+  final double markB = convertCenterMarkToBenderReference(
+    centerMark: centerlineMarkB,
+    method: method,
+    clr: clr,
+    deduct: takeUp,
+    pipeOD: pipeOD,
+    angleDeg: angleDeg,
+    reverse: reverse,
+  );
+
+  final double markC =
+      pipeStub + leg + shrink - gain90;
 
   return Kick90SameAnglePlaneChangeResult(
     pipeIndex: pipeIndex,
@@ -1485,28 +1504,21 @@ double calculateKick90MarkBFromDistanceBetweenBends({
   required double clr,
   required double deduct,
   required BendingMethod method,
+  bool reverse = false,
 }) {
-  final centerlineMarkB =
-      (stub - gain90) + distanceBetweenBends + (pipeOD / 2);
+  final double centerlineMarkB =
+      (stub - gain90) +
+          distanceBetweenBends +
+          (pipeOD / 2.0);
 
-  if (method == BendingMethod.centerline) {
-    return centerlineMarkB;
-  }
-
-  if (method == BendingMethod.hook) {
-    return convertCenterMarkToFrontHookMark(
-      centerMark: centerlineMarkB,
-      deduct: deduct,
-      clr: clr,
-      pipeOD: pipeOD,
-      angleDeg: angleDeg,
-    );
-  }
-
-  return calculateKick90NotchMarkFromCenterline(
-    centerlineMark: centerlineMarkB,
-    angleDeg: angleDeg,
+  return convertCenterMarkToBenderReference(
+    centerMark: centerlineMarkB,
+    method: method,
     clr: clr,
+    deduct: deduct,
+    pipeOD: pipeOD,
+    angleDeg: angleDeg,
+    reverse: reverse,
   );
 }
 class Kick90SameStartSamePlaneResult {
@@ -2380,6 +2392,32 @@ Saddle4PointResult calculateSaddle4Point({
   final cutLength = runLength + totalShrink;
 
   return Saddle4PointResult(markA: rA, markB: rB, markC: rC, markD: rD, cutLength: cutLength);
+}
+
+/// RACK SUPPORT PLANNING FORMULA
+/// Goal: Zero-fraction, field-logical supports placed relative to 90° bends.
+/// 
+/// Field Standard (The 24-inch Rule):
+/// Struts are placed exactly 24" (2ft) on BOTH sides of the 90° corner (Back of 90).
+/// This provides stable anchoring and ensures the strut doesn't interfere with the bend radius.
+/// 
+/// Calculation Method:
+/// 1. Next Support (Before Turn): Measure back 24" from the Back of 90 mark.
+/// 2. Next Support (After Turn): Measure forward 24" from the Back of 90 mark.
+/// 
+/// Note: We do NOT measure around the curve. We measure from the theoretical corner
+/// (the Back of 90) along the straight legs of the pipe.
+/// 
+/// Rounding: All support positions are rounded to whole inches (no fractions).
+Map<String, double> calculate90TurnSupports({
+  required double startPos, 
+  required double stub,
+}) {
+  final double corner = startPos + stub;
+  return {
+    'Next Support (Before Turn)': (corner - 24.0).roundToDouble(),
+    'Next Support (After Turn)': (corner + 24.0).roundToDouble(),
+  };
 }
 
 

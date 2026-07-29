@@ -9,6 +9,7 @@ import 'package:pipe_and_wire_clean/keypad_6.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'main_menu_screen.dart';
+import 'bender_picker_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -42,7 +43,7 @@ class BenderStartingPointScreen extends StatefulWidget {
   State<BenderStartingPointScreen> createState() => _BenderStartingPointScreenState();
 }
 
-class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
+class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> with TickerProviderStateMixin {
   // State management for workflow
   int _currentStep = 0;
   bool _isBenderExpanded = true;
@@ -58,6 +59,9 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   static const double _spaceBetweenTopAndBottomGraphic = 1.0;
   static const double _bottomMeasurementGraphicHeight = 110.0;
 
+  late final AnimationController _infoAnimCtrl;
+  bool _hasViewedInfo = false;
+
   // Bender & Conduit State
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
   String? _selectedPipeSize;
@@ -67,6 +71,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
 
   // --- NEW: Custom Bender State ---
   bool _isEditMode = false;
+  bool _isNewBender = false; // Flag to distinguish between Creating and Editing
   final List<bending_data.Bender> _customBenders = []; // Uses Bender from bending_data.dart
   List<Map<String, String>> _allBrands = []; // Combined list for dropdown
 
@@ -119,10 +124,40 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     takeUpCtrl.addListener(_updateSetback);
     gainCtrl.addListener(_updateSetback);
     gainCtrl.addListener(_updateRadiusFromGain);
+    radiusCtrl.addListener(_updateGainFromRadius);
+  }
+
+  void _updateGainFromRadius() {
+    if (!_isEditMode || _activeController != radiusCtrl) return;
+
+    final radiusText = radiusCtrl.text.trim();
+    if (radiusText.isEmpty || _selectedPipeSize == null) {
+      gainCtrl.text = '';
+      return;
+    }
+
+    final radius = _parseInches(radiusText);
+    final double pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt
+        ? bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)]
+        : bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
+
+    if (pipeOD <= 0 || radius <= 0) return;
+
+    final gain = bending_data.calculateGain90(radius, pipeOD);
+    gainCtrl.text = fmtInches(gain, addInchMark: false);
+
+    // Also update travel
+    travelCtrl.text = fmtInches((math.pi * radius) / 2, addInchMark: false);
+
+    _infoAnimCtrl = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    )..repeat();
   }
 
   @override
   void dispose() {
+    _infoAnimCtrl.dispose();
     final allCtrls = [
       measurement1Ctrl,
       measurement2Ctrl,
@@ -140,6 +175,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     }
 
     gainCtrl.removeListener(_updateRadiusFromGain);
+    radiusCtrl.removeListener(_updateGainFromRadius);
 
     for (var ctrl in allCtrls) {
       ctrl.dispose();
@@ -154,7 +190,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
         ..._brands,
         {'type': 'header', 'name': 'SAVED BENDERS'},
         ..._customBenders.map((b) => {
-          'type': 'bender',
+          'type': 'custom_bender',
           'name': b.brand,
         }),
       ];
@@ -232,7 +268,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     setbackCtrl.text = fmtInches(setback, addInchMark: false);
   }
   void _updateRadiusFromGain() {
-    if (!_isEditMode) return;
+    if (!_isEditMode || _activeController != gainCtrl) return;
 
     final gainText = gainCtrl.text.trim();
     if (gainText.isEmpty || _selectedPipeSize == null) {
@@ -253,8 +289,11 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
       return;
     }
 
-    final clr = (gain - pipeOD) / factor;
+    final clr = bending_data.calculateCLRFromGain(gain, pipeOD);
     radiusCtrl.text = fmtInches(clr, addInchMark: false);
+
+    // Also update travel
+    travelCtrl.text = fmtInches((math.pi * clr) / 2, addInchMark: false);
   }
 
   String _getNumericalStringPipeSize(String pipeSizeDisplayString) {
@@ -264,6 +303,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   }
 
   void _updateBenderData() {
+    if (_isEditMode) return; // Prevent clearing fields while user is typing in Edit Mode
+
     if (_selectedBrand == null || _selectedPipeSize == null) {
       setState(() {
         travelCtrl.text = '';
@@ -352,6 +393,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
 
       _isCalculateReady = false;
       _isEditMode = false;
+      _isNewBender = false;
+      _customBenderName = '';
       _showTravelField = false;
 
       _currentStep = 0;
@@ -558,6 +601,12 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     );
 
     setState(() {
+      // Overwrite Logic:
+      _customBenders.removeWhere((b) =>
+          b.brand == name &&
+          b.conduitSize == newBender.conduitSize &&
+          b.conduitType == newBender.conduitType);
+
       _customBenders.add(newBender);
       _saveCustomBendersToDevice();
       _updateBrandDropdown();
@@ -605,6 +654,9 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
 
     setState(() {
       _isEditMode = true;
+      _isNewBender = true;
+      _selectedBrand = null;
+      _customBenderName = '';
 
       travelCtrl.clear();
       takeUpCtrl.clear();
@@ -613,13 +665,15 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
       radiusCtrl.clear();
     });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_showTravelField) {
-        _showKeypad(travelCtrl);
-      } else {
-        _showKeypad(takeUpCtrl);
-      }
-    });
+    if (_selectedPipeSize != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_showTravelField) {
+          _showKeypad(travelCtrl);
+        } else {
+          _showKeypad(takeUpCtrl);
+        }
+      });
+    }
   }
   void _cancelEditMode() {
     setState(() {
@@ -639,8 +693,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: kLight,
         centerTitle: true,
-        leadingWidth: 100,
-        // Balanced for Home + Back Arrow
+        leadingWidth: 160,
+        // Balanced for Home + Back Arrow + Reset
         leading: Row(
           children: [
             IconButton(
@@ -667,6 +721,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
                 ),
               ),
               onPressed: () {
+                _hideKeypad();
                 if (_currentStep > 0) {
                   setState(() {
                     _currentStep -= 1;
@@ -680,13 +735,66 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
                 }
               },
             ),
+            IconButton(
+              icon: const Icon(Icons.refresh, color: kLight),
+              onPressed: _startNewBend,
+            ),
           ],
         ),
-        title: const Text('Starting Point', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            'Starting Point',
+            style: TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () => _showHelpDialog(context),
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              if (!_hasViewedInfo)
+                RotationTransition(
+                  turns: _infoAnimCtrl,
+                  child: AnimatedBuilder(
+                    animation: _infoAnimCtrl,
+                    builder: (context, child) {
+                      return ShaderMask(
+                        shaderCallback: (rect) {
+                          return SweepGradient(
+                            colors: [
+                              kLight.withValues(alpha: 0.0),
+                              kLight.withValues(alpha: 0.2 +
+                                  (0.7 *
+                                      (0.5 +
+                                          0.5 *
+                                              math.sin(_infoAnimCtrl.value *
+                                                  2 *
+                                                  math.pi)))),
+                              kLight.withValues(alpha: 0.0),
+                            ],
+                            stops: const [0.0, 0.5, 1.0],
+                          ).createShader(rect);
+                        },
+                        child: Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: kLight, width: 2.0),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.info_outline, color: kLight),
+                onPressed: () {
+                  setState(() => _hasViewedInfo = true);
+                  _showHelpDialog(context);
+                },
+              ),
+            ],
           ),
           TextButton(
             onPressed: () => Navigator.push(
@@ -1038,6 +1146,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   }
 
   Widget _buildBendingMethodCard() {
+    final bool isMachineBender =
+        bending_data.mechanicalElectricBenderBrands.contains(_selectedBrand);
     return _buildGroupContainer(
       child: Column(
         children: [
@@ -1080,10 +1190,18 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
               children: [
                 Expanded(
                   child: _buildSilverButton(
-                    label: 'USE NOTCH',
+                    label: isMachineBender ? 'USE HOOK' : 'USE NOTCH',
                     height: 40,
-                    isActive: _bendingMethod == bending_data.BendingMethod.notch,
-                    onTap: () => setState(() => _bendingMethod = bending_data.BendingMethod.notch),
+                    isActive: isMachineBender
+                        ? _bendingMethod == bending_data.BendingMethod.hook
+                        : _bendingMethod == bending_data.BendingMethod.notch,
+                    onTap: () {
+                      setState(() {
+                        _bendingMethod = isMachineBender
+                            ? bending_data.BendingMethod.hook
+                            : bending_data.BendingMethod.notch;
+                      });
+                    },
                   ),
                 ),
                 const SizedBox(width: 6.0),
@@ -1324,83 +1442,58 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withAlpha(220),
-      builder: (context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF151515),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: const Color(0xFFC8C8C8),
-                width: 1.6,
-              ),
-            ),
-            child: ListView(
-              shrinkWrap: true,
-              children: _allBrands.map((brandData) {
-                final type = brandData['type']!;
-                final name = brandData['name']!;
+      builder: (context) => BenderPickerDialog(
+        allBrands: _allBrands,
+        selectedBrand: _selectedBrand,
+        onSelected: (name) {
+          final custom = _customBenders.firstWhereOrNull((b) => b.brand == name);
+          setState(() {
+            _selectedBrand = name;
+            if (custom != null) {
+              _selectedPipeSize = custom.conduitSize;
+              _selectedConduitType = custom.conduitType == bending_data.ConduitType.emt
+                  ? BoxLayoutConduitType.emt
+                  : BoxLayoutConduitType.grc;
+            }
+          });
+          _updateBenderData();
+        },
+        onDelete: (name) {
+          setState(() {
+            _customBenders.removeWhere((b) => b.brand == name);
+            _saveCustomBendersToDevice();
+            _updateBrandDropdown();
+            if (_selectedBrand == name) {
+              _selectedBrand = null;
+              _updateBenderData();
+            }
+          });
+        },
+        onEdit: (name) {
+          final bender = _customBenders.firstWhereOrNull((b) => b.brand == name);
+          if (bender != null) {
+            setState(() {
+              _isEditMode = true;
+              _isNewBender = false;
+              _selectedBrand = null;
+              _selectedPipeSize = bender.conduitSize;
+              _selectedConduitType = bender.conduitType == bending_data.ConduitType.emt
+                  ? BoxLayoutConduitType.emt
+                  : BoxLayoutConduitType.grc;
 
-                if (type == 'header') {
-                  return Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 14, 8, 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            color: kLight,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Container(
-                          height: 1,
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ),
-                  );
-                }
+              takeUpCtrl.text = fmtInches(bender.deduct, addInchMark: false);
+              gainCtrl.text = fmtInches(bender.gain, addInchMark: false);
+              radiusCtrl.text = fmtInches(bender.clr, addInchMark: false);
+              
+              final setback = bender.deduct - bender.gain;
+              setbackCtrl.text = fmtInches(setback, addInchMark: false);
 
-                final bool selected = name == _selectedBrand;
-
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
-                  child: _BeveledButton(
-                    active: selected,
-                    onTap: () {
-                      Navigator.of(context).pop();
-                      setState(() => _selectedBrand = name);
-                      _updateBenderData();
-                    },
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 14),
-                        child: Text(
-                          name,
-                          style: const TextStyle(
-                            color: kLight,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        );
-      },
+              _customBenderName = bender.brand;
+            });
+            _showKeypad(takeUpCtrl);
+          }
+        },
+      ),
     );
   }
 
@@ -1414,7 +1507,7 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
           color: const Color(0xFF111111),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: const Color(0xFFC0C0C0), // Changed to stay silver
+            color: const Color(0xFFC0C0C0),
             width: 1.2,
           ),
         ),
@@ -1422,9 +1515,13 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
           children: [
             Expanded(
               child: Text(
-                _selectedBrand ?? 'Select Bender Brand',
+                _isEditMode
+                    ? (_isNewBender ? 'Custom' : 'Editing: $_customBenderName')
+                    : (_selectedBrand ?? 'Select Bender Brand'),
                 style: TextStyle(
-                  color: _selectedBrand == null ? Colors.white70 : kLight,
+                  color: (_selectedBrand == null && !_isEditMode)
+                      ? Colors.white70
+                      : kLight,
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
                 ),
@@ -1438,6 +1535,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   }
 
   Widget _buildPipeSizeSelector() {
+    final bool needsPipeSize = (_selectedBrand != null || _isEditMode) && _selectedPipeSize == null;
+
     return Theme(
       data: Theme.of(context).copyWith(
         hoverColor: Colors.transparent,
@@ -1454,6 +1553,9 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
         onSelected: (newValue) {
           setState(() => _selectedPipeSize = newValue);
           _updateBenderData();
+          if (_isEditMode) {
+            _showKeypad(takeUpCtrl);
+          }
         },
         itemBuilder: (context) {
           return _getFilteredPipeSizes().keys.map((String value) {
@@ -1492,8 +1594,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
             color: const Color(0xFF111111),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: const Color(0xFFC0C0C0), // Changed to stay silver
-              width: 1.2,
+              color: needsPipeSize ? kGreen : const Color(0xFFC0C0C0),
+              width: needsPipeSize ? 2.0 : 1.2,
             ),
           ),
           child: Row(
@@ -1510,8 +1612,8 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
                   ),
                 ),
               ),
-              const Icon(
-                  Icons.arrow_drop_down, color: Colors.white54, size: 28),
+              Icon(
+                  Icons.arrow_drop_down, color: needsPipeSize ? kGreen : Colors.white54, size: 28),
             ],
           ),
         ),
@@ -1520,50 +1622,107 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
   }
 
   void _showHelpDialog(BuildContext context) {
-    showDialog(context: context, builder: (context) =>
-        AlertDialog(backgroundColor: const Color(0xFF212121),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF212121),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(color: Color(0xFFC0C0C0), width: 1.4),
+        ),
+        title: const Text(
+          'Starting Point Help',
+          style: TextStyle(
+            color: kLight,
+            fontWeight: FontWeight.w800,
+            fontSize: 22,
+          ),
+        ),
+        content: SizedBox(
+          width: MediaQuery.of(context).size.width * 0.9,
+          child: const SingleChildScrollView(
+            child: ListBody(
+              children: [
+                Text(
+                  'Generic starting point for new bending calculations.',
+                  style: TextStyle(
+                    color: kLight,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 19,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'Use this tool to find layout marks for any angle based on your bender\'s characteristics.',
+                  style: TextStyle(
+                      color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 20),
+                Text(
+                  'Use Notch:',
+                  style: TextStyle(
+                    color: kLight,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 19,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Standard for hand benders. Pipe & Wire translates center-of-bend measurements to the 45° notch / teardrop.',
+                  style: TextStyle(
+                      color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Use Hook:',
+                  style: TextStyle(
+                    color: kLight,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 19,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Standard for machine benders. Pipe & Wire translates center-of-bend measurements to the front edge of the hook.',
+                  style: TextStyle(
+                      color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                Text(
+                  'Use Centerline:',
+                  style: TextStyle(
+                    color: kLight,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 19,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Choose this if you have marked your own center-of-bend lines on the shoe.',
+                  style: TextStyle(
+                      color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+              ],
             ),
-            title: const Text('Starting Point Help', style: TextStyle(color: kLight, fontWeight: FontWeight.w800)),
-            content: const SingleChildScrollView(child: ListBody(
-                children: <Widget>[
-                  Text('This is a generic starting point screen for new bending calculations.',
-                      style: TextStyle(color: kLight,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '1. Bender & Conduit: First, select your bender brand, conduit type (EMT, GRC, etc.), and pipe size. This loads the correct data for the calculation.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Gain vs. Take-Up:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• GAIN is used only to determine the CUT LENGTH of the pipe. It ensures the final distance between bends is correct.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 10),
-                  Text(
-                      '• TAKE-UP is used only to determine WHERE TO MARK the pipe for bending.',
-                      style: TextStyle(color: Colors.white70)),
-                  SizedBox(height: 15),
-                  Text('Bending Methods Explained:', style: TextStyle(
-                      color: kLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16)),
-                  SizedBox(height: 10),
-                  Text(
-                      'This app provides two valid methods for marking your second bend. Both produce the same final result, so choose the one you are most comfortable with.',
-                      style: TextStyle(color: Colors.white70)),
-                ])),
-            actions: [
-              TextButton(onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Close', style: TextStyle(color: kRed)))
-            ]));
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'OK',
+              style: TextStyle(
+                color: Color(0xFFFF3B30),
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   }
 
   Widget _buildInfoBar() {
@@ -1573,6 +1732,20 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> {
       message = 'Bender Starting Point complete. Marks are measured from one end.';
     } else if (_isBenderExpanded) {
       message = 'Select your bender, conduit type, and pipe size.\nYou can also create and save your own custom bender.';
+    } else if (_showBendingMethodCard && _bendingMethodCardExpanded) {
+      final bool isMachineBender =
+          bending_data.mechanicalElectricBenderBrands.contains(_selectedBrand);
+      if (isMachineBender) {
+        message = 'USE HOOK:\n'
+            'Translates center-of-bend to the front edge of the bender hook.\n\n'
+            'USE CENTERLINE:\n'
+            'Choose this if you have marked your own center-of-bend lines on the shoe.';
+      } else {
+        message = 'USE NOTCH:\n'
+            'Translates center-of-bend to the 45° notch / teardrop on your hand bender.\n\n'
+            'USE CENTERLINE:\n'
+            'Choose this if your bender already has center-of-bend markings.';
+      }
     } else if (_isMeasurementsExpanded) {
       message = 'Enter the measurements for your bend.';
     } else if (_currentStep == 2) {
