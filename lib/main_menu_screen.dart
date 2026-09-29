@@ -11,7 +11,6 @@ import 'package:pipe_and_wire_clean/kick_90.dart';
 import 'package:pipe_and_wire_clean/rack_builder_11.dart';
 import 'package:pipe_and_wire_clean/back_to_back_90_2.dart';
 import 'package:pipe_and_wire_clean/code_screen.dart';
-import 'package:pipe_and_wire_clean/code_sections/Load_Calculator.dart';
 import 'package:pipe_and_wire_clean/load_calculator2.dart';
 import 'package:pipe_and_wire_clean/segmented_90_plus_radius_screen.dart';
 import 'package:pipe_and_wire_clean/radius_arc_finder_screen.dart';
