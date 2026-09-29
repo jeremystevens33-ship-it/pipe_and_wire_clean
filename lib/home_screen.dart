@@ -26,18 +26,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   static const double kPipesBaseWidth = 1.25;
 
   // ============================================================
-  // TEXT CONTROLS (layout - fine-tuned with screenshot feedback)
+  // TEXT CONTROLS (relative fractions of image width)
   // ============================================================
-  static const double kTextBandTop = 0.40; // fraction of screen height
-  static const double kTextBandHeightPx = 250;
+  static const double kPipeLeftFrac = 0.23; // moved 2% right
+  static const double kAmpLeftFrac  = 0.48; // moved 2% left
+  static const double kWireLeftFrac = 0.56; // moved 4% left
 
-  static const double kPipeLeft = 0.17; // above horizontal pipe
-  static const double kAmpLeft  = 0.49; // shifted left ~5px
-  static const double kWireLeft = 0.60; // shifted right ~5px
-
-  static const double kPipeDyPx = 15;  // above horizontal pipe
-  static const double kAmpDyPx  = 88;  // balanced vertically
-  static const double kWireDyPx = 112; // under W loop
+  static const double kPipeTopFrac = 0.25;  // top position
+  static const double kAmpTopFrac  = 0.40;  // top position
+  static const double kWireTopFrac = 0.45;  // top position
 
   static const double kWordSize = 38;
   static const double kAmpSize  = 28;
@@ -131,8 +128,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
                   // TEXT ANCHORED DIRECTLY TO PIPES IMAGE
                   Positioned(
-                    left: (w * kPipesBaseWidth) * 0.24,
-                    top: (w * kPipesBaseWidth) * 0.08,
+                    left: (w * kPipesBaseWidth) * kPipeLeftFrac,
+                    top: (w * kPipesBaseWidth) * kPipeTopFrac,
                     child: _AnimatedGradientWord(
                       animation: _linearTextAnimation,
                       text: 'Pipe',
@@ -142,8 +139,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   Positioned(
-                    left: (w * kPipesBaseWidth) * 0.51,
-                    top: (w * kPipesBaseWidth) * 0.22,
+                    left: (w * kPipesBaseWidth) * kAmpLeftFrac,
+                    top: (w * kPipesBaseWidth) * kAmpTopFrac,
                     child: _AnimatedGradientWord(
                       animation: _linearTextAnimation,
                       text: '&',
@@ -153,8 +150,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                   Positioned(
-                    left: (w * kPipesBaseWidth) * 0.58,
-                    top: (w * kPipesBaseWidth) * 0.28,
+                    left: (w * kPipesBaseWidth) * kWireLeftFrac,
+                    top: (w * kPipesBaseWidth) * kWireTopFrac,
                     child: _AnimatedGradientWord(
                       animation: _linearTextAnimation,
                       text: 'Wire',
@@ -174,47 +171,45 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               alignment: Alignment.bottomCenter,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 40.0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [Color(0xFF4E4E52), Color(0xFF2C2C30)],
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.red, width: 2),
-                      ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const MainMenuScreen(),
-                              ),
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          splashColor: Colors.red.withAlpha(77),
-                          highlightColor: Colors.red.withAlpha(26),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 50, vertical: 15),
-                            child: Text(
-                              'Enter',
-                              style: TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF4E4E52), Color(0xFF2C2C30)],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const MainMenuScreen(),
+                          ),
+                        );
+                      },
+                      borderRadius: BorderRadius.circular(12),
+                      splashColor: Colors.red.withAlpha(77),
+                      highlightColor: Colors.red.withAlpha(26),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                        child: Text(
+                          'Enter',
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],
