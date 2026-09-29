@@ -1,5 +1,9 @@
 # Pipe & Wire — general to-do
 
+Active Android/iPhone layout work: [COMPATIBILITY_TODO.md](COMPATIBILITY_TODO.md).
+As of 2026-09-29, the user has the app running on a physical iPhone from the Mac;
+older Mac/iOS deferral notes below are historical.
+
 Updated 2026-09-23. General app tasks belong here; future feature ideas belong in
 [FUTURE.md](FUTURE.md). Existing Rack Builder checks and other-screen finish chunks
 remain in [RACK_BUILDER_TODO.md](RACK_BUILDER_TODO.md); do not duplicate their status.

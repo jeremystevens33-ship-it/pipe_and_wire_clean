@@ -40,6 +40,7 @@ class TriangleDiagram extends StatelessWidget {
   const TriangleDiagram({
     super.key,
     this.selectedField,
+    this.height = 200,
     this.adjValue,
     this.oppValue,
     this.hypValue,
@@ -54,13 +55,13 @@ class TriangleDiagram extends StatelessWidget {
   final String? angleValue;
   final ValueChanged<TriangleField>? onFieldTap;
 
-  static const double _height = 200;
+  final double height;
   static const double _labelOffset = 6; // 🔧 ONLY tuning knob
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: _height,
+      height: height,
       width: double.infinity,
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -69,7 +70,7 @@ class TriangleDiagram extends StatelessWidget {
 
           const double scale = 0.92;
           final double triangleWidth = width * scale;
-          final double triangleHeight = triangleWidth * 0.42;
+          final double triangleHeight = math.min(triangleWidth * 0.42, math.max(60.0, height - 40));
 
           final double hStart = (width - triangleWidth) / 2;
           final double vStart = (height - triangleHeight) / 2;
@@ -166,7 +167,7 @@ class _TriangleDiagramPainter extends CustomPainter {
 
     const double scale = 0.92; // Back to a larger size to match calculator width
     final double triangleWidth = size.width * scale;
-    final double triangleHeight = triangleWidth * 0.42;
+    final double triangleHeight = math.min(triangleWidth * 0.42, math.max(60.0, size.height - 40));
 
     final double hStart = (size.width - triangleWidth) / 2;
     // Vertically center the triangle in the available height
@@ -964,12 +965,20 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
         ],
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: LayoutBuilder(builder: (context, viewport) {
+          // Reserve full results, including Shrink, to avoid jumping after solve.
+          // 44px keys, 6px gaps/padding, 1.5px inner and 2px outer borders.
+          const calculatorHeight = 532.0;
+          const surroundingSpace = 20.0 + 20.0 + 8.0;
+          final diagramHeight = (viewport.maxHeight - calculatorHeight - surroundingSpace)
+              .clamp(120.0, 200.0).toDouble();
+          return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TriangleDiagram(
+                height: diagramHeight,
                 selectedField: _selectedField,
                 adjValue: _adjForDiagram,
                 oppValue: _oppForDiagram,
@@ -1024,7 +1033,8 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
               ),
             ],
           ),
-        ),
+        );
+        }),
       ),
     );
   }

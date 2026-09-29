@@ -1,5 +1,12 @@
 # Pipe & Wire small-screen handoff — 2026-09-22
 
+## Update — 2026-09-29
+
+Physical iPhone testing is now available. User reports the synced home-screen
+layout matches on iPhone and Motorola. Active text-scaling, hideable info-bar
+and safe-area work is tracked in [COMPATIBILITY_TODO.md](COMPATIBILITY_TODO.md).
+This supersedes the older iOS deferral; user-led walkthroughs remain the workflow.
+
 ## Current direction — 2026-09-23 (supersedes the old test priority below)
 
 User-led Medium Phone walkthroughs replace agent-driven app-wide Small Phone
