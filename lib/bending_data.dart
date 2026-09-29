@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 enum BendingMethod { notch, centerline, hook }
 enum ConduitType { emt, imc, rigid, pvc }
 enum MarkBMethod { pushThrough, reverseBender }
+enum OffsetLayoutDirection { towardObstruction, pastObstruction }
 
 class Bender {
   const Bender({
@@ -408,6 +409,21 @@ bool isBenderClearanceSafe({
   return markB >= (curveEnd + buffer);
 }
 
+const kickClearanceAdvisory =
+    'Kick is close to the 90. Check bender fit before bending.';
+
+/// Advisory only: distance along the pipe, not guaranteed physical shoe clearance.
+bool needsKickClearanceAdvisory({required double centerMark,
+  required double stub, required double clr, required double pipeOD,
+  required double deduct, required double angleDeg, bool reverse = false}) {
+  if (![centerMark, stub, clr, pipeOD, deduct, angleDeg].every((v) => v.isFinite) ||
+      clr <= 0 || pipeOD <= 0 || angleDeg <= 0 || angleDeg >= 90) return true;
+  final hook = convertCenterMarkToFrontHookMark(centerMark: centerMark,
+      deduct: deduct, clr: clr, pipeOD: pipeOD, angleDeg: angleDeg, reverse: reverse);
+  final curveEnd = calculateCurveEnd(stub: stub, clr: clr, pipeOD: pipeOD);
+  return hook - curveEnd < 2.0;
+}
+
 // =============================================================================
 // Helper functions for Back-to-Back 90 calculations
 // =============================================================================
@@ -736,17 +752,35 @@ double calculateKick90CutLength({
 //
 // - Mark A stays the same
 // - Mark C / Cut Length stays the same
-// - Mark B shifts back toward the 90 side for each pipe
+// - P1 is the inside pipe at the kick; subsequent pipes progress outward
+// - Mark B increases for each outside pipe
 //
 // Real-World Measuring:
 //
 // The tape is started from the 90 / stub side.
-// Because each next pipe must stay parallel while kicking forward,
-// the kick mark moves closer to Mark A.
+// With a common measuring end and equal bend radii, progressing inside to
+// outside moves the kick mark farther from Mark A. Mirroring the rack does
+// not change this progression. Outside-to-inside would reverse the sign.
 //
 // Formula:
 //
-// Mark B = Base Mark B - (Rack Spacing Offset × tan(angle / 2))
+// Mark B = Base Mark B + (Rack Spacing Offset × tan(angle / 2))
+// Rack Spacing Offset is cumulative center-to-center distance from P1:
+// for 2" centers, pass 0", 2", 4" for P1, P2, P3 respectively.
+// P1 keeps the entered starting bend's Mark B; P2 and P3 add the shift.
+// The kick angle stays the same across the rack.
+//
+// Change Record — 2026-09-15:
+// Previously this helper subtracted the shift, with an Up Left-only sign
+// reversal in the caller. The helper now ADDS the shift for all four Forward
+// directions (Up Right, Up Left, Down Right, Down Left). The caller's special
+// case was removed: direction controls the picture, not the progression sign.
+// This intentionally adopts P1 = inside at the kick, then numbers outward.
+// Up Left's selector identities were corrected separately; dot positions stayed
+// unchanged. Do not reverse this arithmetic to compensate for picture labels.
+// The user checked all four configurations on screen and confirmed correct dot
+// selection and increasing inside-to-outside marks. Physical bend testing is
+// still pending; this confirmation is not a field-test result.
 //
 // Example:
 //
@@ -755,8 +789,9 @@ double calculateKick90CutLength({
 // Shift ≈ 9/16"
 //
 // Pipe 1 Mark B = 14 15/16"
-// Pipe 2 Mark B = 14 3/8"
-// Pipe 3 Mark B = 13 13/16"
+// Pipe 2 Mark B = 15 1/2"
+// Pipe 3 Mark B = 16"
+// Round each cumulative mark, not the per-pipe shift.
 //
 // Used For:
 //
@@ -770,7 +805,7 @@ double calculateKick90ForwardMarkB({
   final markBShift =
       spacingOffset * calculateTangentHalfAngle(angleDeg);
 
-  return baseMarkB - markBShift;
+  return baseMarkB + markBShift;
 }
 // =============================================================================
 // KICK 90 SAME ANGLE PLANE-CHANGE RACK FORMULAS
@@ -1622,6 +1657,157 @@ Kick90SameStartSamePlaneResult calculateKick90SameStartSamePlane({
     markC: markC,
   );
 }
+
+// =============================================================================
+// OFFSET — TOWARD / PAST OBSTRUCTION LAYOUT
+// =============================================================================
+//
+// Toward preserves the field-tested behavior that existed in the standalone
+// Offset screen before the two layout choices were separated.
+//
+// Standard offsets use verticalOffset directly. Rolling offsets first resolve
+// the vertical rise and horizontal roll into one true offset.
+//
+// Common geometry:
+//
+//   Shrink = True Offset × tan(Angle ÷ 2)
+//   Travel = True Offset ÷ sin(Angle)
+//   Cut Length = Finished Overall Length + Shrink
+//
+// Toward: Mark A = Distance + Shrink; Mark B = Mark A - Travel.
+// Past: Mark B = controlled start location; Mark A = Mark B + Travel.
+//
+// Full-stick mode keeps the physical cut length at stockLength and reports the
+// finished straight-line length after shrink.
+
+class OffsetLayoutResult {
+  const OffsetLayoutResult({
+    required this.trueOffset,
+    required this.shrink,
+    required this.distanceBetweenBends,
+    required this.markA,
+    required this.markB,
+    required this.cutLength,
+    required this.finishedOverallLength,
+  });
+
+  final double trueOffset;
+  final double shrink;
+  final double distanceBetweenBends;
+  final double markA;
+  final double markB;
+  final double cutLength;
+  final double finishedOverallLength;
+}
+
+OffsetLayoutResult calculateOffsetLayout({
+  required double verticalOffset,
+  double horizontalRoll = 0.0,
+  required double angleDeg,
+  required double distanceToObstruction,
+  required double requestedFinishedOverallLength,
+  required OffsetLayoutDirection layoutDirection,
+  bool useFullStick = false,
+  double stockLength = 120.0,
+}) {
+  if (verticalOffset < 0 || horizontalRoll < 0) {
+    throw ArgumentError('Offset dimensions cannot be negative.');
+  }
+  if (angleDeg <= 0 || angleDeg >= 90) {
+    throw ArgumentError.value(angleDeg, 'angleDeg', 'Must be between 0 and 90 degrees.');
+  }
+  if (stockLength <= 0) {
+    throw ArgumentError.value(stockLength, 'stockLength', 'Must be greater than zero.');
+  }
+
+  final trueOffset = math.sqrt(
+    (verticalOffset * verticalOffset) +
+        (horizontalRoll * horizontalRoll),
+  );
+  final angleRad = angleDeg * math.pi / 180.0;
+  final shrink = trueOffset * math.tan(angleRad / 2.0);
+  final distanceBetweenBends = trueOffset / math.sin(angleRad);
+  final double markA;
+  final double markB;
+  if (layoutDirection == OffsetLayoutDirection.towardObstruction) {
+    markA = distanceToObstruction + shrink;
+    markB = markA - distanceBetweenBends;
+  } else {
+    markB = distanceToObstruction;
+    markA = markB + distanceBetweenBends;
+  }
+  final finishedOverallLength = useFullStick
+      ? stockLength - shrink
+      : requestedFinishedOverallLength;
+  final cutLength = useFullStick
+      ? stockLength
+      : requestedFinishedOverallLength + shrink;
+
+  return OffsetLayoutResult(
+    trueOffset: trueOffset,
+    shrink: shrink,
+    distanceBetweenBends: distanceBetweenBends,
+    markA: markA,
+    markB: markB,
+    cutLength: cutLength,
+    finishedOverallLength: finishedOverallLength,
+  );
+}
+
+OffsetLayoutResult calculateOffsetTowardLayout({
+  required double verticalOffset,
+  double horizontalRoll = 0.0,
+  required double angleDeg,
+  required double distanceToObstruction,
+  required double requestedFinishedOverallLength,
+  bool useFullStick = false,
+  double stockLength = 120.0,
+}) {
+  return calculateOffsetLayout(
+    verticalOffset: verticalOffset,
+    horizontalRoll: horizontalRoll,
+    angleDeg: angleDeg,
+    distanceToObstruction: distanceToObstruction,
+    requestedFinishedOverallLength: requestedFinishedOverallLength,
+    layoutDirection: OffsetLayoutDirection.towardObstruction,
+    useFullStick: useFullStick,
+    stockLength: stockLength,
+  );
+}
+
+class OffsetCenterMarks {
+  const OffsetCenterMarks({
+    required this.markA,
+    required this.markB,
+    required this.radiusAdjustment,
+  });
+
+  final double markA;
+  final double markB;
+  final double radiusAdjustment;
+}
+
+OffsetCenterMarks calculateOffsetCenterMarks({
+  required OffsetLayoutResult layout,
+  required OffsetLayoutDirection layoutDirection,
+  required double clr,
+  required double angleDeg,
+}) {
+  final radiusAdjustment = calculateRadiusAdjustment(
+    clr: clr,
+    angleDeg: angleDeg,
+  );
+  final direction = layoutDirection == OffsetLayoutDirection.towardObstruction
+      ? -1.0
+      : 1.0;
+
+  return OffsetCenterMarks(
+    markA: layout.markA + (direction * radiusAdjustment),
+    markB: layout.markB + (direction * radiusAdjustment),
+    radiusAdjustment: radiusAdjustment,
+  );
+}
+
 // ============================================================
 // RADIUS ADJUSTMENT (CENTER OF BEND)
 // ============================================================

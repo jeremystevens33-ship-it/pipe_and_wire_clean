@@ -57,9 +57,10 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> with TickerProvider
   bool _isStartOnRight = false;
 
   bool get _isBenderSetupComplete => _selectedBrand != null && _selectedPipeSize != null;
-  static const double _resultsGraphicBlockHeight = 315.0;
-  static const double _topGraphicPlaceholderHeight = 200.0;
-  static const double _bottomMeasurementGraphicHeight = 110.0;
+  static const double _resultsGraphicBlockHeight = 215.0;
+  static const double _topGraphicPlaceholderHeight = 85.0;
+  // Reserve 15 more pixels below the pipe for the measuring-end caption.
+  static const double _bottomMeasurementGraphicHeight = 125.0;
 
   // Bender & Conduit State
   BoxLayoutConduitType _selectedConduitType = BoxLayoutConduitType.emt;
@@ -330,16 +331,18 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> with TickerProvider
     final pipeOD = (_selectedConduitType == BoxLayoutConduitType.emt ? bending_data.emtOD[_getNumericalStringPipeSize(_selectedPipeSize!)] : bending_data.grcOD[_getNumericalStringPipeSize(_selectedPipeSize!)]) ?? 0.0;
     final clr = _parseInches(radiusCtrl.text);
     final deduct = _parseInches(takeUpCtrl.text);
-    final runLength = measurement5Ctrl.text.isEmpty ? 120.0 : _parseInches(measurement5Ctrl.text);
+    final enteredRunLength = _parseInches(measurement5Ctrl.text);
+    // Keep the existing bend-order fallback, but do not present it as an entered cut length.
+    final runLength = enteredRunLength > 0 ? enteredRunLength : 120.0;
 
     if (_selectedSaddleType == SaddleType.threePoint) {
       _isStartOnRight = dist > (runLength / 2.0);
       final result = bending_data.calculateSaddle3Point(centerDistance: dist, height: height, angleDeg: angle, pipeOD: pipeOD, clr: clr, deduct: deduct, runLength: runLength, method: _bendingMethod);
-      setState(() { markAOut = fmtInches(result.markA); markBOut = fmtInches(result.markB); markCOut = fmtInches(result.markC); markDOut = ''; cutLengthOut = fmtInches(result.cutLength); _currentStep = 3; _isResultsExpanded = true; _isMeasurementsExpanded = false; });
+      setState(() { markAOut = fmtInches(result.markA); markBOut = fmtInches(result.markB); markCOut = fmtInches(result.markC); markDOut = ''; cutLengthOut = enteredRunLength > 0 ? fmtInches(result.cutLength) : ''; _currentStep = 3; _isResultsExpanded = true; _isMeasurementsExpanded = false; });
     } else if (_selectedSaddleType == SaddleType.fourPoint) {
       final obstructionLength = _parseInches(measurement4Ctrl.text); final centerOfSaddle = dist + (obstructionLength / 2.0); _isStartOnRight = centerOfSaddle > (runLength / 2.0);
       final result = bending_data.calculateSaddle4Point(distToCenter: dist, height: height, angleDeg: angle, obstructionLength: obstructionLength, pipeOD: pipeOD, clr: clr, deduct: deduct, runLength: runLength, method: _bendingMethod);
-      setState(() { markAOut = fmtInches(result.markA); markBOut = fmtInches(result.markB); markCOut = fmtInches(result.markC); markDOut = fmtInches(result.markD); cutLengthOut = fmtInches(result.cutLength); _currentStep = 3; _isResultsExpanded = true; _isMeasurementsExpanded = false; });
+      setState(() { markAOut = fmtInches(result.markA); markBOut = fmtInches(result.markB); markCOut = fmtInches(result.markC); markDOut = fmtInches(result.markD); cutLengthOut = enteredRunLength > 0 ? fmtInches(result.cutLength) : ''; _currentStep = 3; _isResultsExpanded = true; _isMeasurementsExpanded = false; });
     }
     _hideKeypad();
   }
@@ -576,12 +579,23 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> with TickerProvider
         _resultRow('Mark B (2nd Bend)', markBOut, overallLength: _parseInches(cutLengthOut)),
         _resultRow('Mark C (3rd Bend)', markCOut, overallLength: _parseInches(cutLengthOut)),
         if (!is3Point) _resultRow('Mark D (4th Bend)', markDOut, overallLength: _parseInches(cutLengthOut)),
-        _resultRow('Overall Pipe Length', cutLengthOut, isHighlight: true),
+        if (cutLengthOut.isNotEmpty)
+          _resultRow('Overall Pipe Length', cutLengthOut, isHighlight: true),
         const SizedBox(height: 6),
         Row(children: [ Expanded(child: _buildSilverButton(label: 'Start New Bend', height: 40, onTap: _startNewBend)), const SizedBox(width: 8), Expanded(child: _buildSilverButton(label: 'Option', height: 40, onTap: () {})) ]),
         const SizedBox(height: 6),
         SizedBox(height: _resultsGraphicBlockHeight, child: Column(children: [
-          SizedBox(height: _topGraphicPlaceholderHeight, child: ClipRect(child: OverflowBox(maxWidth: double.infinity, maxHeight: double.infinity, child: Transform.translate(offset: const Offset(0, 20), child: Image.asset('assets/conduits/emt/pipe_1.png', width: MediaQuery.of(context).size.width, fit: BoxFit.contain, filterQuality: FilterQuality.high))))),
+          SizedBox(
+            height: _topGraphicPlaceholderHeight,
+            width: double.infinity,
+            child: Image.asset(
+              is3Point
+                  ? 'assets/images/bends/3_bend_saddle.png'
+                  : 'assets/images/bends/4_bend_saddle.png',
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+            ),
+          ),
           const SizedBox(height: 1),
           SizedBox(height: _bottomMeasurementGraphicHeight, child: _StarterResultGraphic(markA: markAOut, markB: markBOut, markC: markCOut, markD: is3Point ? null : markDOut, isStartOnRight: _isStartOnRight))
         ]))
@@ -590,9 +604,9 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> with TickerProvider
   }
 
   Widget _resultRow(String label, String value, {bool isHighlight = false, double? overallLength}) {
-    final double val = _parseInches(value); final bool isTooLong = isHighlight && val > 120.0; bool isTooClose = false; if (!isHighlight && overallLength != null && val > 0) { if (val < 3.0 || val > (overallLength - 3.0)) isTooClose = true; }
-    return Container(margin: const EdgeInsets.symmetric(vertical: 2), padding: const EdgeInsets.fromLTRB(12, 8, 8, 8), decoration: BoxDecoration(color: Colors.black.withAlpha(145), borderRadius: BorderRadius.circular(10), border: Border.all(color: isTooLong ? kRed : (isTooClose ? Colors.orangeAccent : const Color(0xFFC0C0C0)), width: (isTooLong || isTooClose) ? 2.0 : 1.1)),
-      child: Row(children: [ Expanded(child: Text(label, style: TextStyle(fontSize: 15, color: isTooLong ? kRed : (isTooClose ? Colors.orangeAccent : Colors.white70), fontWeight: FontWeight.w600))), SizedBox(width: 132, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(gradient: LinearGradient(colors: isTooLong ? [const Color(0xFFB71C1C), const Color(0xFFEF5350)] : [const Color(0xFF8A1010), const Color(0xFFD12A2A)]), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFB0B0B0), width: 1)), child: Text(value.isEmpty ? '—' : value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 19, color: Colors.white, fontWeight: FontWeight.w800)))) ]));
+    final double val = _parseInches(value); final bool isTooLong = isHighlight && val > 120.0;
+    return Container(margin: const EdgeInsets.symmetric(vertical: 2), padding: const EdgeInsets.fromLTRB(12, 8, 8, 8), decoration: BoxDecoration(color: Colors.black.withAlpha(145), borderRadius: BorderRadius.circular(10), border: Border.all(color: isTooLong ? kRed : const Color(0xFFC0C0C0), width: isTooLong ? 2.0 : 1.1)),
+      child: Row(children: [ Expanded(child: Text(label, style: TextStyle(fontSize: 15, color: isTooLong ? kRed : Colors.white70, fontWeight: FontWeight.w600))), SizedBox(width: 132, child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), decoration: BoxDecoration(gradient: LinearGradient(colors: isTooLong ? [const Color(0xFFB71C1C), const Color(0xFFEF5350)] : [const Color(0xFF8A1010), const Color(0xFFD12A2A)]), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFB0B0B0), width: 1)), child: Text(value.isEmpty ? '—' : value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 19, color: Colors.white, fontWeight: FontWeight.w800)))) ]));
   }
 
   Widget _buildGroupContainer({required Widget child}) { return Container(padding: const EdgeInsets.all(6), margin: const EdgeInsets.symmetric(vertical: 2), decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFC0C0C0), width: 1.5)), child: child); }
@@ -748,7 +762,9 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> with TickerProvider
   Widget _buildInfoBar() {
     String message;
     if (_isResultsExpanded) {
-      final dist = _parseInches(measurement1Ctrl.text); final runLength = measurement5Ctrl.text.isEmpty ? 120.0 : _parseInches(measurement5Ctrl.text);
+      final dist = _parseInches(measurement1Ctrl.text); final enteredRunLength = _parseInches(measurement5Ctrl.text);
+    // Keep the existing bend-order fallback, but do not present it as an entered cut length.
+    final runLength = enteredRunLength > 0 ? enteredRunLength : 120.0;
       final obstructionLength = _selectedSaddleType == SaddleType.fourPoint ? _parseInches(measurement4Ctrl.text) : 0.0;
       final centerOfSaddle = _selectedSaddleType == SaddleType.fourPoint ? (dist + (obstructionLength / 2.0)) : dist;
       final isLong = centerOfSaddle > (runLength / 2.0);
@@ -771,7 +787,7 @@ class _SaddleBendScreenState extends State<SaddleBendScreen> with TickerProvider
 
 class _StarterResultGraphic extends StatelessWidget {
   static const double _marksTopPosition = 7.0;
-  static const double _resultPipeBottomOffset = 15.0;
+  static const double _resultPipeBottomOffset = 30.0;
   static const double _resultMeasureTextBottomOffset = 2.0;
   const _StarterResultGraphic({required this.markA, required this.markB, required this.markC, this.markD, this.isStartOnRight = false});
   final String markA, markB, markC; final String? markD; final bool isStartOnRight;
@@ -779,13 +795,19 @@ class _StarterResultGraphic extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth; final bool is4Point = markD != null;
-      final double centerPos = isStartOnRight ? width * 0.25 : width * 0.75; final double riserGap = width * 0.07; final double flatTopGap = width * 0.15;
+      // Three-point marks sit on the left; the measuring origin stays right.
+      // User-selected schematic order is A-B-C left-to-right. These fixed
+      // label positions are not a scale representation of the measured marks.
+      final double centerPos = is4Point
+          ? (isStartOnRight ? width * 0.25 : width * 0.75)
+          : width * 0.30;
+      final double riserGap = width * 0.07; final double flatTopGap = width * 0.15;
       final double posB = is4Point ? (centerPos - flatTopGap * 0.5) : centerPos;
-      final double posC = is4Point ? (centerPos + flatTopGap * 0.5) : (isStartOnRight ? (centerPos + riserGap) : (centerPos - riserGap));
-      final double posA = is4Point ? (posB - riserGap) : (isStartOnRight ? (centerPos - riserGap) : (centerPos + riserGap));
+      final double posC = is4Point ? (centerPos + flatTopGap * 0.5) : (centerPos + riserGap);
+      final double posA = is4Point ? (posB - riserGap) : (centerPos - riserGap);
       final double posD = is4Point ? (posC + riserGap) : 0;
       return Stack(alignment: Alignment.topLeft, clipBehavior: Clip.none, children: [
-        Positioned(bottom: _resultPipeBottomOffset, left: -17, right: -23, child: Image.asset('assets/conduits/emt/pipe_5_ol.png', fit: BoxFit.contain, filterQuality: FilterQuality.high)),
+        Positioned(bottom: _resultPipeBottomOffset, left: 6, right: 6, child: Image.asset('assets/conduits/emt/pipe_5_ol.png', fit: BoxFit.contain, filterQuality: FilterQuality.high)),
         _downMark(posA, _marksTopPosition, 'A', markA), _downMark(posB, _marksTopPosition, 'B', markB), _downMark(posC, _marksTopPosition, 'C', markC),
         if (is4Point) _downMark(posD, _marksTopPosition, 'D', markD!),
         const Positioned(bottom: _resultMeasureTextBottomOffset, right: 16, child: Row(mainAxisSize: MainAxisSize.min, children: [ Text('Measure from this end', style: TextStyle(color: kLight, fontWeight: FontWeight.w700, fontSize: 18)), SizedBox(width: 8), Text("➜", style: TextStyle(color: kLight, fontSize: 24, fontWeight: FontWeight.w900)) ]))

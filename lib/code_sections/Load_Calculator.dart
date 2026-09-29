@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../main_menu_screen.dart';
+
 class LoadCalculator extends StatefulWidget {
   const LoadCalculator({super.key});
 
@@ -72,11 +74,17 @@ class _LoadCalculatorState extends State<LoadCalculator> { final TextEditingCont
       appBar: AppBar(
         backgroundColor: const Color(0xFF111111),
         elevation: 0,
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.home, color: Colors.white),
+          onPressed: () {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+              (route) => false,
+            );
+          },
         ),
-        titleSpacing: 0,
         title: const Text(
           'Load Calculations',
           style: TextStyle(

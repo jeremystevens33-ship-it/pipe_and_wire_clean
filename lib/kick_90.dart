@@ -1,3 +1,4 @@
+import 'kick_rack_handoff.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
@@ -55,10 +56,8 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
   bool _isCalculateReady = false;
   bool get _isBenderSetupComplete =>
       _selectedBrand != null && _selectedPipeSize != null;
-  static const double _resultsGraphicBlockHeight = 315.0;
-  static const double _topGraphicPlaceholderHeight = 200.0;
-  static const double _spaceBetweenTopAndBottomGraphic = 1.0;
   static const double _bottomMeasurementGraphicHeight = 110.0;
+  static const double _measurementGraphicLift = 20.0;
 
   late final AnimationController _infoAnimCtrl;
   bool _hasViewedInfo = false;
@@ -103,6 +102,11 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
 
 
   String? _clearanceWarning;
+  KickRackHandoff? _completedKick;
+  bool _showParallelSetup = false;
+  bool _parallelSpacingIsC2C = true;
+  final _parallelCountCtrl = TextEditingController();
+  final _parallelSpacingCtrl = TextEditingController();
 
   // Keypad State
   bool _isKeypadVisible = false;
@@ -198,6 +202,8 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
   @override
   void dispose() {
     _infoAnimCtrl.dispose();
+    _parallelCountCtrl.dispose();
+    _parallelSpacingCtrl.dispose();
     final allCtrls = [
       stubCtrl,
       kickCtrl,
@@ -364,6 +370,10 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
 
   void _startNewBend() {
     setState(() {
+      _completedKick = null;
+      _showParallelSetup = false;
+      _parallelCountCtrl.clear();
+      _parallelSpacingCtrl.clear();
       stubCtrl.clear();
       kickCtrl.clear();
       angleCtrl.clear();
@@ -537,53 +547,14 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
       gain90: gain90,
     );
 
-    // BENDER CLEARANCE CHECK
-    final curveEnd = bending_data.calculateCurveEnd(
-      stub: stub,
-      clr: clr,
-      pipeOD: pipeOD,
-    );
-    
-    // We use a professional 5-inch safety buffer as requested
-    const double safetyBuffer = 5.0;
-    final bool isSafe = bending_data.isBenderClearanceSafe(
-      markB: markB,
-      curveEnd: curveEnd,
-      buffer: 0.5, // Check for actual physical hit first
-    );
-
-    String? warning;
-    if (!isSafe) {
-      // Solve for the maximum safe angle to maintain 5" clearance
-      double suggestedAngle = angleDeg;
-      while (suggestedAngle > 1.0) {
-        suggestedAngle -= 0.5;
-        final testMarkB = bending_data.calculateKick90MarkB(
-          stub: stub,
-          kickHeight: kickHeight,
-          angleDeg: suggestedAngle,
-          gain90: gain90,
-          pipeOD: pipeOD,
-          clr: clr,
-          deduct: takeUp,
-          method: _bendingMethod,
-        );
-        if (bending_data.isBenderClearanceSafe(
-          markB: testMarkB,
-          curveEnd: curveEnd,
-          buffer: safetyBuffer,
-        )) {
-          break;
-        }
-      }
-      
-      final String angleStr = suggestedAngle % 1 == 0 
-          ? suggestedAngle.toStringAsFixed(0) 
-          : suggestedAngle.toStringAsFixed(1);
-          
-      warning = "BENDER COLLISION: The shoe will hit the stub. Use a kick angle of $angleStr° or smaller. (Calculated with 5-inch safety clearance)";
-    }
-
+    final centerMark = bending_data.calculateKick90MarkB(
+      stub: stub, kickHeight: kickHeight, angleDeg: angleDeg, gain90: gain90,
+      pipeOD: pipeOD, clr: clr, deduct: takeUp,
+      method: bending_data.BendingMethod.centerline);
+    final warning = bending_data.needsKickClearanceAdvisory(
+      centerMark: centerMark, stub: stub, clr: clr, pipeOD: pipeOD,
+      deduct: takeUp, angleDeg: angleDeg)
+        ? bending_data.kickClearanceAdvisory : null;
     setState(() {
       _rawMarkA = markA;
       _rawMarkB = markB;
@@ -594,6 +565,17 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
       markCOut = fmtInches(olVal);
 
       _clearanceWarning = warning;
+      _completedKick = KickRackHandoff(
+        stub: stub, height: kickHeight, angle: angleDeg, leg: leg,
+        markA: markA, markB: markB, cut: olVal, method: _bendingMethod,
+        clearanceWarning: warning,
+        bender: bending_data.Bender(
+          brand: _selectedBrand!, model: _selectedBrand,
+          conduitSize: _getNumericalStringPipeSize(_selectedPipeSize!),
+          conduitType: _selectedConduitType == BoxLayoutConduitType.emt
+              ? bending_data.ConduitType.emt : bending_data.ConduitType.rigid,
+          clr: clr, deduct: takeUp, gain: gain90),
+      );
 
       _currentStep = 3;
       _isResultsExpanded = true;
@@ -606,6 +588,10 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
 
 
   void _advanceKeypadFocus() {
+    if (_activeController == _parallelCountCtrl) {
+      _showKeypad(_parallelSpacingCtrl);
+      return;
+    }
     if (_activeController == stubCtrl) {
       _showKeypad(kickCtrl);
       return;
@@ -646,6 +632,124 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
     }
 
     _hideKeypad();
+  }
+
+  Widget _buildParallelSetup() => Container(
+    margin: const EdgeInsets.only(top: 2),
+    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+    decoration: BoxDecoration(
+      color: Colors.black.withAlpha(180),
+      border: Border.all(color: const Color(0xFFC8C8C8), width: 1.5),
+      borderRadius: BorderRadius.circular(8)),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const Text('Parallel Setup', style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      _inlineField('Pipe Count', _parallelCountCtrl, suffix: null,
+        onTap: () => _showKeypad(_parallelCountCtrl)),
+      const SizedBox(height: 4),
+      _inlineField('Spacing', _parallelSpacingCtrl, suffix: '"',
+        onTap: () => _showKeypad(_parallelSpacingCtrl)),
+      const SizedBox(height: 4),
+      Row(children: [
+        Expanded(child: _parallelSpacingButton(
+          label: 'Space Between', selected: !_parallelSpacingIsC2C,
+          onTap: () => setState(() => _parallelSpacingIsC2C = false))),
+        const SizedBox(width: 4),
+        Expanded(child: _parallelSpacingButton(
+          label: 'Center to Center', selected: _parallelSpacingIsC2C,
+          onTap: () => setState(() => _parallelSpacingIsC2C = true))),
+      ]),
+      const SizedBox(height: 12),
+      const Text('Choose your Kick type and direction in Rack Builder. Your bend measurements and bender will be filled in.',
+        style: TextStyle(color: Colors.white70)),
+      const SizedBox(height: 12),
+      _buildSilverButton(label: 'Continue to Rack Builder', height: 52,
+        isActive: true, onTap: _openParallelRack),
+      const SizedBox(height: 8),
+      _buildSilverButton(label: 'Back to Results', height: 44,
+        onTap: _closeParallelSetup),
+    ]),
+  );
+
+  Widget _parallelSpacingButton({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) => Semantics(
+    button: true,
+    selected: selected,
+    child: Container(
+      height: 44,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: selected
+              ? const [Color(0xFF8A1010), Color(0xFFE53935)]
+              : const [Color(0xFF3A3A3D), Color(0xFF1F1F21)],
+        ),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: selected ? const Color(0xFFE53935) : const Color(0xFF9E9E9E),
+          width: selected ? 2 : 1.2,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Center(child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(label, style: const TextStyle(
+                color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+            )),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  void _beginParallelSetup() {
+    _hideKeypad();
+    setState(() {
+      _parallelCountCtrl.clear();
+      _parallelSpacingCtrl.clear();
+      _showParallelSetup = true;
+    });
+  }
+
+  void _closeParallelSetup() {
+    _hideKeypad();
+    setState(() => _showParallelSetup = false);
+  }
+
+  void _openParallelRack() {
+    final handoff = _completedKick;
+    if (handoff == null) return;
+    final countValue = _parseInches(_parallelCountCtrl.text);
+    final spacing = _parseInches(_parallelSpacingCtrl.text);
+    if (!countValue.isFinite || countValue < 1 || countValue > 24 ||
+        countValue != countValue.roundToDouble() || !spacing.isFinite || spacing <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Enter a whole pipe count from 1 to 24 and spacing greater than zero.')));
+      return;
+    }
+    final count = countValue.toInt();
+    _hideKeypad();
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ChangeNotifierProvider(
+      create: (_) => RackState(),
+      child: RackBuilderScreen(
+        initialKick: handoff, initialPipeCount: count, initialSpacing: spacing,
+        initialSpacingIsC2C: _parallelSpacingIsC2C,
+        initialPipeSizes: List.filled(count, bending_data.pipeSizes[handoff.bender.conduitSize] ?? handoff.bender.conduitSize),
+        boxLayoutConduitType: handoff.bender.conduitType == bending_data.ConduitType.emt ? 'EMT' : 'RMC',
+        initialBender: handoff.bender, initialBendingMethod: handoff.method,
+        initialIsArrowMethod: false, initialBenderDirectionReversed: false,
+      ),
+    )));
   }
 
   void _onKeypadTap(String value) {
@@ -822,7 +926,12 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
 
-    return Scaffold(
+    return PopScope(
+      canPop: !_showParallelSetup,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _showParallelSetup) _closeParallelSetup();
+      },
+      child: Scaffold(
       backgroundColor: kBlack,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1F1F1F),
@@ -856,6 +965,10 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
                 ),
               ),
               onPressed: () {
+                if (_showParallelSetup) {
+                  _closeParallelSetup();
+                  return;
+                }
                 _hideKeypad();
                 if (_currentStep > 0) {
                   setState(() {
@@ -958,7 +1071,8 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
             child: Padding(
               padding: const EdgeInsets.fromLTRB(6, 6, 6, 0),
               child: ListView(
-                children: [
+                key: ValueKey(_showParallelSetup),
+                children: _showParallelSetup ? [_buildParallelSetup()] : [
                   if (!_isResultsExpanded) ...[
                     _buildBenderSection(),
                     const SizedBox(height: 4),
@@ -975,6 +1089,11 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
                   ],
 
                   _buildResultsSection(),
+                  if (_isResultsExpanded) ...[
+                    const SizedBox(height: 8),
+                    _buildResultActions(),
+                    const SizedBox(height: 8),
+                  ],
                 ],
               ),
             ),
@@ -1074,6 +1193,7 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
           if (_isKeypadVisible)
             NumericInputKeypad(onTap: _onKeypadTap),
         ],
+      ),
       ),
     );
   }
@@ -1580,82 +1700,41 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
                   _resultRow('Mark B — Bend B', markBOut),
                   _resultRow('Mark C — Cut Length', markCOut),
 
-                  const SizedBox(height: 4),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Start New Bend',
-                          height: 38,
-                          onTap: _startNewBend,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: _buildSilverButton(
-                          label: 'Parallel',
-                          height: 38,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ChangeNotifierProvider(
-                                  create: (_) => RackState(),
-                                  child: RackBuilderScreen(
-                                    initialMarkA: _rawMarkA,
-                                    initialMarkB: _rawMarkB,
-                                    initialCut: _rawCut,
-                                    initialAngle: _parseAngle(angleCtrl.text),
-                                    initialGain: _rawGain,
-                                    initialTakeup: _rawTakeUp,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-
                   const SizedBox(height: 6),
 
-                  SizedBox(
-                    height: _resultsGraphicBlockHeight,
-                    child: Column(
+                  Column(
                       children: [
-                        SizedBox(
-                          height: _topGraphicPlaceholderHeight,
-                          child: ClipRect(
-                            child: OverflowBox(
-                              maxWidth: double.infinity,
-                              maxHeight: double.infinity,
-                              child: Transform.translate(
-                                offset: const Offset(0, 20),
-                                child: Image.asset(
-                                  'assets/conduits/emt/pipe_1.png',
-                                  width: MediaQuery.of(context).size.width * 1.0,
-                                  fit: BoxFit.contain,
-                                  filterQuality: FilterQuality.high,
-                                ),
-                              ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 12),
+                          child: Transform.translate(
+                            offset: const Offset(-10, 0),
+                            child: Image.asset(
+                              'assets/images/bends/kick_90.png',
+                              width: double.infinity,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
                             ),
                           ),
                         ),
 
-                        const SizedBox(height: _spaceBetweenTopAndBottomGraphic),
-
                         SizedBox(
-                          height: _bottomMeasurementGraphicHeight,
-                          child: _StarterResultGraphic(
-                            markA: markAOut,
-                            markB: markBOut,
-                            markC: markCOut,
+                          height: _bottomMeasurementGraphicHeight - _measurementGraphicLift,
+                          child: OverflowBox(
+                            alignment: Alignment.topCenter,
+                            minHeight: _bottomMeasurementGraphicHeight,
+                            maxHeight: _bottomMeasurementGraphicHeight,
+                            child: Transform.translate(
+                              offset: const Offset(0, -_measurementGraphicLift),
+                              child: _StarterResultGraphic(
+                                markA: markAOut,
+                                markB: markBOut,
+                                markC: markCOut,
+                              ),
+                            ),
                           ),
                         ),
                       ],
-                    ),
                   ),
                 ],
               ),
@@ -1664,6 +1743,27 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
       ),
     );
   }
+  Widget _buildResultActions() => Row(
+    children: [
+      Expanded(
+        child: _buildSilverButton(
+          label: 'Start New Bend',
+          height: 44,
+          onTap: _startNewBend,
+        ),
+      ),
+      const SizedBox(width: 10),
+      Expanded(
+        child: _buildSilverButton(
+          label: 'Parallel',
+          height: 44,
+          isActive: _showParallelSetup,
+          onTap: _beginParallelSetup,
+        ),
+      ),
+    ],
+  );
+
   Widget _buildResultModeButtons() {
     final bool useNotch =
         _bendingMethod == bending_data.BendingMethod.notch;
@@ -2126,7 +2226,10 @@ class _Kick90ScreenState extends State<Kick90Screen> with TickerProviderStateMix
   Widget _buildInfoBar() {
     String message;
 
-    if (_isResultsExpanded) {
+    if (_showParallelSetup) {
+      message = 'Enter the pipe count and spacing for your parallel rack.\n'
+          'Continue to choose the Kick type and direction in Rack Builder.';
+    } else if (_isResultsExpanded) {
       message =
       'Kick 90 complete. Marks are measured from one end before bending.\n '
           'Tap Parallel to send results to Rack Builder for aligned runs.';
@@ -2334,38 +2437,31 @@ class _StarterResultGraphic extends StatelessWidget {
         children: [
           Positioned(
             bottom: _resultPipeBottomOffset,
-            left: -17,
-            right: -23,
+            left: 6,
+            right: 6,
             child: Image.asset(
               'assets/conduits/emt/pipe_5_ol.png',
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high,
             ),
           ),
-          _downMark(width * 0.9, 3, 'A', markA),
+          _downMark(width * 0.11, 3, 'A', markA),
           _downMark(width * 0.4, 3, 'B', markB),
-          _downMark(width * 0.11, 3, 'C', markC),
+          _downMark(width * 0.78, 3, 'C', markC),
           Positioned(
             bottom: _resultMeasureTextBottomOffset,
-            right: 16,
+            left: 0,
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                const Icon(Icons.arrow_back, color: kLight, size: 24),
+                const SizedBox(width: 8),
                 const Text(
                   'Measure from this end',
                   style: TextStyle(
                     color: kLight,
                     fontWeight: FontWeight.w700,
                     fontSize: 18,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  "➜",
-                  style: TextStyle(
-                    color: kLight,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
                   ),
                 ),
               ],

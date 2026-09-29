@@ -1352,8 +1352,8 @@ class _BackToBack90ScreenV2State extends State<BackToBack90ScreenV2> with Ticker
                             child: Center(
                               child: Image.asset(
                                 _isParallelMode
-                                    ? 'assets/images/btb_parallel.png'
-                                    : 'assets/images/btb_1.png',
+                                    ? 'assets/images/bends/btb_parallel.png'
+                                    : 'assets/images/bends/btb_1.png',
                                 width: double.infinity,
                                 fit: BoxFit.fitWidth,
                                 alignment: Alignment.bottomCenter,
@@ -1937,7 +1937,7 @@ class _BackToBackResultGraphic extends StatelessWidget {
       return Stack(
           alignment: Alignment.topLeft, clipBehavior: Clip.none, children: [
         Positioned(
-          bottom: resultPipeBottomOffset, left: -17, right: -23,
+          bottom: resultPipeBottomOffset, left: 6, right: 6,
           child: Image.asset('assets/conduits/emt/pipe_5_ol.png',
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high),

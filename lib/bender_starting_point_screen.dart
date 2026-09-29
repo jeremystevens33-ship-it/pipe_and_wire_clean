@@ -1971,8 +1971,8 @@ class _StarterResultGraphic extends StatelessWidget {
         children: [
           Positioned(
             bottom: _resultPipeBottomOffset,
-            left: -17,
-            right: -23,
+            left: 6,
+            right: 6,
             child: Image.asset(
               'assets/conduits/emt/pipe_5_ol.png',
               fit: BoxFit.contain,

@@ -113,7 +113,7 @@ class _CodeScreenState extends State<CodeScreen> {
             ),
           ),
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
               _CategoryTile(
                 controller: _conductorsCtrl,
@@ -133,7 +133,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               _CategoryTile(
                 controller: _racewaysCtrl,
@@ -158,7 +158,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               _CategoryTile(
                 controller: _boxesCtrl,
@@ -183,7 +183,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               _CategoryTile(
                 controller: _equipmentCtrl,
@@ -209,7 +209,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               _CategoryTile(
                 controller: _groundingCtrl,
@@ -240,7 +240,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               _CategoryTile(
                 controller: _loadsCtrl,
                 onOpened: () => _openOnly(_loadsCtrl),
@@ -259,7 +259,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               _CategoryTile(
                 controller: _voltageCtrl,
@@ -274,7 +274,7 @@ class _CodeScreenState extends State<CodeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               _CategoryTile(
                 controller: _motorsCtrl,
@@ -360,7 +360,7 @@ class _CategoryTile extends StatelessWidget {
               if (open) onOpened();
             },
             tilePadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
             collapsedIconColor: Colors.white70,
             iconColor: kPWRed,
@@ -410,7 +410,7 @@ class _TopicRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.only(top: 8),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
@@ -444,7 +444,7 @@ class _TopicRow extends StatelessWidget {
                 // red accent stripe
                 Container(
                   width: 4,
-                  height: 56,
+                  height: 48,
                   decoration: BoxDecoration(
                     color: kPWRed,
                     borderRadius: const BorderRadius.horizontal(
@@ -455,7 +455,7 @@ class _TopicRow extends StatelessWidget {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 12),
+                        horizontal: 12, vertical: 10),
                     child: Row(
                       children: [
                         const Icon(Icons.subdirectory_arrow_right,
