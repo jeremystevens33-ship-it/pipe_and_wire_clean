@@ -110,84 +110,70 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ),
 
-          // 2) PIPES
+          // 2) PIPES + TEXT (Glued into the same coordinate stack so they NEVER drift on any screen size)
           Positioned(
             left: w * kPipesDx,
             top: h * kPipesDy,
+            width: w * kPipesBaseWidth,
             child: Transform.scale(
               scale: kPipesScale,
               alignment: Alignment.topLeft,
-              child: Image.asset(
-                'assets/images/logo/pw_pipes.png',
-                width: w * kPipesBaseWidth,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  // PIPES IMAGE
+                  Image.asset(
+                    'assets/images/logo/pw_pipes.png',
+                    width: w * kPipesBaseWidth,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
+
+                  // TEXT ANCHORED DIRECTLY TO PIPES IMAGE
+                  Positioned(
+                    left: (w * kPipesBaseWidth) * 0.24,
+                    top: (w * kPipesBaseWidth) * 0.08,
+                    child: _AnimatedGradientWord(
+                      animation: _linearTextAnimation,
+                      text: 'Pipe',
+                      fontSize: kWordSize * (w / 390.0).clamp(0.85, 1.25),
+                      letterSpacing: 1.4,
+                      pulseCenter: 0.55,
+                    ),
+                  ),
+                  Positioned(
+                    left: (w * kPipesBaseWidth) * 0.51,
+                    top: (w * kPipesBaseWidth) * 0.22,
+                    child: _AnimatedGradientWord(
+                      animation: _linearTextAnimation,
+                      text: '&',
+                      fontSize: kAmpSize * (w / 390.0).clamp(0.85, 1.25),
+                      letterSpacing: 1.0,
+                      pulseCenter: 0.7,
+                    ),
+                  ),
+                  Positioned(
+                    left: (w * kPipesBaseWidth) * 0.58,
+                    top: (w * kPipesBaseWidth) * 0.28,
+                    child: _AnimatedGradientWord(
+                      animation: _linearTextAnimation,
+                      text: 'Wire',
+                      fontSize: kWordSize * (w / 390.0).clamp(0.85, 1.25),
+                      letterSpacing: 1.4,
+                      pulseCenter: 0.85,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
 
-          // 3) TEXT + BUTTON
+          // 3) BUTTON
           SafeArea(
-            child: Stack(
-              children: [
-                Builder(
-                  builder: (context) {
-                    final fontScale = (w / 390.0).clamp(0.85, 1.25);
-                    final scaleHeight = (h / 844.0).clamp(0.85, 1.25);
-                    return Positioned(
-                      top: h * kTextBandTop,
-                      left: 0,
-                      right: 0,
-                      child: SizedBox(
-                        height: kTextBandHeightPx * scaleHeight,
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Positioned(
-                              left: w * kPipeLeft,
-                              top: kPipeDyPx * scaleHeight,
-                              child: _AnimatedGradientWord(
-                                animation: _linearTextAnimation,
-                                text: 'Pipe',
-                                fontSize: kWordSize * fontScale,
-                                letterSpacing: 1.4,
-                                pulseCenter: 0.55,
-                              ),
-                            ),
-                            Positioned(
-                              left: w * kAmpLeft,
-                              top: kAmpDyPx * scaleHeight,
-                              child: _AnimatedGradientWord(
-                                animation: _linearTextAnimation,
-                                text: '&',
-                                fontSize: kAmpSize * fontScale,
-                                letterSpacing: 1.0,
-                                pulseCenter: 0.7,
-                              ),
-                            ),
-                            Positioned(
-                              left: w * kWireLeft,
-                              top: kWireDyPx * scaleHeight,
-                              child: _AnimatedGradientWord(
-                                animation: _linearTextAnimation,
-                                text: 'Wire',
-                                fontSize: kWordSize * fontScale,
-                                letterSpacing: 1.4,
-                                pulseCenter: 0.85,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-
-                // ENTER BUTTON (unchanged)
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 40.0),
+            child: Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 40.0),
                     child: Container(
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
