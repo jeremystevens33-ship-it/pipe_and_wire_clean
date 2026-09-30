@@ -68,9 +68,9 @@ class TriangleDiagram extends StatelessWidget {
           final double width = constraints.maxWidth;
           final double height = constraints.maxHeight;
 
-          const double scale = 0.92;
+          const double scale = 0.94;
           final double triangleWidth = width * scale;
-          final double triangleHeight = math.min(triangleWidth * 0.42, math.max(60.0, height - 40));
+          final double triangleHeight = math.min(triangleWidth * 0.48, math.max(75.0, height - 12));
 
           final double hStart = (width - triangleWidth) / 2;
           final double vStart = (height - triangleHeight) / 2;
@@ -165,9 +165,9 @@ class _TriangleDiagramPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..color = Colors.white;
 
-    const double scale = 0.92; // Back to a larger size to match calculator width
+    const double scale = 0.94;
     final double triangleWidth = size.width * scale;
-    final double triangleHeight = math.min(triangleWidth * 0.42, math.max(60.0, size.height - 40));
+    final double triangleHeight = math.min(triangleWidth * 0.48, math.max(75.0, size.height - 12));
 
     final double hStart = (size.width - triangleWidth) / 2;
     // Vertically center the triangle in the available height
@@ -229,25 +229,22 @@ class _TriangleDiagramPainter extends CustomPainter {
           adjBasePos - const Offset(0, 15)); // The Value
     }
 
-    // --- OPP (Inside Triangle) ---
-    // Moved left to be inside the vertical right side
+    // --- OPP (Inside Triangle, Digit under P, Inch mark extends past P) ---
     final oppBasePos = (A + C) / 2 + Offset(-8 - labelOffset, 5);
     _drawLabelRightAligned(canvas, 'OPP', oppBasePos);
     if (oppValue != null && oppValue!.isNotEmpty) {
-      _drawLabelRightAligned(canvas, oppValue!, oppBasePos + const Offset(0, 15));
+      _drawLabelRightAligned(canvas, oppValue!, oppBasePos + const Offset(6, 15));
     }
 
-    // --- HYP (Right-Aligned) ---
-    // Moved up and right to be more towards the middle of the hypotenuse
+    // --- HYP (Above Slope, Digit under P, Inch mark extends past P) ---
     final hypBasePos = (B + C) / 2 + Offset(15, -25 - labelOffset);
     _drawLabelRightAligned(canvas, 'HYP', hypBasePos);
     if (hypValue != null && hypValue!.isNotEmpty) {
-      _drawLabelRightAligned(
-          canvas, hypValue!, hypBasePos + const Offset(0, 15));
+      _drawLabelRightAligned(canvas, hypValue!, hypBasePos + const Offset(6, 15));
     }
 
-    // --- Angle (Moved Right & Aligned with ADJ) ---
-    final angleBasePos = Offset(B.dx + 70, adjBasePos.dy);
+    // --- Angle (Positioned cleanly inside left corner B) ---
+    final angleBasePos = Offset(B.dx + 65, adjBasePos.dy + 1);
     if (angleValue != null && angleValue!.isNotEmpty) {
       _drawLabel(canvas, angleValue!, angleBasePos);
     } else {
@@ -451,14 +448,43 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
     _onTriangleKeyPress(label);
   }
 
-  void _handleKeyLongPress(String label) {
-    if (label == '←') {
-      _clearTriangleState();
+  bool _commitCurrentFieldInput() {
+    if (_selectedField != null && _triCurrentInput.trim().isNotEmpty) {
+      double val;
+      if (_triCurrentInput == '22 1/2') {
+        val = 22.5;
+      } else {
+        val = _parseToFraction(_triCurrentInput).toDouble();
+      }
+
+      if (val > 0) {
+        _triValues[_selectedField!] = val;
+        _inputHistory.remove(_selectedField);
+        _inputHistory.add(_selectedField!);
+        if (_inputHistory.length > 2) {
+          final fieldToRemove = _inputHistory.removeAt(0);
+          _triValues.remove(fieldToRemove);
+        }
+        final formattedValue = _selectedField == TriangleField.angle
+            ? _formatAngleValue(val)
+            : _formatTriangleResultValue(val);
+        _updateDiagramWithFinalValue(_selectedField!, formattedValue);
+        return true;
+      }
     }
+    return false;
   }
 
   void _onTriangleFieldSelect(TriangleField field) {
     setState(() {
+      // Auto-commit active input when switching fields without hitting checkmark
+      if (_selectedField != null && _selectedField != field && _triCurrentInput.trim().isNotEmpty) {
+        final committed = _commitCurrentFieldInput();
+        if (committed && _triValues.length >= 2) {
+          _calculateTriangle();
+        }
+      }
+
       if (_isShowingAnswer) {
         _isShowingAnswer = false;
         _isEditingExistingValue = true; // Set flag to handle auto-clear on next keypress
@@ -568,30 +594,7 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
 
     setState(() {
       if (label == '✓' || label == '=') {
-        if (_selectedField != null && _triCurrentInput.isNotEmpty) {
-          double val;
-          if (_triCurrentInput == '22 1/2') {
-            val = 22.5;
-          } else {
-            val = _parseToFraction(_triCurrentInput).toDouble();
-          }
-
-          if (val > 0) {
-            _triValues[_selectedField!] = val;
-            if (_selectedField != null) {
-              _inputHistory.remove(_selectedField);
-              _inputHistory.add(_selectedField!);
-              if (_inputHistory.length > 2) {
-                final fieldToRemove = _inputHistory.removeAt(0);
-                _triValues.remove(fieldToRemove);
-              }
-            }
-            final formattedValue = _selectedField == TriangleField.angle
-                ? _formatAngleValue(val)
-                : _formatTriangleResultValue(val);
-            _updateDiagramWithFinalValue(_selectedField!, formattedValue);
-          }
-        }
+        _commitCurrentFieldInput();
         _triCurrentInput = '';
         _selectedField = null;
         _highlightedKeys.clear();
@@ -969,25 +972,25 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
           // Reserve full results, including Shrink, to avoid jumping after solve.
           // 44px keys, 6px gaps/padding, 1.5px inner and 2px outer borders.
           const calculatorHeight = 532.0;
-          const surroundingSpace = 20.0 + 20.0 + 8.0;
+          const surroundingSpace = 6.0 + 8.0 + 8.0;
           final diagramHeight = (viewport.maxHeight - calculatorHeight - surroundingSpace)
-              .clamp(120.0, 200.0).toDouble();
+              .clamp(145.0, 240.0).toDouble();
           return SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(8, 20, 8, 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TriangleDiagram(
-                height: diagramHeight,
-                selectedField: _selectedField,
-                adjValue: _adjForDiagram,
-                oppValue: _oppForDiagram,
-                hypValue: _hypForDiagram,
-                angleValue: _angleForDiagram,
-                onFieldTap: _onTriangleFieldSelect,
-              ),
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TriangleDiagram(
+                  height: diagramHeight,
+                  selectedField: _selectedField,
+                  adjValue: _adjForDiagram,
+                  oppValue: _oppForDiagram,
+                  hypValue: _hypForDiagram,
+                  angleValue: _angleForDiagram,
+                  onFieldTap: _onTriangleFieldSelect,
+                ),
 
-              const SizedBox(height: 20),
+                const SizedBox(height: 8),
 
               Container(
                 width: double.infinity,
@@ -1013,7 +1016,7 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
                     const SizedBox(height: 6),
                     _OperatorBar(
                       onKey: _handleKeyPress,
-                      onLongKey: _handleKeyLongPress,
+                      onClear: _clearTriangleState,
                       isCheckmarkGreen: _isCheckmarkGreen,
                     ),
                     const SizedBox(height: 6),
@@ -1121,18 +1124,19 @@ class _TriangleTopBar extends StatelessWidget {
 }
 
 class _OperatorBar extends StatelessWidget {
-  const _OperatorBar(
-      {this.onKey, this.onLongKey, this.isCheckmarkGreen = false});
+  const _OperatorBar({
+    this.onKey,
+    this.onClear,
+    this.isCheckmarkGreen = false,
+  });
 
   final ValueChanged<String>? onKey;
-  final ValueChanged<String>? onLongKey;
+  final VoidCallback? onClear;
   final bool isCheckmarkGreen;
 
   Widget _opBtn({
     required Widget child,
-    required String op,
     VoidCallback? onTap,
-    VoidCallback? onLongPress,
     bool isConfirm = false,
   }) {
     return Container(
@@ -1152,12 +1156,15 @@ class _OperatorBar extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          onLongPress: onLongPress,
           borderRadius: BorderRadius.circular(6),
           child: Center(child: child),
         ),
       ),
     );
+  }
+
+  Widget _emptyBtn() {
+    return _opBtn(child: const SizedBox.shrink());
   }
 
   @override
@@ -1191,42 +1198,26 @@ class _OperatorBar extends StatelessWidget {
     }
 
     const textStyle =
-    TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700);
+        TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700);
 
     final left = [
       _opBtn(
-        op: '✓',
         child: const Text('✓', style: textStyle),
         isConfirm: isCheckmarkGreen,
         onTap: () => onKey?.call('✓'),
       ),
-      _opBtn(op: '+',
-          child: const Text('+', style: textStyle),
-          onTap: () => onKey?.call('+')),
-      _opBtn(op: '-',
-          child: const Text('-', style: textStyle),
-          onTap: () => onKey?.call('-')),
+      _emptyBtn(),
+      _emptyBtn(),
     ];
     final right = [
-      _opBtn(op: '×',
-          child: const Text('×', style: textStyle),
-          onTap: () => onKey?.call('×')),
-      _opBtn(op: '÷',
-          child: const Text('÷', style: textStyle),
-          onTap: () => onKey?.call('÷')),
+      _emptyBtn(),
       _opBtn(
-        op: '←',
+        child: const Text('C', style: textStyle),
+        onTap: () => onClear?.call(),
+      ),
+      _opBtn(
+        child: const Icon(Icons.backspace, size: 20, color: Colors.white),
         onTap: () => onKey?.call('←'),
-        onLongPress: () => onLongKey?.call('←'),
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('(C)', style: TextStyle(
-                height: 0.7, color: Colors.white, fontSize: 10.5)),
-            SizedBox(height: 10),
-            Icon(Icons.backspace, size: 15, color: Colors.white),
-          ],
-        ),
       ),
     ];
 
@@ -1558,16 +1549,23 @@ class _RulerPadState extends State<RulerPad> {
         final halfLimit = (contentW - centerGutter) / 2;
         final gridW = halfLimit;
 
-        final numbers = List.generate(10, (i) => (i + 1).toString());
-        numbers[9] = '0'; 
-
         final numPad = <Widget>[
-          for (int i = 1; i <= 10; i++)
+          for (int i = 1; i <= 9; i++)
             _textBtn(
-              i == 10 ? '10°' : i.toString(),
+              i.toString(),
               active: _selectedKeys.contains(i.toString()),
               onTap: () => widget.onKey?.call(i.toString()),
             ),
+          _textBtn(
+            '10°',
+            active: _selectedKeys.contains('10'),
+            onTap: () => widget.onKey?.call('10'),
+          ),
+          _textBtn(
+            '0',
+            active: _selectedKeys.contains('0'),
+            onTap: () => widget.onKey?.call('0'),
+          ),
           _textBtn(
             '22 ½°',
             font: 14,
@@ -1588,11 +1586,6 @@ class _RulerPadState extends State<RulerPad> {
             '60°',
             active: _selectedKeys.contains('60'),
             onTap: () => widget.onKey?.call('60'),
-          ),
-          _textBtn(
-            '0',
-            active: _selectedKeys.contains('0'),
-            onTap: () => widget.onKey?.call('0'),
           ),
         ];
 

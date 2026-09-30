@@ -25,9 +25,13 @@ Goal: fit smaller phones without making larger-phone layouts look undersized.
 - Existing home-screen source review: pipes and title share an image-relative
   coordinate stack; text sizes scale with screen width within bounds. This
   explains alignment stability, but is not a universal calculator layout recipe.
-- Triangle source already uses SafeArea + SingleChildScrollView. Fixed-height
-  controls and diagram spacing still need review against usable screen height.
-  Source alone does not establish the cause of the reported bottom loss.
+- Triangle source already uses SafeArea + SingleChildScrollView with dynamic
+  diagram height clamping (`(viewport.maxHeight - calculatorHeight - 48).clamp(120, 200)`).
+  This allows small phones (iPhone 17 Pro) to shrink the diagram so controls fit,
+  while larger phones (Motorola) expand the diagram to fill extra height natively.
+- iOS Future-Proofing Tasks:
+  - [x] UIScene lifecycle migration enabled (`flutter config --enable-uiscene-migration`).
+  - [ ] Update `sensors_plus` dependency in `pubspec.yaml` to `^6.0.0`+ for native Swift Package Manager support prior to App Store release.
 - Pilot approach: size from available content bounds; reduce excess spacing and
   diagram height first on compact screens; let larger screens use more room.
   Preserve readable text/tap targets and scrolling when content cannot safely fit.
