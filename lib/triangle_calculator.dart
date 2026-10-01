@@ -295,6 +295,25 @@ class _TriangleDiagramPainter extends CustomPainter {
 // END SECTION: Triangle Diagram — Visual Foundation
 // ===========================================================================
 
+class _TriangleHistoryItem {
+  final Map<TriangleField, double> values;
+  final String? triAngleStr, triOppStr, triAdjStr, triHypStr, triShrinkStr;
+  final String? adjDiagram, oppDiagram, hypDiagram, angleDiagram;
+
+  _TriangleHistoryItem({
+    required this.values,
+    this.triAngleStr,
+    this.triOppStr,
+    this.triAdjStr,
+    this.triHypStr,
+    this.triShrinkStr,
+    this.adjDiagram,
+    this.oppDiagram,
+    this.hypDiagram,
+    this.angleDiagram,
+  });
+}
+
 enum TriangleField { angle, opp, adj, hyp }
 
 class TriangleCalculator extends StatefulWidget {
@@ -324,6 +343,11 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
 
   // New state variables for diagram display
   String? _adjForDiagram, _oppForDiagram, _hypForDiagram, _angleForDiagram;
+
+  // Memory Recall (MR) state variables
+  final List<_TriangleHistoryItem> _calcHistory = [];
+  int _historyIndex = -1;
+  String? _mrBadge;
 
   bool _isEditingExistingValue = false; // Flag for "what-if" edit logic
 
@@ -441,6 +465,45 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
       _isCheckmarkGreen = false;
       _isShowingAnswer = false;
       _isEditingExistingValue = false;
+      _historyIndex = -1;
+      _mrBadge = null;
+    });
+  }
+
+  void _handleMRPress() {
+    if (_calcHistory.isEmpty) {
+      setState(() {
+        _triDisplay = 'No saved triangles in memory';
+      });
+      return;
+    }
+
+    setState(() {
+      _historyIndex = (_historyIndex + 1) % _calcHistory.length;
+      final item = _calcHistory[_historyIndex];
+
+      _mrBadge = 'MR ${_historyIndex + 1}';
+      _triValues.clear();
+      _triValues.addAll(item.values);
+
+      _triAngleStr = item.triAngleStr;
+      _triOppStr = item.triOppStr;
+      _triAdjStr = item.triAdjStr;
+      _triHypStr = item.triHypStr;
+      _triShrinkStr = item.triShrinkStr;
+
+      _adjForDiagram = item.adjDiagram;
+      _oppForDiagram = item.oppDiagram;
+      _hypForDiagram = item.hypDiagram;
+      _angleForDiagram = item.angleDiagram;
+
+      _isShowingAnswer = true;
+      _triDisplay = 'Recalled MR ${_historyIndex + 1} of ${_calcHistory.length}';
+      _triCurrentInput = '';
+      _selectedField = null;
+      _highlightedKeys.clear();
+      _padKey.currentState?.clearSelection();
+      _triggerTriangleResultFlash();
     });
   }
 
@@ -560,6 +623,10 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
   }
 
   void _onTriangleKeyPress(String label) {
+    if (label == 'MR') {
+      _handleMRPress();
+      return;
+    }
     if (_selectedField == TriangleField.angle) {
       if (label == '22 ½') {
         _triCurrentInput = '22 1/2';
@@ -567,7 +634,7 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
         _isCheckmarkGreen = true;
         _padKey.currentState?.setSelection(_highlightedKeys);
         _updateDiagramWithInputValue(_triCurrentInput);
-        _triDisplay = 'Enter value for ANGLE: $_triCurrentInput';
+        _triDisplay = 'ANGLE = 22 ½°  (tap ✓)';
         return;
       }
       if (label == '30' || label == '45' || label == '60') {
@@ -576,7 +643,7 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
         _isCheckmarkGreen = true;
         _padKey.currentState?.setSelection(_highlightedKeys);
         _updateDiagramWithInputValue(_triCurrentInput);
-        _triDisplay = 'Enter value for ANGLE: $_triCurrentInput';
+        _triDisplay = 'ANGLE = $label°  (tap ✓)';
         return;
       }
     }
@@ -663,9 +730,12 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
       }
 
       if (_selectedField != null) {
-        _triDisplay =
-        'Enter value for ${_selectedField!.name
-            .toUpperCase()}: $_triCurrentInput';
+        if (_triCurrentInput.isNotEmpty) {
+          final unit = _selectedField == TriangleField.angle ? '°' : '"';
+          _triDisplay = '${_selectedField!.name.toUpperCase()} = $_triCurrentInput$unit  (tap ✓)';
+        } else {
+          _triDisplay = 'Enter value for ${_selectedField!.name.toUpperCase()}';
+        }
       }
     });
   }
@@ -727,6 +797,18 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
                   '2. Enter the measurement using the keypad.\n'
                   '3. Tap the checkmark (✔) to confirm.\n'
                   '4. After confirming two values, the remaining sides and angle will be solved automatically.',
+                  style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                const Text(
+                  'Memory Recall (MR):',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 19),
+                ),
+                SizedBox(height: 4),
+                const Text(
+                  'The calculator automatically saves your last 5 solved triangles.\n'
+                  '• Tap MR to cycle through your saved calculations (MR 1, MR 2, etc.).\n'
+                  '• Tap C to return to standard mode.',
                   style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
                 ),
                 SizedBox(height: 16),
@@ -871,24 +953,42 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
       shrinkStr = 'Shrink = ${_formatTriangleResultValue(shrink)}';
     }
 
-    setState(() {
-      _triAngleStr = angle != null ? 'ANG = ${_formatAngleValue(angle)}' : '';
-      _triOppStr =
-      opp != null ? 'OPP = ${_formatTriangleResultValue(opp)}' : '';
-      _triAdjStr =
-      adj != null ? 'ADJ = ${_formatTriangleResultValue(adj)}' : '';
-      _triHypStr =
-      hyp != null ? 'HYP = ${_formatTriangleResultValue(hyp)}' : '';
+    final historyItem = _TriangleHistoryItem(
+      values: Map.from(_triValues),
+      triAngleStr: angle != null ? 'ANG = ${_formatAngleValue(angle)}' : '',
+      triOppStr: opp != null ? 'OPP = ${_formatTriangleResultValue(opp)}' : '',
+      triAdjStr: adj != null ? 'ADJ = ${_formatTriangleResultValue(adj)}' : '',
+      triHypStr: hyp != null ? 'HYP = ${_formatTriangleResultValue(hyp)}' : '',
+      triShrinkStr: shrinkStr,
+      adjDiagram: adj != null ? _formatTriangleResultValue(adj) : null,
+      oppDiagram: opp != null ? _formatTriangleResultValue(opp) : null,
+      hypDiagram: hyp != null ? _formatTriangleResultValue(hyp) : null,
+      angleDiagram: angle != null ? _formatAngleValue(angle) : null,
+    );
 
-      _angleForDiagram = angle != null ? _formatAngleValue(angle) : null;
-      _oppForDiagram = opp != null ? _formatTriangleResultValue(opp) : null;
-      _adjForDiagram = adj != null ? _formatTriangleResultValue(adj) : null;
-      _hypForDiagram = hyp != null ? _formatTriangleResultValue(hyp) : null;
+    setState(() {
+      _triAngleStr = historyItem.triAngleStr;
+      _triOppStr = historyItem.triOppStr;
+      _triAdjStr = historyItem.triAdjStr;
+      _triHypStr = historyItem.triHypStr;
+
+      _angleForDiagram = historyItem.angleDiagram;
+      _oppForDiagram = historyItem.oppDiagram;
+      _adjForDiagram = historyItem.adjDiagram;
+      _hypForDiagram = historyItem.hypDiagram;
 
       _triShrinkStr = shrinkStr;
       _triDisplay = '';
       _isShowingAnswer = true;
       _isCheckmarkGreen = false;
+
+      _calcHistory.insert(0, historyItem);
+      if (_calcHistory.length > 5) {
+        _calcHistory.removeLast();
+      }
+      _historyIndex = -1;
+      _mrBadge = null;
+
       _triggerTriangleResultFlash();
     });
   }
@@ -1028,6 +1128,7 @@ class _TriangleCalculatorState extends State<TriangleCalculator> with TickerProv
                       triAdj: _triAdjStr,
                       triHyp: _triHypStr,
                       triShrink: _triShrinkStr,
+                      mrBadge: _mrBadge,
                       flashResult: _flashTriangleResult,
                     ),
                     const SizedBox(height: 6),
@@ -1206,7 +1307,10 @@ class _OperatorBar extends StatelessWidget {
         isConfirm: isCheckmarkGreen,
         onTap: () => onKey?.call('✓'),
       ),
-      _emptyBtn(),
+      _opBtn(
+        child: const Text('MR', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+        onTap: () => onKey?.call('MR'),
+      ),
       _emptyBtn(),
     ];
     final right = [
@@ -1248,6 +1352,7 @@ class _BottomDisplayBar extends StatelessWidget {
     this.triAdj,
     this.triHyp,
     this.triShrink,
+    this.mrBadge,
     this.flashResult = false,
   });
 
@@ -1258,6 +1363,7 @@ class _BottomDisplayBar extends StatelessWidget {
   final String? triAdj;
   final String? triHyp;
   final String? triShrink;
+  final String? mrBadge;
   final bool flashResult;
 
   Widget _buildTriangleResult(BuildContext context) {
@@ -1321,9 +1427,13 @@ class _BottomDisplayBar extends StatelessWidget {
       const double kGridSpacing = 6;
       final halfWidth = (totalWidth - kGridSpacing) / 2;
 
+      final hasBadge = mrBadge != null && mrBadge!.isNotEmpty;
       final decoration = BoxDecoration(
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF444444), width: 1.2),
+        border: Border.all(
+          color: hasBadge ? const Color(0xFF3DDC84) : const Color(0xFF444444),
+          width: hasBadge ? 1.8 : 1.2,
+        ),
       );
 
       const brightGreen = Color(0xFF3DDC84);
@@ -1337,7 +1447,9 @@ class _BottomDisplayBar extends StatelessWidget {
             height: 62,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: decoration.copyWith(
-              color: flashResult ? brightGreen : darkGreen,
+              color: flashResult
+                  ? brightGreen
+                  : (hasBadge ? const Color(0xFF1A1A1A) : darkGreen),
             ),
             child: buildResultColumn(triAngle, triOpp),
           ),
@@ -1348,7 +1460,9 @@ class _BottomDisplayBar extends StatelessWidget {
             height: 62,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: decoration.copyWith(
-              color: flashResult ? brightGreen : darkGreen,
+              color: flashResult
+                  ? brightGreen
+                  : (hasBadge ? const Color(0xFF1A1A1A) : darkGreen),
             ),
             child: buildResultColumn(triAdj, triHyp),
           ),
@@ -1358,7 +1472,18 @@ class _BottomDisplayBar extends StatelessWidget {
   }
 
   Widget _buildShrinkResult() {
-    if (triShrink == null || triShrink!.isEmpty) return const SizedBox.shrink();
+    final hasShrink = triShrink != null && triShrink!.isNotEmpty;
+    final hasBadge = mrBadge != null && mrBadge!.isNotEmpty;
+    if (!hasShrink && !hasBadge) return const SizedBox.shrink();
+
+    String displayText = '';
+    if (hasBadge && hasShrink) {
+      displayText = '$mrBadge  |  $triShrink';
+    } else if (hasBadge) {
+      displayText = mrBadge!;
+    } else {
+      displayText = triShrink!;
+    }
 
     return Container(
       height: 38,
@@ -1367,11 +1492,14 @@ class _BottomDisplayBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.black,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF9E9E9E), width: 1.5),
+        border: Border.all(
+          color: hasBadge ? const Color(0xFF3DDC84) : const Color(0xFF9E9E9E),
+          width: 1.5,
+        ),
       ),
       child: Center(
         child: Text(
-          triShrink!,
+          displayText,
           style: const TextStyle(
             color: Colors.white,
             fontSize: 18,
