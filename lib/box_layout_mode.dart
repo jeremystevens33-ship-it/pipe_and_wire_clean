@@ -20,7 +20,7 @@ void main() async {
   ));
 }
 
-class BoxLayoutModeScreen extends StatelessWidget {
+class BoxLayoutModeScreen extends StatefulWidget {
   final double? preCalculatedCenterToCenter;
   final List<ConduitData>? prePopulatedConduits;
   final List<double>? preCalculatedCenterMarks;
@@ -35,6 +35,13 @@ class BoxLayoutModeScreen extends StatelessWidget {
   });
 
   @override
+  State<BoxLayoutModeScreen> createState() => _BoxLayoutModeScreenState();
+}
+
+class _BoxLayoutModeScreenState extends State<BoxLayoutModeScreen> {
+  final GlobalKey<_BoxLayoutModeState> _widgetKey = GlobalKey<_BoxLayoutModeState>();
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
@@ -42,21 +49,36 @@ class BoxLayoutModeScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: Colors.white,
         centerTitle: true,
-        leading: showBackButton
+        leadingWidth: widget.showBackButton ? 56 : 96,
+        leading: widget.showBackButton
             ? IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        )
-            : IconButton(
-          icon: const Icon(Icons.home),
-          onPressed: () {
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (context) => const MainMenuScreen()),
-                  (route) => false,
-            );
-          },
-        ),
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.home),
+                    tooltip: 'Home',
+                    onPressed: () {
+                      Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+                        (route) => false,
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    tooltip: 'Reset Box Layout',
+                    onPressed: () {
+                      HapticFeedback.mediumImpact();
+                      _widgetKey.currentState?.clearAll();
+                    },
+                  ),
+                ],
+              ),
         title: const Text('Box Layout'),
         actions: [
           IconButton(
@@ -158,15 +180,16 @@ class BoxLayoutModeScreen extends StatelessWidget {
         ],
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 600),
               child: _BoxLayoutModeWidget(
-                preCalculatedCenterToCenter: preCalculatedCenterToCenter,
-                prePopulatedConduits: prePopulatedConduits,
-                preCalculatedCenterMarks: preCalculatedCenterMarks,
+                key: _widgetKey,
+                preCalculatedCenterToCenter: widget.preCalculatedCenterToCenter,
+                prePopulatedConduits: widget.prePopulatedConduits,
+                preCalculatedCenterMarks: widget.preCalculatedCenterMarks,
               ),
             ),
           ),
@@ -196,6 +219,7 @@ class _BoxLayoutModeWidget extends StatefulWidget {
   final List<double>? preCalculatedCenterMarks;
 
   const _BoxLayoutModeWidget({
+    super.key,
     this.preCalculatedCenterToCenter,
     this.prePopulatedConduits,
     this.preCalculatedCenterMarks,
@@ -534,21 +558,19 @@ else if (widget.preCalculatedCenterToCenter != null) {
 
       switch (_step) {
         case WorkflowStep.typeSelect:
-          return "Select pipe type or tap Box to start. Tap ✓ to proceed.";
+          return "Select pipe type or tap Box to start";
         case WorkflowStep.fittingSelect:
-          return _type == BoxLayoutConduitType.emt
-              ? "Select fitting. Tap ✓ to proceed."
-              : "Select fitting. Tap ✓ to proceed.";
+          return "Select fitting type";
         case WorkflowStep.boxWidth:
-          return "Enter total box width. Tap ✓ to confirm.";
+          return "Select or enter total box width";
         case WorkflowStep.pipeCount:
-          return "Enter pipe count. Tap ✓ to confirm.";
+          return "Enter number of pipes";
         case WorkflowStep.pipeSizes:
-          return "Enter pipe size. Tap ✓ to confirm.";
+          return "Match size to highlighted pipe";
         case WorkflowStep.spacing:
-          return "Enter spacing between conduits. Tap ✓ to confirm.";
+          return "Select or enter pipe spacing";
         case WorkflowStep.done:
-          return "Enter total box width. Tap ✓ to confirm.";
+          return "Select or enter total box width";
       }
     }
     return "Top row = left edge ➜ pipe centers.\nTap Space for center-to-center.";
@@ -564,31 +586,20 @@ else if (widget.preCalculatedCenterToCenter != null) {
     final live = _currentInput.trim();
     switch (_step) {
       case WorkflowStep.typeSelect:
-        return "";
+        return "(tap ✓)";
       case WorkflowStep.fittingSelect:
-        return "";
+        return "(tap ✓)";
       case WorkflowStep.boxWidth:
         final value = live.isNotEmpty ? live : _boxWidth;
-        return value.isNotEmpty ? '$value"' : '';
+        return value.isNotEmpty ? '$value"  (tap ✓)' : '(tap ✓)';
       case WorkflowStep.pipeCount:
-        return live.isNotEmpty
-            ? live
-            : (_pipes.isNotEmpty ? _pipes.length.toString() : "");
+        final value = live.isNotEmpty ? live : (_pipes.isNotEmpty ? _pipes.length.toString() : "");
+        return value.isNotEmpty ? '$value pipes  (tap ✓)' : '(tap ✓)';
       case WorkflowStep.pipeSizes:
-        final idx = _activePipeIndex >= 0 ? _activePipeIndex + 1 : 1;
-        if (live.isNotEmpty) {
-          return '$live"';
-        }
-        if (_activePipeIndex >= 0 && _activePipeIndex < _pipes.length) {
-          final pipeValue = _pipes[_activePipeIndex];
-          if (pipeValue != '--' && pipeValue.isNotEmpty) {
-            return '$pipeValue"';
-          }
-        }
-        return "Pipe $idx";
+        return "(tap Space or ✓)";
       case WorkflowStep.spacing:
         final value = live.isNotEmpty ? live : _space;
-        return value.isNotEmpty ? '$value"' : '';
+        return value.isNotEmpty ? '$value"  (tap ✓)' : '(tap ✓)';
       case WorkflowStep.done:
         return "";
     }
@@ -1108,7 +1119,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
         },
         onLongPress: () {
           HapticFeedback.vibrate();
-          _clearAll();
+          clearAll();
         },
         child: const Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1145,6 +1156,10 @@ else if (widget.preCalculatedCenterToCenter != null) {
   }
 
   Widget _buildFullKeypad() {
+    if (isSuccess && _step == WorkflowStep.done) {
+      return const SizedBox.shrink();
+    }
+
     return Column(
       children: [
         LayoutBuilder(
@@ -1211,7 +1226,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
 
             final contentW = c.maxWidth;
             final slotW = math.max(
-              kCircleSize + 16,
+              68.0,
               (contentW - (kVisibleSlots - 1) * kGridSpacing) / kVisibleSlots,
             );
 
@@ -1278,15 +1293,24 @@ else if (widget.preCalculatedCenterToCenter != null) {
                         ),
                       ),
                       const SizedBox(height: 1),
-                      Text(
-                        topLabel == "--" ? topLabel : '$topLabel"',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
+                      SizedBox(
+                        height: 18,
+                        child: Center(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              topLabel == "--" ? topLabel : '$topLabel"',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       Container(
                         width: kCircleSize,
                         height: kCircleSize,
@@ -1321,7 +1345,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 4),
                       SizedBox(
                         height: 20,
                         child: Align(
@@ -1334,12 +1358,21 @@ else if (widget.preCalculatedCenterToCenter != null) {
                         ),
                       ),
                       const SizedBox(height: 1),
-                      Text(
-                        bottomLabel == "--" ? bottomLabel : '$bottomLabel"',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
+                      SizedBox(
+                        height: 18,
+                        child: Center(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              bottomLabel == "--" ? bottomLabel : '$bottomLabel"',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                         ),
                       ),
                     ],
@@ -1506,95 +1539,33 @@ else if (widget.preCalculatedCenterToCenter != null) {
                     ),
                     child: isSuccess
                         ? Builder(builder: (context) {
-                      const double topPos1TopRow = 204.0;
-                      const double topPos2Equals = 192.3;
-                      const double topPos3BoxEdge = 122.7;
-                      const double topPos4Arrow = 99.0;
-                      const double topPos5PipeCenter = 17.5;
-                      const double pos1BotRow = 204.0;
-                      const double pos2Equals = 192.3;
-                      const double pos3StrutFace = 122.7;
-                      const double pos4Arrow = 97.0;
-                      const double pos5PipeCenter = 17.5;
-                      return  Column(
+                      Widget buildLegendRow(String label, String startPoint, String arrow, String endPoint) {
+                        const style = TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700);
+                        return FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(label, style: style),
+                              const SizedBox(width: 4),
+                              const Text("=", style: style),
+                              const SizedBox(width: 4),
+                              Text(startPoint, style: style),
+                              const SizedBox(width: 4),
+                              Text(arrow, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                              const SizedBox(width: 4),
+                              Text(endPoint, style: style),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const SizedBox(
-                            height: 20,
-                            child: Stack(
-                              children: [
-                                Positioned(
-                                  right: topPos1TopRow,
-                                  child: Text("Top row",
-                                      style: successTextStyle),
-                                ),
-                                Positioned(
-                                  right: topPos2Equals,
-                                  child: Text("=",
-                                      style: successTextStyle),
-                                ),
-                                Positioned(
-                                  right: topPos3BoxEdge,
-                                  child: Text("Box edge",
-                                      style: successTextStyle),
-                                ),
-                                Positioned(
-                                  right: topPos4Arrow,
-                                  child: Text("➜",
-                                      style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 16,
-                                          fontWeight:
-                                          FontWeight.w800)),
-                                ),
-                                Positioned(
-                                  right: topPos5PipeCenter,
-                                  child: Text("pipe center",
-                                      style: successTextStyle),
-                                ),
-                              ],
-                            ),
-                          ),
+                          buildLegendRow("Top row", "Box edge", "➜", "pipe center"),
                           const SizedBox(height: 4),
-                          const SizedBox(
-                            height: 20,
-                            child: Stack(
-                              children: [
-                                Positioned(
-                                  right: pos1BotRow,
-                                  child: Text("Bot row",
-                                      style: successTextStyle),
-                                ),
-                                Positioned(
-                                  right: pos2Equals,
-                                  child: Text("=",
-                                      style: successTextStyle),
-                                ),
-                                Positioned(
-                                  right: pos3StrutFace,
-                                  child: Text("Strut face",
-                                      style: successTextStyle),
-                                ),
-                                Positioned(
-                                  right: pos4Arrow,
-                                  child: RotatedBox(
-                                    quarterTurns: -1,
-                                    child: Text("➜",
-                                        style: TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight:
-                                            FontWeight.w800)),
-                                  ),
-                                ),
-                                Positioned(
-                                  right: pos5PipeCenter,
-                                  child: Text("pipe center",
-                                      style: successTextStyle),
-                                ),
-                              ],
-                            ),
-                          ),
+                          buildLegendRow("Bot row", "Strut face", "➜", "pipe center"),
                           const SizedBox(height: 6),
                           Text(
                             _showAltMessage
@@ -1715,7 +1686,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
                         active: false,
                         onTap: () {
                           HapticFeedback.heavyImpact();
-                          _clearAll();
+                          clearAll();
                         },
                         child: const Text(
                           "START NEW BOX",
@@ -2211,7 +2182,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
     });
   }
 
-  void _clearAll() {
+  void clearAll() {
     setState(() {
       _pipes.clear();
       _space = "";
@@ -2237,6 +2208,217 @@ else if (widget.preCalculatedCenterToCenter != null) {
     });
   }
 
+  Widget _buildQuickTradeSizeBar() {
+    if (_step != WorkflowStep.pipeSizes || _pipes.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    const tradeSizes = ['1/2', '3/4', '1', '1 1/4', '1 1/2', '2', '2 1/2', '3', '3 1/2', '4'];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 2),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final ts in tradeSizes) ...[
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: SizedBox(
+                      height: 38,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF333336),
+                          foregroundColor: Colors.white,
+                          side: const BorderSide(color: Color(0xFF8C8C8C), width: 1.1),
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          setState(() {
+                            if (_activePipeIndex < 0 || _activePipeIndex >= _pipes.length) {
+                              _activePipeIndex = 0;
+                            }
+                            _pipes[_activePipeIndex] = ts;
+                            _recomputeLayout();
+                            if (_activePipeIndex < _pipes.length - 1) {
+                              _activePipeIndex++;
+                            } else {
+                              _step = WorkflowStep.spacing;
+                              _activePipeIndex = -1;
+                            }
+                          });
+                        },
+                        child: Text(
+                          '$ts"',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+    );
+  }
+
+  void _showCustomInputSheet(WorkflowStep targetStep) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E22),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        targetStep == WorkflowStep.spacing ? "Custom Spacing Input" : "Custom Box Width Input",
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildFullKeypad(),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE53935),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 44),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      _onKey('✓');
+                    },
+                    child: const Text("CONFIRM CUSTOM VALUE (✓)", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSpacingPresetBar() {
+    if (_step != WorkflowStep.spacing) return const SizedBox.shrink();
+
+    const presets = ['1/4', '1/2', '3/4', '1', '1 1/4', '1 1/2', '1 3/4', '2', '2 1/2', '3', 'Custom...'];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final p in presets) ...[
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: SizedBox(
+                  height: 38,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: p == 'Custom...' ? const Color(0xFFE53935) : const Color(0xFF333336),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFF8C8C8C), width: 1.1),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      if (p == 'Custom...') {
+                        _showCustomInputSheet(WorkflowStep.spacing);
+                      } else {
+                        setState(() {
+                          _space = p;
+                          _spacingConfirmed = true;
+                          _recomputeLayout();
+                          _step = WorkflowStep.boxWidth;
+                        });
+                      }
+                    },
+                    child: Text(p == 'Custom...' ? p : '$p"', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBoxWidthPresetBar() {
+    if (_step != WorkflowStep.boxWidth) return const SizedBox.shrink();
+
+    const presets = ['12', '18', '24', '30', '36', '42', '48', '60', '72', 'Custom...'];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final p in presets) ...[
+              Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: SizedBox(
+                  height: 38,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: p == 'Custom...' ? const Color(0xFFE53935) : const Color(0xFF333336),
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Color(0xFF8C8C8C), width: 1.1),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: () {
+                      HapticFeedback.lightImpact();
+                      if (p == 'Custom...') {
+                        _showCustomInputSheet(WorkflowStep.boxWidth);
+                      } else {
+                        setState(() {
+                          _boxWidth = p;
+                          _boxWidthConfirmed = true;
+                          _recomputeLayout();
+                          _step = WorkflowStep.done;
+                          _hasCompletedOnce = true;
+                        });
+                      }
+                    },
+                    child: Text(p == 'Custom...' ? p : '$p"', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   // =====================================================
   // BUILD
   // =====================================================
@@ -2254,13 +2436,14 @@ else if (widget.preCalculatedCenterToCenter != null) {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           _buildModeTopBar(),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           _buildFullKeypad(),
-          _buildSuggestedBoxSizes(),
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
           _buildBottomScrollBar(),
+          const SizedBox(height: 4),
+          _buildQuickTradeSizeBar(),
           const SizedBox(height: 4),
           _buildMeasurementRuler(),
           const SizedBox(height: 4),
