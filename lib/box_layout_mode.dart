@@ -49,35 +49,65 @@ class _BoxLayoutModeScreenState extends State<BoxLayoutModeScreen> {
         backgroundColor: const Color(0xFF1F1F1F),
         foregroundColor: Colors.white,
         centerTitle: true,
-        leadingWidth: widget.showBackButton ? 56 : 96,
+        leadingWidth: widget.showBackButton ? 56 : 130,
         leading: widget.showBackButton
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () => Navigator.pop(context),
               )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.home),
-                    tooltip: 'Home',
-                    onPressed: () {
-                      Navigator.pushAndRemoveUntil(
-                        context,
-                        MaterialPageRoute(builder: (context) => const MainMenuScreen()),
-                        (route) => false,
-                      );
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    tooltip: 'Reset Box Layout',
-                    onPressed: () {
-                      HapticFeedback.mediumImpact();
-                      _widgetKey.currentState?.clearAll();
-                    },
-                  ),
-                ],
+            : SizedBox(
+                width: 130,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () {
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (context) => const MainMenuScreen()),
+                          (route) => false,
+                        );
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                        child: Icon(Icons.home, color: Colors.white, size: 22),
+                      ),
+                    ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        _widgetKey.currentState?.clearAll();
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                        child: Icon(Icons.refresh, color: Colors.white, size: 22),
+                      ),
+                    ),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        _widgetKey.currentState?.goBackStep();
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+                        child: RotatedBox(
+                          quarterTurns: 2,
+                          child: Text(
+                            "➜",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
         title: const Text('Box Layout'),
         actions: [
@@ -107,22 +137,27 @@ class _BoxLayoutModeScreenState extends State<BoxLayoutModeScreen> {
                       child: ListBody(
                         children: [
                           Text(
-                            "This tool precisely calculates pipe spacing across a junction box or strut rack.",
+                            "This tool precisely calculates pipe spacing across a junction box.",
                             style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
                           ),
                           SizedBox(height: 16),
                           Text(
-                            "Dimensioning Modes:",
+                            "Measurements:",
                             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                           ),
                           SizedBox(height: 4),
                           Text(
-                            "• TOP ROW: Left edge of box to pipe center. (Tap 'Space' to toggle center-to-center).",
+                            "Once you complete entering your conduits and box size, calculations will display for both top and bottom rows:",
                             style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
                           ),
                           SizedBox(height: 4),
                           Text(
-                            "• BOTTOM ROW: Face of strut up to pipe center.",
+                            "• TOP ROW: Left edge of box to each pipe center. (Tap 'Space' to toggle center-to-center).",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• BOTTOM ROW: Face of strut up to each pipe center for depth.",
                             style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
                           ),
                           SizedBox(height: 16),
@@ -132,7 +167,17 @@ class _BoxLayoutModeScreenState extends State<BoxLayoutModeScreen> {
                           ),
                           SizedBox(height: 4),
                           Text(
-                            "• The app automatically suggests box sizes based on your total pipe occupancy.",
+                            "• You can start with a known box dimension, or determine the required box size based on the overall pipe edge-to-edge distance, including spacing.",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• Tap 'MR' (Memory Recall) to review up to 5 box layouts that are automatically stored in history.",
+                            style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            "• Tap 'TO THE RACK' to transfer your conduits and calculated spacing straight into Rack Builder for parallel runs.",
                             style: TextStyle(color: Colors.white70, fontSize: 17, height: 1.4),
                           ),
                           SizedBox(height: 4),
@@ -199,6 +244,22 @@ class _BoxLayoutModeScreenState extends State<BoxLayoutModeScreen> {
   }
 }
 
+class _BoxLayoutHistoryItem {
+  final List<String> pipes;
+  final String space;
+  final String boxWidth;
+  final BoxLayoutConduitType type;
+  final FittingType fitting;
+
+  _BoxLayoutHistoryItem({
+    required this.pipes,
+    required this.space,
+    required this.boxWidth,
+    required this.type,
+    required this.fitting,
+  });
+}
+
 enum BoxLayoutConduitType { emt, grc, pvc }
 enum FittingType { lock, hub, bush } // The three fitting types
 
@@ -239,22 +300,13 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
 
   Timer? _hintToggleTimer;
   void _startHintToggle() {
-    if (_hintToggleTimer != null) return;
-
-    if (mounted) {
-      setState(() {
-        _showAltMessage = false;
-      });
-    } else {
-      _showAltMessage = false;
-    }
-
-    _hintToggleTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted || !isSuccess) return;
-
-      setState(() {
-        _showAltMessage = !_showAltMessage;
-      });
+    _hintToggleTimer?.cancel();
+    _hintToggleTimer = Timer.periodic(const Duration(seconds: 7), (_) {
+      if (mounted && isSuccess) {
+        setState(() {
+          _showAltMessage = !_showAltMessage;
+        });
+      }
     });
   }
 
@@ -277,6 +329,80 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   List<String> _pipes = [];
   String _space = "";
   String _boxWidth = "";
+  String? _mrBadge;
+
+  // ===== Memory Recall History =====
+  final List<_BoxLayoutHistoryItem> _calcHistory = [];
+  int _historyIndex = -1;
+
+  void _saveCurrentToHistory() {
+    if (!isSuccess) return;
+    if (_calcHistory.isNotEmpty) {
+      final last = _calcHistory.first;
+      if (last.space == _space &&
+          last.boxWidth == _boxWidth &&
+          last.type == _type &&
+          last.fitting == _fitting &&
+          _listEquals(last.pipes, _pipes)) {
+        return;
+      }
+    }
+
+    _calcHistory.insert(
+      0,
+      _BoxLayoutHistoryItem(
+        pipes: List<String>.from(_pipes),
+        space: _space,
+        boxWidth: _boxWidth,
+        type: _type,
+        fitting: _fitting,
+      ),
+    );
+
+    if (_calcHistory.length > 5) {
+      _calcHistory.removeLast();
+    }
+    _mrBadge = "MR 1";
+  }
+
+  bool _listEquals(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  void _handleMRPress() {
+    if (_calcHistory.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("No box layouts saved in MR history yet."),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _historyIndex = (_historyIndex + 1) % _calcHistory.length;
+      final item = _calcHistory[_historyIndex];
+
+      _pipes = List<String>.from(item.pipes);
+      _space = item.space;
+      _boxWidth = item.boxWidth;
+      _type = item.type;
+      _fitting = item.fitting;
+      _activePipeIndex = -1;
+      _spacingConfirmed = true;
+      _boxWidthConfirmed = true;
+      _mrBadge = "MR ${_historyIndex + 1}";
+      _step = WorkflowStep.done;
+      _hasCompletedOnce = true;
+      _recomputeLayout();
+      _scrollToPipeOne();
+    });
+  }
 
   List<double>? _importedMarks; // ADDED
   int _activePipeIndex = -1;
@@ -340,9 +466,37 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     2.0: 3.38, 2.5: 4.25, 3.0: 5.00, 3.5: 5.56, 4.0: 6.19,
   };
 
+  late final ScrollController _pipeScrollController;
+
+  void _scrollToActivePipe() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_pipeScrollController.hasClients || _pipes.isEmpty || _activePipeIndex < 0) return;
+      const double slotW = 68.0;
+      final double targetOffset = (_activePipeIndex * slotW) - 68.0;
+      final double clampedOffset = targetOffset.clamp(0.0, _pipeScrollController.position.maxScrollExtent);
+      _pipeScrollController.animateTo(
+        clampedOffset,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _scrollToPipeOne() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_pipeScrollController.hasClients) return;
+      _pipeScrollController.animateTo(
+        0.0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
   @override
   void initState() {
     super.initState();
+    _pipeScrollController = ScrollController();
     _pulseCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1000),
@@ -400,10 +554,10 @@ else if (widget.preCalculatedCenterToCenter != null) {
 
   @override
   void dispose() {
+    _pipeScrollController.dispose();
     _pulseCtrl.dispose();
     _hintToggleTimer?.cancel();
     super.dispose();
-
   }
 
   // =====================================================
@@ -547,6 +701,13 @@ else if (widget.preCalculatedCenterToCenter != null) {
       return _fitWarning ?? _spacingWarning ??
           "An unknown error occurred.";
     }
+    if (isSuccess) {
+      final rackStart = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.first - (_pipeODs.first / 2);
+      final rackEnd = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.last + (_pipeODs.last / 2);
+      final totalPipeWidth = rackEnd - rackStart;
+      final userSpaceW = _space.trim().isNotEmpty ? '$_space"' : '0"';
+      return 'Edge-to-Edge: ${_formatToSixteenth(totalPipeWidth)}"  (Pipes + $userSpaceW Spacing)';
+    }
     if (!isSuccess) {
       if (_step == WorkflowStep.boxWidth && _boxWidth.isEmpty) {
         return "Enter total box width. Tap ✓ to confirm.";
@@ -562,15 +723,15 @@ else if (widget.preCalculatedCenterToCenter != null) {
         case WorkflowStep.fittingSelect:
           return "Select fitting type";
         case WorkflowStep.boxWidth:
-          return "Select or enter total box width";
+          return "Enter total box width";
         case WorkflowStep.pipeCount:
           return "Enter number of pipes";
         case WorkflowStep.pipeSizes:
           return "Match size to highlighted pipe";
         case WorkflowStep.spacing:
-          return "Select or enter pipe spacing";
+          return "Enter space between pipes";
         case WorkflowStep.done:
-          return "Select or enter total box width";
+          return "Enter total box width";
       }
     }
     return "Top row = left edge ➜ pipe centers.\nTap Space for center-to-center.";
@@ -578,7 +739,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
 
   String get _displayBottom {
     if (isSuccess) {
-      return "";
+      final badge = _mrBadge ?? "MR 1";
+      return 'Saved in Memory Recall ($badge)\nTO THE RACK transfers these pipes & spacing to Rack Builder';
     }
     if (_showErrorBanner) {
       return "";
@@ -591,12 +753,16 @@ else if (widget.preCalculatedCenterToCenter != null) {
         return "(tap ✓)";
       case WorkflowStep.boxWidth:
         final value = live.isNotEmpty ? live : _boxWidth;
-        return value.isNotEmpty ? '$value"  (tap ✓)' : '(tap ✓)';
+        final span = _totalSpaceText;
+        if (value.isNotEmpty) {
+          return '$value"  (tap ✓)';
+        }
+        return span.isNotEmpty ? '⬅ Pipe Edge-to-Edge: $span"  (tap ✓)' : '(tap ✓)';
       case WorkflowStep.pipeCount:
         final value = live.isNotEmpty ? live : (_pipes.isNotEmpty ? _pipes.length.toString() : "");
         return value.isNotEmpty ? '$value pipes  (tap ✓)' : '(tap ✓)';
       case WorkflowStep.pipeSizes:
-        return "(tap Space or ✓)";
+        return "(tap ✓ to confirm)";
       case WorkflowStep.spacing:
         final value = live.isNotEmpty ? live : _space;
         return value.isNotEmpty ? '$value"  (tap ✓)' : '(tap ✓)';
@@ -619,9 +785,9 @@ else if (widget.preCalculatedCenterToCenter != null) {
         final c = int.tryParse(_currentInput.trim());
         return c != null && c > 0;
       case WorkflowStep.pipeSizes:
-        return _parseInches(_currentInput) > 0;
+        return _pipes.isNotEmpty && !_pipes.contains('--');
       case WorkflowStep.spacing:
-        return _parseInches(_currentInput) >= 0; // Allow 0 spacing
+        return _currentInput.trim().isNotEmpty && _parseInches(_currentInput) >= 0; // Allow 0 spacing when typed
       case WorkflowStep.done:
         return false;
     }
@@ -728,8 +894,10 @@ else if (widget.preCalculatedCenterToCenter != null) {
                   _type = (_type == BoxLayoutConduitType.emt)
                       ? BoxLayoutConduitType.grc
                       : BoxLayoutConduitType.emt;
-                  if (_type == BoxLayoutConduitType.emt &&
-                      _fitting == FittingType.hub) {
+                  if (_type == BoxLayoutConduitType.grc && _fitting == FittingType.lock) {
+                    _fitting = FittingType.hub;
+                  }
+                  if (_type == BoxLayoutConduitType.emt && _fitting == FittingType.hub) {
                     _fitting = FittingType.lock;
                   }
                   if (_hasCompletedOnce) {
@@ -754,19 +922,15 @@ else if (widget.preCalculatedCenterToCenter != null) {
                 HapticFeedback.lightImpact();
                 setState(() {
                   if (_type == BoxLayoutConduitType.emt) {
-                    // EMT: Skip Myers Hub
+                    // EMT: Toggle between Lock and Bush
                     _fitting = (_fitting == FittingType.lock)
                         ? FittingType.bush
                         : FittingType.lock;
                   } else {
-                    // RMC: Include Myers Hub
-                    if (_fitting == FittingType.lock) {
-                      _fitting = FittingType.hub;
-                    } else if (_fitting == FittingType.hub) {
-                      _fitting = FittingType.bush;
-                    } else {
-                      _fitting = FittingType.lock;
-                    }
+                    // RMC/Rigid: Toggle between Hub and Bush
+                    _fitting = (_fitting == FittingType.hub)
+                        ? FittingType.bush
+                        : FittingType.hub;
                   }
                   if (_hasCompletedOnce) {
                     _recomputeLayout();
@@ -975,47 +1139,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
     );
   }
 
-  Widget _buildSuggestedBoxSizes() {
-    if (_step != WorkflowStep.boxWidth) return const SizedBox.shrink();
 
-    final List<int> suggestions = [6, 8, 10, 12, 18, 24];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "QUICK BOX SIZES:",
-            style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: suggestions.map((size) {
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: _BeveledButton(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      setState(() {
-                        _currentInput = size.toString();
-                        _commitInput();
-                      });
-                    },
-                    child: Text(
-                      '$size"',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildOperatorBar() {
     Widget opBtn({
@@ -1082,57 +1206,53 @@ else if (widget.preCalculatedCenterToCenter != null) {
       fontWeight: FontWeight.w700,
     );
 
-    final left = [
-      opBtn(op: '✓', child: const Text('✓', style: textStyle), onTap: () {
-        HapticFeedback.lightImpact();
-        SystemSound.play(SystemSoundType.click);
-        _onKey('✓');
-      }),
-      opBtn(op: '+', child: const Text('+', style: textStyle), onTap: () {
-        HapticFeedback.lightImpact();
-        SystemSound.play(SystemSoundType.click);
-        _onKey('+');
-      }),
-      opBtn(op: '-', child: const Text('-', style: textStyle), onTap: () {
-        HapticFeedback.lightImpact();
-        SystemSound.play(SystemSoundType.click);
-        _onKey('-');
-      }),
+    Widget emptyBtn() {
+      return opBtn(
+        op: '',
+        child: const SizedBox.shrink(),
+      );
+    }
+
+    final left = <Widget>[
+      opBtn(
+        op: '✓',
+        child: const Text('✓', style: textStyle),
+        onTap: () {
+          HapticFeedback.lightImpact();
+          SystemSound.play(SystemSoundType.click);
+          _onKey('✓');
+        },
+      ),
+      opBtn(
+        op: 'MR',
+        child: const Text('MR', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+        onTap: () {
+          HapticFeedback.lightImpact();
+          SystemSound.play(SystemSoundType.click);
+          _onKey('MR');
+        },
+      ),
+      emptyBtn(),
     ];
-    final right = [
-      opBtn(op: '×', child: const Text('×', style: textStyle), onTap: () {
-        HapticFeedback.lightImpact();
-        SystemSound.play(SystemSoundType.click);
-        _onKey('×');
-      }),
-      opBtn(op: '÷', child: const Text('÷', style: textStyle), onTap: () {
-        HapticFeedback.lightImpact();
-        SystemSound.play(SystemSoundType.click);
-        _onKey('÷');
-      }),
+    final right = <Widget>[
+      emptyBtn(),
+      opBtn(
+        op: 'C',
+        child: const Text('C', style: textStyle),
+        onTap: () {
+          HapticFeedback.lightImpact();
+          SystemSound.play(SystemSoundType.click);
+          clearCurrentField();
+        },
+      ),
       opBtn(
         op: '←',
+        child: const Icon(Icons.backspace, size: 20, color: Colors.white),
         onTap: () {
           HapticFeedback.lightImpact();
           SystemSound.play(SystemSoundType.click);
           _onKey('←');
         },
-        onLongPress: () {
-          HapticFeedback.vibrate();
-          clearAll();
-        },
-        child: const Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              '(C)',
-              style: TextStyle(
-                  height: 0.7, color: Colors.white, fontSize: 10.5),
-            ),
-            SizedBox(height: 10),
-            Icon(Icons.backspace, size: 15, color: Colors.white),
-          ],
-        ),
       ),
     ];
 
@@ -1160,44 +1280,48 @@ else if (widget.preCalculatedCenterToCenter != null) {
       return const SizedBox.shrink();
     }
 
+    final hideNumGrid = _step == WorkflowStep.pipeSizes;
+
     return Column(
       children: [
-        LayoutBuilder(
-          builder: (context, c) {
-            final contentW = c.maxWidth - (kOuterPad * 2);
-            final gridW = (contentW - kGridSpacing) / 2;
-            final numPad = <Widget>[
-              for (int i = 1; i <= 14; i++)
-                _textBtn(i.toString(), onTap: () {
+        if (!hideNumGrid) ...[
+          LayoutBuilder(
+            builder: (context, c) {
+              final contentW = c.maxWidth - (kOuterPad * 2);
+              final gridW = (contentW - kGridSpacing) / 2;
+              final numPad = <Widget>[
+                for (int i = 1; i <= 14; i++)
+                  _textBtn(i.toString(), onTap: () {
+                    HapticFeedback.lightImpact();
+                    _onKey(i.toString());
+                  }),
+                _textBtn('0', onTap: () {
                   HapticFeedback.lightImpact();
-                  _onKey(i.toString());
+                  _onKey('0');
                 }),
-              _textBtn('0', onTap: () {
-                HapticFeedback.lightImpact();
-                _onKey('0');
-              }),
-            ];
-            final fracPad = <Widget>[
-              for (final f in _fractions)
-                _textBtn(f, font: 12, onTap: () {
-                  HapticFeedback.lightImpact();
-                  _onKey(f);
-                }),
-            ];
-            return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: kOuterPad),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _gridBox(width: gridW, children: numPad),
-                  const SizedBox(width: kGridSpacing),
-                  _gridBox(width: gridW, children: fracPad),
-                ],
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 4),
+              ];
+              final fracPad = <Widget>[
+                for (final f in _fractions)
+                  _textBtn(f, font: 12, onTap: () {
+                    HapticFeedback.lightImpact();
+                    _onKey(f);
+                  }),
+              ];
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: kOuterPad),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _gridBox(width: gridW, children: numPad),
+                    const SizedBox(width: kGridSpacing),
+                    _gridBox(width: gridW, children: fracPad),
+                  ],
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 4),
+        ],
         _buildOperatorBar(),
       ],
     );
@@ -1234,22 +1358,24 @@ else if (widget.preCalculatedCenterToCenter != null) {
               final label = _pipes[i];
 
               String topLabel = "--";
-              if (_centerMarksIn.isNotEmpty && i < _centerMarksIn.length) {
-                if (_centerToCenterMode) {
-                  if (i == 0) {
-                    topLabel = "--";
-                  } else {
-                    topLabel = _formatToSixteenth(
-                        _centerMarksIn[i] - _centerMarksIn[i - 1]);
-                  }
-                } else if (_boxWidthConfirmed) {
-                  topLabel = _formatToSixteenth(_centerMarksIn[i]);
-                }
-              }
-
               String bottomLabel = "--";
-              if (i < _strutDistancesIn.length) {
-                bottomLabel = _formatToSixteenth(_strutDistancesIn[i]);
+
+              if (isSuccess) {
+                if (_centerMarksIn.isNotEmpty && i < _centerMarksIn.length) {
+                  if (_centerToCenterMode) {
+                    if (i == 0) {
+                      topLabel = "--";
+                    } else {
+                      topLabel = _formatToSixteenth(_centerMarksIn[i] - _centerMarksIn[i - 1]);
+                    }
+                  } else if (_boxWidth.trim().isNotEmpty && _parseInches(_boxWidth) > 0) {
+                    topLabel = _formatToSixteenth(_centerMarksIn[i]);
+                  }
+                }
+
+                if (i < _strutDistancesIn.length) {
+                  bottomLabel = _formatToSixteenth(_strutDistancesIn[i]);
+                }
               }
 
               final isLastPipe = i == _pipes.length - 1;
@@ -1272,6 +1398,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
                       _errorAcknowledged = true;
                     }
                     _activePipeIndex = i;
+                    _scrollToActivePipe();
                     _step = WorkflowStep.pipeSizes;
                     _currentInput = "";
                   });
@@ -1281,36 +1408,38 @@ else if (widget.preCalculatedCenterToCenter != null) {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      SizedBox(
-                        height: 20,
-                        child: Align(
-                          alignment: Alignment.bottomCenter,
-                          child: Container(
-                            width: 2,
-                            height: 16,
-                            color: const Color(0xFFD0D0D0),
+                      if (isSuccess) ...[
+                        SizedBox(
+                          height: 20,
+                          child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Container(
+                              width: 2,
+                              height: 16,
+                              color: const Color(0xFFD0D0D0),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 1),
-                      SizedBox(
-                        height: 18,
-                        child: Center(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              topLabel == "--" ? topLabel : '$topLabel"',
-                              maxLines: 1,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                        const SizedBox(height: 1),
+                        SizedBox(
+                          height: 18,
+                          child: Center(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                topLabel == "--" ? topLabel : '$topLabel"',
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
+                        const SizedBox(height: 4),
+                      ],
                       Container(
                         width: kCircleSize,
                         height: kCircleSize,
@@ -1345,36 +1474,38 @@ else if (widget.preCalculatedCenterToCenter != null) {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      SizedBox(
-                        height: 20,
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: Container(
-                            width: 2,
-                            height: 16,
-                            color: const Color(0xFFD0D0D0),
+                      if (isSuccess) ...[
+                        const SizedBox(height: 4),
+                        SizedBox(
+                          height: 20,
+                          child: Align(
+                            alignment: Alignment.topCenter,
+                            child: Container(
+                              width: 2,
+                              height: 16,
+                              color: const Color(0xFFD0D0D0),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 1),
-                      SizedBox(
-                        height: 18,
-                        child: Center(
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              bottomLabel == "--" ? bottomLabel : '$bottomLabel"',
-                              maxLines: 1,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                        const SizedBox(height: 1),
+                        SizedBox(
+                          height: 18,
+                          child: Center(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                bottomLabel == "--" ? bottomLabel : '$bottomLabel"',
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -1382,6 +1513,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
             }
 
             return SingleChildScrollView(
+              controller: _pipeScrollController,
               scrollDirection: Axis.horizontal,
               child: Container(
                 constraints: BoxConstraints(minWidth: c.maxWidth),
@@ -1408,9 +1540,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
   // =====================================================
   Widget _buildMeasurementRuler() {
     return Visibility(
-      visible: _boxWidthConfirmed && _boxWidth
-          .trim()
-          .isNotEmpty,
+      visible: isSuccess && _boxWidth.trim().isNotEmpty && _parseInches(_boxWidth) > 0,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: kOuterPad),
         child: SizedBox(
@@ -1453,10 +1583,10 @@ else if (widget.preCalculatedCenterToCenter != null) {
                       final blur = _isDanger ? (8 + 10 * glowT) : 0.0;
                       final spread = _isDanger ? (0.5 + 1.5 * glowT) : 0.0;
                       return Container(
-                        width: 86,
+                        width: 104,
                         padding: const EdgeInsets.symmetric(
-                          vertical: 8,
-                          horizontal: 6,
+                          vertical: 6,
+                          horizontal: 4,
                         ),
                         decoration: BoxDecoration(
                           color: baseColor,
@@ -1477,42 +1607,41 @@ else if (widget.preCalculatedCenterToCenter != null) {
                               : const [],
                         ),
                         child: Column(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             const Text(
                               "Total",
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 12.0,
+                                fontSize: 11.5,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
-                            Text(
-                              '$totalTxt"',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14.0,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            if (_spacingConfirmed && _space.isNotEmpty) ...[
-                              const SizedBox(height: 2),
-                              const Text(
-                                "Space Btw",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11.0,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              Text(
-                                '$_space"',
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                '$totalTxt"',
+                                maxLines: 1,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 14.0,
                                   fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                            if (_spacingConfirmed && _space.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  'Space: $_space"',
+                                  maxLines: 1,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                               ),
                             ]
@@ -1539,7 +1668,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
                     ),
                     child: isSuccess
                         ? Builder(builder: (context) {
-                      Widget buildLegendRow(String label, String startPoint, String arrow, String endPoint) {
+                      Widget buildLegendRow(String label, String startPoint, Widget arrowWidget, String endPoint) {
                         const style = TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700);
                         return FittedBox(
                           fit: BoxFit.scaleDown,
@@ -1552,7 +1681,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
                               const SizedBox(width: 4),
                               Text(startPoint, style: style),
                               const SizedBox(width: 4),
-                              Text(arrow, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)),
+                              arrowWidget,
                               const SizedBox(width: 4),
                               Text(endPoint, style: style),
                             ],
@@ -1563,18 +1692,20 @@ else if (widget.preCalculatedCenterToCenter != null) {
                       return Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          buildLegendRow("Top row", "Box edge", "➜", "pipe center"),
+                          buildLegendRow("Top row", "Box edge", const Text("➜", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900)), "pipe center"),
                           const SizedBox(height: 4),
-                          buildLegendRow("Bot row", "Strut face", "➜", "pipe center"),
+                          buildLegendRow("Bot row", "Strut face", const RotatedBox(quarterTurns: -1, child: Text("➜", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900))), "pipe center"),
                           const SizedBox(height: 6),
                           Text(
                             _showAltMessage
-                                ? "(Press and hold Space to edit spacing)"
-                                : "(Tap space again for center to center.)",
+                                ? "(Press & hold Space to edit)"
+                                : "(Tap Space for center-to-center)",
                             textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 13,
+                                fontSize: 12.5,
                                 fontWeight: FontWeight.w600),
                           ),
                         ],
@@ -1932,6 +2063,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
       }
     }
     if (isSuccess) {
+      _saveCurrentToHistory();
       _startHintToggle();
     } else {
       _stopHintToggle();
@@ -1967,6 +2099,11 @@ else if (widget.preCalculatedCenterToCenter != null) {
   }
 
   void _onKey(String label) {
+    if (label == 'MR') {
+      _handleMRPress();
+      return;
+    }
+
     if (label == '←') {
       if (_currentInput.isNotEmpty) {
         setState(() {
@@ -2060,15 +2197,16 @@ else if (widget.preCalculatedCenterToCenter != null) {
           return;
 
         case WorkflowStep.pipeSizes:
-          if (_pipes.isEmpty ||
-              _activePipeIndex < 0 ||
-              _activePipeIndex >= _pipes.length) {
+          if (_pipes.isEmpty) {
             _currentInput = "";
             return;
           }
-          final String enteredSize = takeClean(_pipes[_activePipeIndex]);
-          _pipes[_activePipeIndex] =
-          enteredSize.isEmpty ? "--" : enteredSize;
+          if (_activePipeIndex >= 0 && _activePipeIndex < _pipes.length) {
+            final String enteredSize = takeClean(_pipes[_activePipeIndex]);
+            if (enteredSize.isNotEmpty && enteredSize != "--") {
+              _pipes[_activePipeIndex] = enteredSize;
+            }
+          }
           _currentInput = "";
           _recomputeLayout();
 
@@ -2076,20 +2214,9 @@ else if (widget.preCalculatedCenterToCenter != null) {
             return;
           }
 
-          if (_hasCompletedOnce) {
-            _step = WorkflowStep.done;
-            return;
-          }
-
-          final bool wasLastPipe = _activePipeIndex == _pipes.length - 1;
-          if (wasLastPipe) {
-            _activePipeIndex = -1;
-            _step = WorkflowStep.spacing;
-            return;
-          }
-          if (_activePipeIndex < _pipes.length - 1) {
-            _activePipeIndex++;
-          }
+          _activePipeIndex = -1;
+          _step = WorkflowStep.spacing;
+          _scrollToPipeOne();
           return;
 
         case WorkflowStep.spacing:
@@ -2182,6 +2309,36 @@ else if (widget.preCalculatedCenterToCenter != null) {
     });
   }
 
+  void clearCurrentField() {
+    setState(() {
+      _currentInput = "";
+      switch (_step) {
+        case WorkflowStep.typeSelect:
+        case WorkflowStep.fittingSelect:
+        case WorkflowStep.pipeCount:
+          break;
+        case WorkflowStep.pipeSizes:
+          if (_activePipeIndex >= 0 && _activePipeIndex < _pipes.length) {
+            _pipes[_activePipeIndex] = "--";
+            _recomputeLayout();
+          }
+          break;
+        case WorkflowStep.spacing:
+          _space = "";
+          _spacingConfirmed = false;
+          _recomputeLayout();
+          break;
+        case WorkflowStep.boxWidth:
+          _boxWidth = "";
+          _boxWidthConfirmed = false;
+          _recomputeLayout();
+          break;
+        case WorkflowStep.done:
+          break;
+      }
+    });
+  }
+
   void clearAll() {
     setState(() {
       _pipes.clear();
@@ -2208,6 +2365,35 @@ else if (widget.preCalculatedCenterToCenter != null) {
     });
   }
 
+  void goBackStep() {
+    setState(() {
+      switch (_step) {
+        case WorkflowStep.typeSelect:
+          break;
+        case WorkflowStep.fittingSelect:
+          _step = WorkflowStep.typeSelect;
+          break;
+        case WorkflowStep.boxWidth:
+          _step = _pipes.isNotEmpty ? WorkflowStep.spacing : WorkflowStep.typeSelect;
+          break;
+        case WorkflowStep.pipeCount:
+          _step = WorkflowStep.typeSelect;
+          break;
+        case WorkflowStep.pipeSizes:
+          _step = WorkflowStep.pipeCount;
+          break;
+        case WorkflowStep.spacing:
+          _step = WorkflowStep.pipeSizes;
+          break;
+        case WorkflowStep.done:
+          _step = WorkflowStep.spacing;
+          _hasCompletedOnce = false;
+          break;
+      }
+      _currentInput = "";
+    });
+  }
+
   Widget _buildQuickTradeSizeBar() {
     if (_step != WorkflowStep.pipeSizes || _pipes.isEmpty) {
       return const SizedBox.shrink();
@@ -2222,144 +2408,41 @@ else if (widget.preCalculatedCenterToCenter != null) {
         child: Row(
           children: [
             for (final ts in tradeSizes) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: SizedBox(
-                      height: 38,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF333336),
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Color(0xFF8C8C8C), width: 1.1),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          setState(() {
-                            if (_activePipeIndex < 0 || _activePipeIndex >= _pipes.length) {
-                              _activePipeIndex = 0;
-                            }
-                            _pipes[_activePipeIndex] = ts;
-                            _recomputeLayout();
-                            if (_activePipeIndex < _pipes.length - 1) {
-                              _activePipeIndex++;
-                            } else {
-                              _step = WorkflowStep.spacing;
-                              _activePipeIndex = -1;
-                            }
-                          });
-                        },
-                        child: Text(
-                          '$ts"',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-    );
-  }
-
-  void _showCustomInputSheet(WorkflowStep targetStep) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E22),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        targetStep == WorkflowStep.spacing ? "Custom Spacing Input" : "Custom Box Width Input",
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: () => Navigator.pop(ctx),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  _buildFullKeypad(),
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE53935),
-                      foregroundColor: Colors.white,
-                      minimumSize: const Size(double.infinity, 44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      _onKey('✓');
-                    },
-                    child: const Text("CONFIRM CUSTOM VALUE (✓)", style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildSpacingPresetBar() {
-    if (_step != WorkflowStep.spacing) return const SizedBox.shrink();
-
-    const presets = ['1/4', '1/2', '3/4', '1', '1 1/4', '1 1/2', '1 3/4', '2', '2 1/2', '3', 'Custom...'];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 4),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            for (final p in presets) ...[
               Padding(
                 padding: const EdgeInsets.only(right: 6),
                 child: SizedBox(
                   height: 38,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: p == 'Custom...' ? const Color(0xFFE53935) : const Color(0xFF333336),
+                      backgroundColor: const Color(0xFF333336),
                       foregroundColor: Colors.white,
                       side: const BorderSide(color: Color(0xFF8C8C8C), width: 1.1),
                       padding: const EdgeInsets.symmetric(horizontal: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                     onPressed: () {
                       HapticFeedback.lightImpact();
-                      if (p == 'Custom...') {
-                        _showCustomInputSheet(WorkflowStep.spacing);
-                      } else {
-                        setState(() {
-                          _space = p;
-                          _spacingConfirmed = true;
-                          _recomputeLayout();
-                          _step = WorkflowStep.boxWidth;
-                        });
-                      }
+                      setState(() {
+                        if (_activePipeIndex < 0 || _activePipeIndex >= _pipes.length) {
+                          _activePipeIndex = 0;
+                        }
+                        _pipes[_activePipeIndex] = ts;
+                        _recomputeLayout();
+                        if (_activePipeIndex < _pipes.length - 1) {
+                          _activePipeIndex++;
+                          _scrollToActivePipe();
+                        }
+                      });
                     },
-                    child: Text(p == 'Custom...' ? p : '$p"', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                    child: Text(
+                      '$ts"',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -2370,49 +2453,49 @@ else if (widget.preCalculatedCenterToCenter != null) {
     );
   }
 
-  Widget _buildBoxWidthPresetBar() {
-    if (_step != WorkflowStep.boxWidth) return const SizedBox.shrink();
+  Widget _buildOutsideInfoBar() {
+    if (!isSuccess) return const SizedBox.shrink();
 
-    const presets = ['12', '18', '24', '30', '36', '42', '48', '60', '72', 'Custom...'];
+    final rackStart = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.first - (_pipeODs.first / 2);
+    final rackEnd = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.last + (_pipeODs.last / 2);
+    final totalPipeWidth = rackEnd - rackStart;
+    final userSpaceW = _space.trim().isNotEmpty ? '$_space"' : '0"';
+    final badge = _mrBadge ?? "MR 1";
+
+    Widget bulletRow(String text) {
+      const textStyle = TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.3);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 3.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('• ', style: textStyle),
+            Expanded(
+              child: Text(text, style: textStyle),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 4),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
+      padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 6),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF212121),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF8C8C8C), width: 1.2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            for (final p in presets) ...[
-              Padding(
-                padding: const EdgeInsets.only(right: 6),
-                child: SizedBox(
-                  height: 38,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: p == 'Custom...' ? const Color(0xFFE53935) : const Color(0xFF333336),
-                      foregroundColor: Colors.white,
-                      side: const BorderSide(color: Color(0xFF8C8C8C), width: 1.1),
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: () {
-                      HapticFeedback.lightImpact();
-                      if (p == 'Custom...') {
-                        _showCustomInputSheet(WorkflowStep.boxWidth);
-                      } else {
-                        setState(() {
-                          _boxWidth = p;
-                          _boxWidthConfirmed = true;
-                          _recomputeLayout();
-                          _step = WorkflowStep.done;
-                          _hasCompletedOnce = true;
-                        });
-                      }
-                    },
-                    child: Text(p == 'Custom...' ? p : '$p"', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-            ],
+            bulletRow('Scroll left to see all pipes.'),
+            bulletRow('Pull tape ONCE from top-left box edge to mark all pipe centers.'),
+            bulletRow('Measure from strut face or wall to pipe center for depth.'),
+            bulletRow('Edge-to-Edge: ${_formatToSixteenth(totalPipeWidth)}" ($userSpaceW space)  |  Saved in $badge'),
+            bulletRow('TO THE RACK transfers these pipes & spacing to Rack Builder.'),
           ],
         ),
       ),
@@ -2425,32 +2508,44 @@ else if (widget.preCalculatedCenterToCenter != null) {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0x88FF3B30), width: 2),
-      ),
-      clipBehavior: Clip.hardEdge,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 6),
-          _buildModeTopBar(),
-          const SizedBox(height: 6),
-          _buildFullKeypad(),
-          const SizedBox(height: 6),
-          _buildBottomScrollBar(),
-          const SizedBox(height: 4),
-          _buildQuickTradeSizeBar(),
-          const SizedBox(height: 4),
-          _buildMeasurementRuler(),
-          const SizedBox(height: 4),
-          _buildDisplayBar(),
-          const SizedBox(height: 6),
-        ],
-      ),
+    if (isSuccess && _hintToggleTimer == null) {
+      _startHintToggle();
+    } else if (!isSuccess && _hintToggleTimer != null) {
+      _stopHintToggle();
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0x88FF3B30), width: 2),
+          ),
+          clipBehavior: Clip.hardEdge,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 6),
+              _buildModeTopBar(),
+              const SizedBox(height: 6),
+              _buildFullKeypad(),
+              const SizedBox(height: 6),
+              _buildBottomScrollBar(),
+              const SizedBox(height: 4),
+              _buildQuickTradeSizeBar(),
+              const SizedBox(height: 4),
+              _buildMeasurementRuler(),
+              const SizedBox(height: 4),
+              _buildDisplayBar(),
+              const SizedBox(height: 6),
+            ],
+          ),
+        ),
+        _buildOutsideInfoBar(),
+      ],
     );
   }
 }
