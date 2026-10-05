@@ -362,7 +362,6 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
     if (_calcHistory.length > 5) {
       _calcHistory.removeLast();
     }
-    _mrBadge = "MR 1";
   }
 
   bool _listEquals(List<String> a, List<String> b) {
@@ -433,7 +432,7 @@ class _BoxLayoutModeState extends State<_BoxLayoutModeWidget>
   static const double kGridSpacing = 6;
   static const double kRadius = 6;
   static const double kButtonH = 48;
-  static const double kCircleSize = 40;
+  static const double kCircleSize = 46;
   static const int kVisibleSlots = 6;
   static const double kMinWorkableSpacingIn = 0.25;
 
@@ -589,7 +588,9 @@ else if (widget.preCalculatedCenterToCenter != null) {
   }
 
   double _clearanceIn() {
-    final boxW = _parseInches(_boxWidth);
+    final liveW = _parseInches(_currentInput);
+    final savedW = _parseInches(_boxWidth);
+    final boxW = (_step == WorkflowStep.boxWidth && liveW > 0) ? liveW : savedW;
     if (boxW <= 0) {
       return double.infinity;
     }
@@ -597,9 +598,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
     return boxW - total;
   }
 
-  bool get isError => _fitWarning != null;
-
-  bool get hasWarning => _spacingWarning != null || _autoSpacingWarning != null;
+  bool get isError => _fitWarning != null && _fitWarning!.contains("does not fit");
+  bool get hasWarning => (_fitWarning != null && !_fitWarning!.contains("does not fit")) || _spacingWarning != null || _autoSpacingWarning != null;
 
   bool get isSuccess {
     if (_step != WorkflowStep.done) {
@@ -694,12 +694,14 @@ else if (widget.preCalculatedCenterToCenter != null) {
     }
   }
 
-  bool get _showErrorBanner => (isError || _spacingWarning != null) && !_errorAcknowledged;
+  bool get _showErrorBanner => (isError || hasWarning) && !_errorAcknowledged;
 
   String get _displayTop {
     if (_showErrorBanner) {
-      return _fitWarning ?? _spacingWarning ??
-          "An unknown error occurred.";
+      if (hasWarning) {
+        return "Tight clearance (< 1/2\")";
+      }
+      return _fitWarning ?? _spacingWarning ?? "An unknown error occurred.";
     }
     if (isSuccess) {
       final rackStart = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.first - (_pipeODs.first / 2);
@@ -710,7 +712,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
     }
     if (!isSuccess) {
       if (_step == WorkflowStep.boxWidth && _boxWidth.isEmpty) {
-        return "Enter total box width. Tap ✓ to confirm.";
+        return "Enter total box width (tap ✓)";
       }
       
       if (_boxWidth.isEmpty && _step == WorkflowStep.boxWidth && _autoSpacingWarning != null) {
@@ -723,7 +725,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
         case WorkflowStep.fittingSelect:
           return "Select fitting type";
         case WorkflowStep.boxWidth:
-          return "Enter total box width";
+          return "Enter total box width (tap ✓)";
         case WorkflowStep.pipeCount:
           return "Enter number of pipes";
         case WorkflowStep.pipeSizes:
@@ -731,7 +733,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
         case WorkflowStep.spacing:
           return "Enter space between pipes";
         case WorkflowStep.done:
-          return "Enter total box width";
+          return "Enter total box width (tap ✓)";
       }
     }
     return "Top row = left edge ➜ pipe centers.\nTap Space for center-to-center.";
@@ -743,6 +745,13 @@ else if (widget.preCalculatedCenterToCenter != null) {
       return 'Saved in Memory Recall ($badge)\nTO THE RACK transfers these pipes & spacing to Rack Builder';
     }
     if (_showErrorBanner) {
+      if (hasWarning) {
+        final live = _currentInput.trim();
+        if (live.isNotEmpty) {
+          return 'New Box Size: $live"  (tap ✓)';
+        }
+        return "Increase box size, or tap ✓ to proceed";
+      }
       return "";
     }
     final live = _currentInput.trim();
@@ -753,11 +762,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
         return "(tap ✓)";
       case WorkflowStep.boxWidth:
         final value = live.isNotEmpty ? live : _boxWidth;
-        final span = _totalSpaceText;
-        if (value.isNotEmpty) {
-          return '$value"  (tap ✓)';
-        }
-        return span.isNotEmpty ? '⬅ Pipe Edge-to-Edge: $span"  (tap ✓)' : '(tap ✓)';
+        return value.isNotEmpty ? '$value"' : '';
       case WorkflowStep.pipeCount:
         final value = live.isNotEmpty ? live : (_pipes.isNotEmpty ? _pipes.length.toString() : "");
         return value.isNotEmpty ? '$value pipes  (tap ✓)' : '(tap ✓)';
@@ -1151,15 +1156,24 @@ else if (widget.preCalculatedCenterToCenter != null) {
       final isConfirm = op == '✓';
       final confirmReady = isConfirm && _canConfirm;
 
+      List<Color> gradientColors;
+      if (confirmReady) {
+        if (hasWarning) {
+          gradientColors = [const Color(0xFFFFC04D), const Color(0xFFE0A72E)];
+        } else {
+          gradientColors = [const Color(0xFF3DDC84), const Color(0xFF1E8E5A)];
+        }
+      } else {
+        gradientColors = [const Color(0xFF4E4E52), const Color(0xFF2C2C30)];
+      }
+
       return Container(
         height: kButtonH,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: confirmReady
-                ? [const Color(0xFF3DDC84), const Color(0xFF1E8E5A)]
-                : [const Color(0xFF4E4E52), const Color(0xFF2C2C30)],
+            colors: gradientColors,
           ),
           borderRadius: BorderRadius.circular(kRadius),
           border: Border.all(color: const Color(0xFF9E9E9E), width: 1.1),
@@ -1431,8 +1445,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
                                 maxLines: 1,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -1466,8 +1480,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
                                 softWrap: false,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -1498,8 +1512,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
                                 maxLines: 1,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
@@ -2007,7 +2021,9 @@ else if (widget.preCalculatedCenterToCenter != null) {
       }
     }
 
-    final boxW = _parseInches(_boxWidth);
+    final liveW = _parseInches(_currentInput);
+    final savedW = _parseInches(_boxWidth);
+    final boxW = (_step == WorkflowStep.boxWidth && liveW > 0) ? liveW : savedW;
     final rackStart = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.first - (_pipeODs.first / 2);
     final rackEnd = _centerMarksIn.isEmpty ? 0.0 : _centerMarksIn.last + (_pipeODs.last / 2);
     final totalPipeWidth = rackEnd - rackStart;
@@ -2017,8 +2033,10 @@ else if (widget.preCalculatedCenterToCenter != null) {
       final clearance = boxW - totalPipeWidth;
       if (clearance < 0) {
         _fitWarning = "Layout does not fit in the box.\nAdjust box, spacing, or remove a pipe.";
-      } else if (clearance < 1.0) {
-        _fitWarning = "Clearance is tight (< 1 inch).";
+      } else if (clearance < 0.499) {
+        _fitWarning = "Tight clearance (< 1/2\"). Tap ✓ to proceed anyway, or enter a larger box.";
+      } else {
+        _fitWarning = null;
       }
 
       // Center the whole group within boxW
@@ -2028,6 +2046,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
       for (int i = 0; i < _centerMarksIn.length; i++) {
         _centerMarksIn[i] += centerShift;
       }
+    } else {
+      _fitWarning = null;
     }
 
     // Suggested Box Width with 1.5" total safety buffer (0.75" on each side)
@@ -2103,6 +2123,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
       _handleMRPress();
       return;
     }
+
+    _mrBadge = null;
 
     if (label == '←') {
       if (_currentInput.isNotEmpty) {
@@ -2268,38 +2290,17 @@ else if (widget.preCalculatedCenterToCenter != null) {
             return;
           }
 
-          _recomputeLayout();
-
-          if (!isError && !hasWarning) {
-            // This is the key change. Instead of just going to done,
-            // we check if there are other steps to complete.
-            if (_hasCompletedOnce) {
-              _step = WorkflowStep.done;
-            } else if (_pipes.contains("--")) {
-              _step = WorkflowStep.pipeSizes;
-              // Find first "--" pipe and set it as active
-              _activePipeIndex = _pipes.indexOf("--");
-            } else if (!_spacingConfirmed) {
-              _step = WorkflowStep.spacing;
-            } else {
-              _step = WorkflowStep.done;
-              _activePipeIndex = -1;
-              _hasCompletedOnce = true;
-              if (isSuccess) {
-                _showAltMessage = false;
-
-                Future.delayed(const Duration(seconds: 5), () {
-                  if (mounted && isSuccess) {
-                    setState(() {
-                      _showAltMessage = true;
-                    });
-                  }
-                });
-              }
-            }
+          if (boxW > 0) {
+            _errorAcknowledged = true;
+            _spacingConfirmed = true;
+            _mrBadge = null;
+            _step = WorkflowStep.done;
+            _activePipeIndex = -1;
+            _hasCompletedOnce = true;
+            _recomputeLayout();
+            return;
           }
-          // If there's still an error, we stay on the boxWidth step
-          // so the user can see the error and correct it again.
+          _recomputeLayout();
           return;
 
         case WorkflowStep.done:
@@ -2315,7 +2316,11 @@ else if (widget.preCalculatedCenterToCenter != null) {
       switch (_step) {
         case WorkflowStep.typeSelect:
         case WorkflowStep.fittingSelect:
+          break;
         case WorkflowStep.pipeCount:
+          _pipes.clear();
+          _activePipeIndex = -1;
+          _recomputeLayout();
           break;
         case WorkflowStep.pipeSizes:
           if (_activePipeIndex >= 0 && _activePipeIndex < _pipes.length) {
@@ -2349,6 +2354,7 @@ else if (widget.preCalculatedCenterToCenter != null) {
       _centerToCenterMode = false;
       _spacingConfirmed = false;
       _boxWidthConfirmed = false;
+      _mrBadge = null;
       _fitWarning = null;
       _spacingWarning = null;
       _autoSpacingWarning = null;
@@ -2478,6 +2484,30 @@ else if (widget.preCalculatedCenterToCenter != null) {
       );
     }
 
+    Widget bulletRowWithAccent(String prefix, String accentText) {
+      const textStyle = TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600, height: 1.3);
+      const accentStyle = TextStyle(color: Color(0xFF3AAE75), fontSize: 13.5, fontWeight: FontWeight.w900, height: 1.3);
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 3.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('• ', style: textStyle),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(text: prefix, style: textStyle),
+                    TextSpan(text: accentText, style: accentStyle),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: kOuterPad, vertical: 6),
       child: Container(
@@ -2492,9 +2522,12 @@ else if (widget.preCalculatedCenterToCenter != null) {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             bulletRow('Scroll left to see all pipes.'),
-            bulletRow('Pull tape ONCE from top-left box edge to mark all pipe centers.'),
+            bulletRow('Measure from left edge of box to mark all pipe centers.'),
             bulletRow('Measure from strut face or wall to pipe center for depth.'),
-            bulletRow('Edge-to-Edge: ${_formatToSixteenth(totalPipeWidth)}" ($userSpaceW space)  |  Saved in $badge'),
+            bulletRowWithAccent(
+              'Edge-to-Edge: ${_formatToSixteenth(totalPipeWidth)}" ($userSpaceW space)  |  ',
+              _mrBadge != null ? "VIEWING ${_mrBadge!.toUpperCase()}" : "STORED IN $badge",
+            ),
             bulletRow('TO THE RACK transfers these pipes & spacing to Rack Builder.'),
           ],
         ),
@@ -2514,6 +2547,8 @@ else if (widget.preCalculatedCenterToCenter != null) {
       _stopHintToggle();
     }
 
+    final isMRActive = _mrBadge != null;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -2522,7 +2557,10 @@ else if (widget.preCalculatedCenterToCenter != null) {
           decoration: BoxDecoration(
             color: Colors.black,
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0x88FF3B30), width: 2),
+            border: Border.all(
+              color: isMRActive ? const Color(0xFF3AAE75) : const Color(0x88FF3B30),
+              width: isMRActive ? 2.5 : 2.0,
+            ),
           ),
           clipBehavior: Clip.hardEdge,
           child: Column(
