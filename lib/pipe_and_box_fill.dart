@@ -113,6 +113,16 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
   String? _selectedExtensionRingType; // Renamed to hold the selected type
   int _extensionRingCount = 0; // New variable for the quantity of the selected type
 
+  // --- MAIN SCREEN LAYOUT CONTROLS ---
+  // Tweak these numbers to adjust sizes and gaps live on your phone via Hot Reload!
+  final double _topDividerHeight = 16.0;    // Top divider line height / spacing
+  final double _bottomDividerHeight = 16.0; // Bottom divider line height / spacing
+  final double _pipeCircleSize = 160.0;     // Diameter of Pipe circle
+  final double _boxSquareSize = 152.0;      // Size of Box square
+  final double _visualsGap = 20.0;          // Gap between Pipe circle and Box square
+  final double _deratingLineSpacing = 8.0;  // Spacing between Derating line items
+  // -----------------------------------
+
   int _deviceCount = 0;
   int _clampCount = 0;
   int _supportFittingCount = 0;
@@ -127,6 +137,8 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
   double _voltage = 120.0;
   double _loadAmps = 0.0;
   bool _isThreePhase = false;
+  bool _isDeratingExpanded = true;
+  bool _isVoltageDropExpanded = false;
   String? _voltageDropInfoMessage;
   Timer? _voltageDropInfoTimer;
   
@@ -1099,6 +1111,8 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
       _voltage = 0.0;
       _loadAmps = 0.0;
       _isThreePhase = false;
+      _isDeratingExpanded = true;
+      _isVoltageDropExpanded = false;
       _voltageDropInfoMessage = null;
       _voltageScrollController.jumpToItem(0);
       _lengthScrollController.jumpToItem(0);
@@ -1777,46 +1791,53 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
             ),
           ],
         ),
-        body: PulsingGlowBorder(
-          animationController: _borderAnimationController,
-          shape: BoxShape.rectangle,
-          borderRadius: BorderRadius.circular(8),
-          isPulsing: false,
-          clockwise: false,
-          // You can change this to 'true' if you want it to rotate clockwise
-          sweepColors: [
-            kRed.withValues(alpha: 0.5), // Start with red
-            kLight.withValues(alpha: 0.8), // Transition to white
-            kSilver.withValues(alpha: 0.7), // Transition to silver
-            kRed.withValues(alpha: 0.5), // Fade back to red to complete the loop
-          ],
-          sweepStops: const [0.0, 0.33, 0.66, 1.0],
-          child: Container(
-            margin: const EdgeInsets.all(2.5),
-            decoration: BoxDecoration(
-                color: kBlack, borderRadius: BorderRadius.circular(6)),
-            child: Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                children: [
-                  _buildSelectorGrid(),
-                  const Divider(color: Colors.white24, height: 24),
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildVisualsColumn(results),
-                        _buildDeratingData(results),
-                      ],
-                    ),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+            child: PulsingGlowBorder(
+              animationController: _borderAnimationController,
+              shape: BoxShape.rectangle,
+              borderRadius: BorderRadius.circular(8),
+              isPulsing: false,
+              clockwise: false,
+              sweepColors: [
+                kRed.withValues(alpha: 0.5),
+                kLight.withValues(alpha: 0.8),
+                kSilver.withValues(alpha: 0.7),
+                kRed.withValues(alpha: 0.5),
+              ],
+              sweepStops: const [0.0, 0.33, 0.66, 1.0],
+              child: Container(
+                margin: const EdgeInsets.all(2.5),
+                decoration: BoxDecoration(
+                    color: kBlack, borderRadius: BorderRadius.circular(6)),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Column(
+                    children: [
+                      _buildSelectorGrid(),
+                      Divider(color: Colors.white24, height: _topDividerHeight),
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildVisualsColumn(results),
+                            const SizedBox(width: 8),
+                            _buildDeratingData(results),
+                          ],
+                        ),
+                      ),
+                      Divider(color: Colors.white24, height: _bottomDividerHeight),
+                      _buildResetAndSteppersWithCcOverlay(),
+                      const SizedBox(height: 6),
+                      _buildInfoBar(),
+                    ],
                   ),
-                  _buildResetAndSteppersWithCcOverlay(),
-                  _buildInfoBar(),
-                ],
+                ),
               ),
             ),
           ),
-        ) // NOTE: No 'body:' prefix here, and this should be followed by a comma ',' in your Scaffold.
+        ), // NOTE: No 'body:' prefix here, and this should be followed by a comma ',' in your Scaffold.
     );
   }
 
@@ -2119,21 +2140,30 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
 
   Widget _buildVisualsColumn(Map<String, dynamic> results) {
     return Expanded(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _buildPipeVisual(results),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final double maxH = constraints.maxHeight;
+          final double pipeSize = maxH > 0
+              ? ((maxH - _visualsGap - 12.0) / 2).clamp(100.0, _pipeCircleSize)
+              : _pipeCircleSize;
+          final double boxSize = pipeSize * (_boxSquareSize / _pipeCircleSize);
 
-          // 👇 This stops the yellow overflow flash during the shrink animation
-          ClipRect(
-            child: _buildBoxVisual(results),
-          ),
-        ],
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              _buildPipeVisual(results, size: pipeSize),
+              SizedBox(height: _visualsGap),
+              ClipRect(
+                child: _buildBoxVisual(results, size: boxSize),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Widget _buildPipeVisual(Map<String, dynamic> results) {
+  Widget _buildPipeVisual(Map<String, dynamic> results, {double size = 180.0}) {
     final bool isReady = results['isReady'] ?? false;
     final double conduitFill = results['conduitFillPercent'] ?? 0.0;
     final bool isConduitViolation = results['isConduitFillViolation'] ?? false;
@@ -2145,55 +2175,60 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
         .map((w) => '${w.size}-${w.insulation}')
         .toSet();
     final bool showMaxWires = wireTypes.length <= 1;
-    // NEW: shouldGlowPipe logic: only glows if in free state, NOT interacted with, AND there's a pipe size or wires to make it meaningful.
     final bool canPipeGlowMeaningfully = (_activePipe.size != null &&
         _pipes.any((p) => p.wires.isNotEmpty));
     final bool shouldGlowPipe = _currentStep == CalculatorStep.free &&
         !_hasInteractedWithPipeOrBoxInFreeState && canPipeGlowMeaningfully;
 
+    final double innerDim = (size - 10.0).clamp(110.0, 170.0);
 
     final pipeContent = Container(
-      width: 170,
-      height: 170,
+      width: innerDim,
+      height: innerDim,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.grey[800],
         border: shouldGlowPipe ? null : Border.all(
-
             color: conduitStatusColor, width: 8),
       ),
       child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(_activePipe.size != null ? "(${_activePipeIndex + 1}) ${_activePipe.size}\"" : "Pipe", style: const TextStyle(
-                color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
-            const SizedBox(height: 4),
-            Text(
-              !isReady || _activePipe.size == null
-                  ? "-- Wires\n--% Fill"
-                  : "${_activePipe.wires.length} Wires\n${conduitFill
-                  .toStringAsFixed(1)}% Fill",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontWeight: FontWeight.w700,
-                  color: isConduitViolation ? kRed : kLight,
-                  fontSize: 18),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Padding(
+            padding: const EdgeInsets.all(4.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(_activePipe.size != null ? "(${_activePipeIndex + 1}) ${_activePipe.size}\"" : "Pipe", style: const TextStyle(
+                    color: kLight, fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 2),
+                Text(
+                  !isReady || _activePipe.size == null
+                      ? "-- Wires\n--% Fill"
+                      : "${_activePipe.wires.length} Wires\n${conduitFill
+                      .toStringAsFixed(1)}% Fill",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontWeight: FontWeight.w700,
+                      color: isConduitViolation ? kRed : kLight,
+                      fontSize: 16),
+                ),
+                if (isReady && showMaxWires && maxWires > 0) ...[
+                  const SizedBox(height: 4),
+                  Text("Max Wires: $maxWires", style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic)),
+                ]
+              ],
             ),
-            if (isReady && showMaxWires && maxWires > 0) ...[
-              const SizedBox(height: 8),
-              Text("Max Wires: $maxWires", style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontStyle: FontStyle.italic)),
-            ]
-          ],
+          ),
         ),
       ),
     );
 
     return SizedBox(
-      width: 180,
-      height: 180,
+      width: size,
+      height: size,
       child: GestureDetector(
         onTap: () {
           HapticFeedback.mediumImpact();
@@ -2238,7 +2273,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
     );
   }
 
-  Widget _buildBoxVisual(Map<String, dynamic> results) {
+  Widget _buildBoxVisual(Map<String, dynamic> results, {double size = 180.0}) {
     final bool isReady = results['isReady'] ?? false;
     final double boxFill = results['boxFillPercent'] ?? 0.0;
     final bool isBoxViolation = results['isBoxFillViolation'] ?? false;
@@ -2255,84 +2290,76 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
     final wireTypes = _allWires.map((w) => '${w.size}-${w.insulation}').toSet();
     final bool showMaxBoxWires = wireTypes.length <= 1 || _allWires.isEmpty;
 
-    // NEW: shouldGlowBox logic: only glows if in free state, NOT interacted with, AND a box is selected (or pipes exist)
     final bool canBoxGlowMeaningfully = (_selectedBoxSize != null ||
         _pipes.any((p) => p.wires.isNotEmpty));
     final bool shouldGlowBox = _currentStep == CalculatorStep.free &&
         !_hasInteractedWithPipeOrBoxInFreeState && canBoxGlowMeaningfully;
 
-    final boxContent = LayoutBuilder(
-      builder: (context, constraints) {
-        // During Hero reverse-flight, constraints can temporarily be smaller than 170.
-        final maxW = constraints.hasBoundedWidth ? constraints.maxWidth : 170.0;
-        final maxH = constraints.hasBoundedHeight ? constraints.maxHeight : 170.0;
-        final dim = math.min(170.0, math.min(maxW, maxH));
+    final double dim = (size - 10.0).clamp(110.0, 170.0);
 
-        return SizedBox(
-          width: dim,
-          height: dim,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12.0),
-              color: Colors.grey[800],
-              border: shouldGlowBox
-                  ? null
-                  : Border.all(
-                color: boxStatusColor,
-                width: 2.0,
-              ),
-            ),
-            child: Center(
-              child: ClipRect(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.center,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          _selectedBoxSize ?? "Box",
-                          style: const TextStyle(
-                            color: kLight,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 20,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          !isReady || _selectedBoxSize == null
-                              ? "-- Wires\n--% Fill"
-                              : "$boxWireAllowanceCount Wires\n${boxFill.toStringAsFixed(1)}% Fill",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: isBoxViolation ? kRed : kLight,
-                            fontSize: 18,
-                          ),
-                        ),
-                        if (isReady && showMaxBoxWires && maxBoxWires > 0) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            "Max Wires: $maxBoxWires",
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      ],
+    final boxContent = SizedBox(
+      width: dim,
+      height: dim,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12.0),
+          color: Colors.grey[800],
+          border: shouldGlowBox
+              ? null
+              : Border.all(
+            color: boxStatusColor,
+            width: 2.0,
+          ),
+        ),
+        child: Center(
+          child: ClipRect(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.center,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _selectedBoxSize ?? "Box",
+                      style: const TextStyle(
+                        color: kLight,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
                     ),
-                  ),
+                    const SizedBox(height: 2),
+                    Text(
+                      !isReady || _selectedBoxSize == null
+                          ? "-- Wires\n--% Fill"
+                          : "$boxWireAllowanceCount Wires\n${boxFill.toStringAsFixed(1)}% Fill",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: isBoxViolation ? kRed : kLight,
+                        fontSize: 16,
+                      ),
+                    ),
+                    if (isReady && showMaxBoxWires && maxBoxWires > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        "Max Wires: $maxBoxWires",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
 
     return GestureDetector(
@@ -2426,7 +2453,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
           animation: _infoBarBorderColorAnimation,
           builder: (context, child) {
             return Container(
-              height: 40,
+              height: 48,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: const Color(0xFF2C3030),
@@ -2473,150 +2500,260 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
 
     return Expanded(
       child: Container(
-        margin: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-        padding: const EdgeInsets.all(8.0),
+        margin: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
         decoration: BoxDecoration(
             color: const Color.fromRGBO(0, 0, 0, 0.75),
             borderRadius: BorderRadius.circular(6.0),
             border: Border.all(color: Colors.white54)),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 4),
-            Text("Derating", style: Theme
-                .of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
-            const SizedBox(height: 8),
-            _StyledDropdown(
-              value: _selectedAmbientTempKey,
-              hint: "Ambient Temp °F",
-              items: ConduitDB.temperatureCorrectionFactors["90C"]!.keys
-                  .map((s) {
-                return DropdownMenuItem(value: s, child: Text(s));
-              }).toList(),
-              onChanged: (v) {
-                HapticFeedback.mediumImpact();
-                setState(() {
-                  _selectedAmbientTempKey = v;
-                  _advanceToNextIncompleteStep();
-                });
-              },
-              isActive: _currentStep == CalculatorStep.ambientTemp,
-              isEnabled: _currentStep == CalculatorStep.ambientTemp ||
-                  _currentStep == CalculatorStep.free ||
-                  _isInitialSetupComplete,
-            ),
-            const SizedBox(height: 10),
-            Text("Starting Ampacity: ${isReady ? startingAmpacity : '--'}A",
-                style: const TextStyle(color: kLight, fontSize: 14)),
-            const SizedBox(height: 6),
-            Text("Temp Factor: ${isReady ? (tempCorrectionFactor * 100).toStringAsFixed(0) : '--'}%",
-                style: const TextStyle(color: kLight, fontSize: 14)),
-            const SizedBox(height: 6),
-            Text("Bundle Factor: ${isReady ? (adjustmentFactor * 100).toStringAsFixed(0) : '--'}%",
-                style: const TextStyle(color: kLight, fontSize: 14)),
-            const SizedBox(height: 6),
-            Text("New Ampacity: ${isReady ? newAmpacity.toStringAsFixed(1) : '--'}A",
-                style: const TextStyle(color: kLight, fontSize: 14)),
-            const SizedBox(height: 12),
-            Text(
-              "Final Breaker Size:\n${isReady ? finalBreakerSize : '--'}A",
-              textAlign: TextAlign.left,
-              style: TextStyle(
-                color: hasCalculationRun ? (finalBreakerSize == 0 ? kRed : Colors.green) : kLight,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // --- DERATING SECTION HEADER (TAPPABLE) ---
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  setState(() {
+                    _isDeratingExpanded = !_isDeratingExpanded;
+                    if (_isDeratingExpanded) {
+                      _isVoltageDropExpanded = false;
+                    }
+                  });
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Text("Derating", style: Theme
+                            .of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
+                        const SizedBox(width: 4),
+                        Icon(
+                          _isDeratingExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          color: kLight,
+                          size: 24,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              "Required Ground:\n${isReady ? groundWireSize : 'N/A'}",
-              textAlign: TextAlign.left,
-              style: TextStyle(
-                color: hasCalculationRun ? Colors.green : kLight,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const Divider(color: Colors.white24, height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text("Voltage Drop", style: Theme
-                    .of(context)
-                    .textTheme
-                    .titleLarge
-                    ?.copyWith(color: kLight, fontWeight: FontWeight.bold, fontSize: 20)),
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.lightImpact();
-                    setState(() => _isThreePhase = !_isThreePhase);
+
+              if (_isDeratingExpanded) ...[
+                const SizedBox(height: 8),
+                _StyledDropdown(
+                  value: _selectedAmbientTempKey,
+                  hint: "Ambient Temp °F",
+                  items: ConduitDB.temperatureCorrectionFactors["90C"]!.keys
+                      .map((s) {
+                    return DropdownMenuItem(value: s, child: Text(s));
+                  }).toList(),
+                  onChanged: (v) {
+                    HapticFeedback.mediumImpact();
+                    setState(() {
+                      _selectedAmbientTempKey = v;
+                      _advanceToNextIncompleteStep();
+                    });
                   },
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: _isThreePhase ? const Color(0xFFE53935) : Colors.grey[850],
-                      shape: BoxShape.circle,
-                      border: Border.all(color: kSilver.withAlpha(150), width: 1.5),
+                  isActive: _currentStep == CalculatorStep.ambientTemp,
+                  isEnabled: _currentStep == CalculatorStep.ambientTemp ||
+                      _currentStep == CalculatorStep.free ||
+                      _isInitialSetupComplete,
+                ),
+                SizedBox(height: _deratingLineSpacing),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text("Starting Ampacity: ${isReady ? startingAmpacity : '--'}A",
+                      style: const TextStyle(color: kLight, fontSize: 15, fontWeight: FontWeight.w600), maxLines: 1),
+                ),
+                SizedBox(height: _deratingLineSpacing),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text("Temp Factor: ${isReady ? (tempCorrectionFactor * 100).toStringAsFixed(0) : '--'}%",
+                      style: const TextStyle(color: kLight, fontSize: 15, fontWeight: FontWeight.w600), maxLines: 1),
+                ),
+                SizedBox(height: _deratingLineSpacing),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text("Bundle Factor: ${isReady ? (adjustmentFactor * 100).toStringAsFixed(0) : '--'}%",
+                      style: const TextStyle(color: kLight, fontSize: 15, fontWeight: FontWeight.w600), maxLines: 1),
+                ),
+                SizedBox(height: _deratingLineSpacing),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text("New Ampacity: ${isReady ? newAmpacity.toStringAsFixed(1) : '--'}A",
+                      style: const TextStyle(color: kLight, fontSize: 15, fontWeight: FontWeight.w600), maxLines: 1),
+                ),
+                SizedBox(height: _deratingLineSpacing + 2.0),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Final Breaker: ${isReady ? finalBreakerSize : '--'}A",
+                    textAlign: TextAlign.left,
+                    style: TextStyle(
+                      color: hasCalculationRun ? (finalBreakerSize == 0 ? kRed : Colors.green) : kLight,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
-                    child: Center(
-                      child: Text(
-                        _isThreePhase ? "3Ø" : "1Ø",
-                        style: const TextStyle(color: kLight, fontSize: 12, fontWeight: FontWeight.w900),
-                      ),
+                    maxLines: 1,
+                  ),
+                ),
+                SizedBox(height: _deratingLineSpacing),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Required Ground: ${isReady ? groundWireSize : 'N/A'}",
+                    textAlign: TextAlign.left,
+                    style: TextStyle(
+                      color: hasCalculationRun ? Colors.green : kLight,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
                     ),
+                    maxLines: 1,
+                  ),
+                ),
+              ] else ...[
+                // Collapsed Derating summary
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "Breaker: ${isReady ? finalBreakerSize : '--'}A  |  Ground: ${isReady ? groundWireSize : 'N/A'}",
+                    style: TextStyle(
+                      color: hasCalculationRun ? Colors.green : kLight,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    maxLines: 1,
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "${voltageDrop.toStringAsFixed(1)}V (${voltageDropPercent.toStringAsFixed(1)}%)",
-              style: TextStyle(
-                color: isVoltageDropViolation ? kRed : Colors.green,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+
+              const Divider(color: Colors.white24, height: 16),
+
+              // --- VOLTAGE DROP SECTION HEADER (TAPPABLE) ---
+              GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  setState(() {
+                    _isVoltageDropExpanded = !_isVoltageDropExpanded;
+                    if (_isVoltageDropExpanded) {
+                      _isDeratingExpanded = false;
+                    }
+                  });
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Text("Voltage Drop", style: Theme
+                            .of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(color: kLight, fontWeight: FontWeight.bold, fontSize: 18)),
+                        const SizedBox(width: 2),
+                        Icon(
+                          _isVoltageDropExpanded
+                              ? Icons.keyboard_arrow_up
+                              : Icons.keyboard_arrow_down,
+                          color: kLight,
+                          size: 24,
+                        ),
+                      ],
+                    ),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        setState(() => _isThreePhase = !_isThreePhase);
+                      },
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: _isThreePhase ? const Color(0xFFE53935) : Colors.grey[850],
+                          shape: BoxShape.circle,
+                          border: Border.all(color: kSilver.withAlpha(150), width: 1.5),
+                        ),
+                        child: Center(
+                          child: Text(
+                            _isThreePhase ? "3Ø" : "1Ø",
+                            style: const TextStyle(color: kLight, fontSize: 12, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const Spacer(),
-            _buildInlineDial(
-              label: "Voltage",
-              unit: "Volts",
-              controller: _voltageScrollController,
-              items: ["120", "208", "240", "277", "480"],
-              onChanged: (val) {
-                final list = [120.0, 208.0, 240.0, 277.0, 480.0];
-                setState(() => _voltage = list[val]);
-                _showVoltageDropScrollHint();
-              },
-            ),
-            const SizedBox(height: 4),
-            _buildInlineDial(
-              label: "Length",
-              unit: "ft",
-              controller: _lengthScrollController,
-              items: List.generate(101, (i) => (i * 5).toString()), // 0 to 500
-              onChanged: (val) {
-                setState(() => _length = val.toDouble() * 5);
-                _showVoltageDropScrollHint();
-              },
-            ),
-            const SizedBox(height: 4),
-            _buildInlineDial(
-              label: "Load",
-              unit: "Amps",
-              controller: _loadScrollController,
-              items: List.generate(201, (i) => i == 0 ? "Auto" : i.toString()),
-              onChanged: (val) {
-                setState(() => _loadAmps = val.toDouble());
-                _showVoltageDropScrollHint();
-              },
-            ),
-            const SizedBox(height: 2),
-          ],
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  "${voltageDrop.toStringAsFixed(1)}V (${voltageDropPercent.toStringAsFixed(1)}%)",
+                  style: TextStyle(
+                    color: isVoltageDropViolation ? kRed : Colors.green,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                ),
+              ),
+              if (_isVoltageDropExpanded) ...[
+                const SizedBox(height: 12),
+                _buildInlineDial(
+                  label: "Voltage",
+                  unit: "Volts",
+                  controller: _voltageScrollController,
+                  items: ["120", "208", "240", "277", "480"],
+                  onChanged: (val) {
+                    final list = [120.0, 208.0, 240.0, 277.0, 480.0];
+                    setState(() => _voltage = list[val]);
+                    _showVoltageDropScrollHint();
+                  },
+                ),
+                const SizedBox(height: 10),
+                _buildInlineDial(
+                  label: "Length",
+                  unit: "ft",
+                  controller: _lengthScrollController,
+                  items: List.generate(101, (i) => (i * 5).toString()),
+                  onChanged: (val) {
+                    setState(() => _length = val.toDouble() * 5);
+                    _showVoltageDropScrollHint();
+                  },
+                ),
+                const SizedBox(height: 10),
+                _buildInlineDial(
+                  label: "Load",
+                  unit: "Amps",
+                  controller: _loadScrollController,
+                  items: List.generate(201, (i) => i == 0 ? "Auto" : i.toString()),
+                  onChanged: (val) {
+                    setState(() => _loadAmps = val.toDouble());
+                    _showVoltageDropScrollHint();
+                  },
+                ),
+              ],
+              const SizedBox(height: 4),
+            ],
+          ),
         ),
       ),
     );
@@ -2632,7 +2769,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
     return GestureDetector(
       onTap: _showVoltageDropScrollHint,
       child: Container(
-        height: 50,
+        height: 68,
         decoration: BoxDecoration(
           color: const Color(0xFF1A1A1A),
           borderRadius: BorderRadius.circular(8),
@@ -2738,19 +2875,19 @@ class _PipeUIDetailViewState extends State<_PipeUIDetailView>
   // Adjust these numbers to move groups up and down within the circle.
   
   // 1. PUSH ALL GROUPS DOWN: Increase to move everything away from the top arc.
-  final double _pushEverythingDownFactor = 0.25;
+  final double _pushEverythingDownFactor = 0.24;
 
   // 2. TOP SECTION GAP: Space between the Pipe Info and the Top Line.
-  final double _gapInsideTopSection = 10.0;
+  final double _gapInsideTopSection = 8.0;
 
   // 3. MIDDLE GAP: Space between the Top Line and the Wire Summary wheel.
-  final double _gapAboveMiddleSection = 10.0;
+  final double _gapAboveMiddleSection = 8.0;
 
   // 4. BOTTOM GAP: Space between the Summary wheel and the Bottom Line.
-  final double _gapAboveBottomSection = 30.0;
+  final double _gapAboveBottomSection = 25.0;
 
   // 5. FOOTER GAP: Space between the Bottom Line and the Conduit Fill text.
-  final double _gapInsideBottomSection = 25.0;
+  final double _gapInsideBottomSection = 16.0;
   // -------------------------------------
 
   final PageController _wireSummaryPageController = PageController(
@@ -5443,7 +5580,7 @@ class _WireStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 44,
+      height: 52,
       decoration: BoxDecoration(
         color: const Color(0xFF2C3030),
         borderRadius: BorderRadius.circular(6),
