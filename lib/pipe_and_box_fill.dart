@@ -4619,7 +4619,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
                       maxHeight: MediaQuery
                           .of(context)
                           .size
-                          .height * 0.86,
+                          .height * 0.76,
                       maxWidth: 560, // optional: keeps it from getting too wide on tablets
                     ),
                     child: Column(
@@ -4627,7 +4627,7 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
                         // SCROLLING CONTENT (everything except Done)
                         Expanded(
                           child: SingleChildScrollView(
-                            padding: const EdgeInsets.all(16.0),
+                            padding: const EdgeInsets.all(12.0),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
