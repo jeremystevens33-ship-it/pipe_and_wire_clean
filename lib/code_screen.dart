@@ -7,8 +7,11 @@ import 'code_sections/voltage_drop_code_screen.dart';
 import 'code_sections/junction_box_sizing_code_screen.dart';
 import 'code_sections/box_fill_basics_code_screen.dart';
 import 'code_sections/strapping_support_code_screen.dart';
+import 'code_sections/emt_code_screen.dart';
+import 'code_sections/rigid_metal_conduit_code_screen.dart';
 import 'code_sections/burial_depth_code_screen.dart';
 import 'code_sections/grounding_bonding_code_screen.dart';
+import 'code_sections/grounding_bonding_quick_sheet_code_screen.dart';
 import 'code_sections/grounding_conductor_sizing_code_screen.dart';
 import 'code_sections/grounding_electrode_conductor_code_screen.dart';
 import 'code_sections/equipment_bonding_code_screen.dart';
@@ -119,7 +122,7 @@ class _CodeScreenState extends State<CodeScreen> {
                 controller: _conductorsCtrl,
                 onOpened: () => _openOnly(_conductorsCtrl),
                 title: 'Conductors & Ampacity',
-                subtitle: 'Derating, CCC, temperature, 125% rule',
+                subtitle: 'Derating, temperature, current-carrying conductors',
                 children: [
                   _TopicRow(
                     title: 'Ampacity Derating',
@@ -155,6 +158,16 @@ class _CodeScreenState extends State<CodeScreen> {
                     title: 'Burial Depth Quick Reference',
                     codeHint: '300.5',
                     onTap: () => _go(const BurialDepthCodeScreen()),
+                  ),
+                  _TopicRow(
+                    title: 'EMT: Common Questions',
+                    codeHint: '358',
+                    onTap: () => _go(const EmtCodeScreen()),
+                  ),
+                  _TopicRow(
+                    title: 'Rigid Metal Conduit: Common Questions',
+                    codeHint: '344',
+                    onTap: () => _go(const RigidMetalConduitCodeScreen()),
                   ),
                 ],
               ),
@@ -218,6 +231,11 @@ class _CodeScreenState extends State<CodeScreen> {
                 subtitle: 'EGC, GEC, bonding, electrodes',
                 children: [
 
+                  _TopicRow(
+                    title: 'Grounding & Bonding Quick Reference',
+                    codeHint: '2023 NEC / Article 250',
+                    onTap: () => _go(const GroundingBondingQuickSheetCodeScreen()),
+                  ),
                   _TopicRow(
                     title: 'Neutral-Ground Bond Location',
                     codeHint: '250.24 / 250.30',

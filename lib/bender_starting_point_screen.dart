@@ -1723,7 +1723,6 @@ class _BenderStartingPointScreenState extends State<BenderStartingPointScreen> w
       ),
     );
   }
-  }
 
   Widget _buildInfoBar() {
     String message;

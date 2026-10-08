@@ -4,6 +4,28 @@ Updated 2026-09-29. User-led Android/iPhone walkthroughs; fix one observed issue
 at a time. Preserve calculations, accepted photography and the app's visual style.
 Historical screen notes: [SCREEN_VIEWABILITY_HANDOFF.md](SCREEN_VIEWABILITY_HANDOFF.md).
 
+## SDK alignment — 2026-09-30
+
+- PC SDK at C:\src\flutter now pinned to official stable release tag 3.47.5,
+  revision 6a19cca564, Dart 3.13.4, matching the reported Mac installation.
+  `flutter --version` says channel [user-branch] because the exact tag is pinned.
+- Previous SDK revision retained on SDK branch backup/pc-before-3.47.5.
+- Backed up the PC's older generated pubspec.lock in the user's Temp directory
+  as pipe-and-wire-pubspec-before-sdk-sync-20260930.lock, restored the shared
+  committed lockfile, then successfully ran flutter pub get. Lockfile is now clean.
+- Project analysis completed: errors are in the two box_fill_test files referencing
+  unavailable classes/testing APIs.
+- Android build repair: Gradle 8.14.3, AGP 8.11.1 and Kotlin 2.2.20 meet this
+  Flutter release's minimum checks. Future-version deprecation warnings remain.
+  Removed the tracked Windows-only org.gradle.java.home path. PC Flutter now
+  uses Java 21 at C:/src/java21/jdk-21.0.12.1+1 (machine-local flutter config),
+  because Android Studio2 bundles Java 25, incompatible with Gradle 8.14.3.
+- Verified `flutter build apk --debug` succeeds on 2026-09-30; output is
+  build/app/outputs/flutter-apk/app-debug.apk. Physical-phone walkthrough pending.
+- Keep both SDKs on this same release; coordinate future upgrades. No Android
+  Studio update was needed. Existing local bender_starting_point_screen.dart
+  brace correction remains preserved and uncommitted.
+
 ## Baseline
 
 ## Priority and responsibility — 2026-09-29

@@ -1,157 +1,120 @@
 import 'package:flutter/material.dart';
 import 'code_topic_screen.dart';
 
-import 'grounding_bonding_code_screen.dart';
-import 'grounding_conductor_sizing_code_screen.dart';
-
 class GroundingBondingQuickSheetCodeScreen extends StatelessWidget {
   const GroundingBondingQuickSheetCodeScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final topic = CodeTopic(
+    const topic = CodeTopic(
       id: 'grounding_bonding_quick_sheet',
-
-      title: 'Grounding & Bonding Quick Sheet',
-
-      shortAnswer:
-      'Neutral and ground are bonded once per system to create a low-impedance fault return path back to the source so overcurrent devices trip fast. The grounding electrode system references the system to earth for stabilization and surges.',
-
-      corePoints: const [
-        'The neutral is the grounded return conductor created at the source (utility transformer or SDS transformer XO).',
-        'Bonding ties metal enclosures/raceways/EGC to that source return path so faults clear fast.',
-        'Bond only once per system (service = MBJ, transformer SDS = SBJ). Bonding twice creates objectionable current.',
-        'Use the master table below to remember what each conductor/jumper is and what sizing is based on.',
-      ],
-
-      expandSections: const [
-        CodeExpandSection(
-          heading: 'Master Routing Table (What / Where / Sized From)',
-          bullets: [
-            'MBJ — Main Bonding Jumper',
-            '• Where: Service disconnect (service equipment)',
-            '• Purpose: Neutral ↔ enclosure/EGC system (single bond point for service)',
-            '• Size based on: Largest ungrounded service conductors (per phase)',
-            '• Ref: 250.28, 250.102(C)(1)',
-            '',
-            'SBJ — System Bonding Jumper (SDS transformer/generator)',
-            '• Where: Transformer XO (or first disconnect of SDS — not both)',
-            '• Purpose: Derived neutral (XO) ↔ enclosure/EGC system (single bond point for SDS)',
-            '• Size based on: Largest ungrounded derived conductors (per phase)',
-            '• Ref: 250.30, 250.102(C)(1)',
-            '',
-            'SSBJ — Supply-Side Bonding Jumper',
-            '• Where: Supply side of service equipment / line side (meter → disconnect, or transformer → first disconnect)',
-            '• Purpose: Bonds metal on the supply side back to the bond point so faults clear',
-            '• Size based on: Largest ungrounded conductors on that supply side',
-            '• Ref: 250.102(C)',
-            '',
-            'EGC — Equipment Grounding Conductor',
-            '• Where: Load side (branch/feeder equipment grounds; boxes; raceways)',
-            '• Purpose: Fault return path to trip the breaker fast',
-            '• Size based on: OCPD rating (breaker/fuse)',
-            '• Ref: 250.122, 250.118',
-            '',
-            'GEC — Grounding Electrode Conductor',
-            '• Where: Service disconnect / SDS bond point → grounding electrodes',
-            '• Purpose: Connects the system to the grounding electrode system (earth reference/surge)',
-            '• Size based on: Largest ungrounded service conductors (per phase), with electrode-type caps',
-            '• Ref: 250.66, 250.50–250.53',
-          ],
-        ),
-
-        CodeExpandSection(
-          heading: 'Quick “Why” (Two jobs)',
-          bullets: [
-            '1) Fault clearing: A hot-to-metal fault needs a low-impedance path back to the source. Bonding makes the metal part of that return path so the breaker trips fast.',
-            '2) Earth reference/surges: The electrode system helps stabilize voltage to earth and dissipate lightning/surge energy. Earth is not the normal fault-clearing path.',
-          ],
-        ),
-
-        CodeExpandSection(
-          heading: 'Common gotchas (remember these)',
-          bullets: [
-            'Do NOT bond neutral and ground again downstream of the bond point (subpanels keep neutrals isolated).',
-            'SDS transformer: bond at XO or at first disconnect — not both.',
-            'EGC is sized from breaker; MBJ/SBJ/SSBJ are sized from ungrounded conductor size.',
-            'GEC sizing can have caps depending on electrode type (rods, Ufer, ground ring).',
-          ],
-        ),
-        CodeExpandSection(
-          heading: 'Grounding & Bonding Quick Reference',
-          bullets: [
-
-            'MBJ — Main Bonding Jumper',
-            'Location: Service disconnect',
-            'Purpose: Connects neutral to equipment grounding system',
-            'Sized From: Largest ungrounded service conductor',
-            'NEC: 250.102(C)(1)',
-
-            '',
-
-            'SBJ — System Bonding Jumper',
-            'Location: Transformer XO or first disconnect',
-            'Purpose: Bonds derived neutral to equipment grounding system',
-            'Sized From: Largest ungrounded derived conductor',
-            'NEC: 250.102(C)(1)',
-
-            '',
-
-            'SSBJ — Supply-Side Bonding Jumper',
-            'Location: Supply side of service equipment',
-            'Purpose: Bonds raceways and enclosures before OCPD',
-            'Sized From: Largest ungrounded conductor',
-            'NEC: 250.102(C)',
-
-            '',
-
-            'EGC — Equipment Grounding Conductor',
-            'Location: Branch circuits and feeders',
-            'Purpose: Provides low-impedance fault return path',
-            'Sized From: Breaker or fuse rating',
-            'NEC: 250.122',
-
-            '',
-
-            'GEC — Grounding Electrode Conductor',
-            'Location: Service disconnect or SDS bond point to electrodes',
-            'Purpose: Connects system to grounding electrode system',
-            'Sized From: Largest service conductor',
-            'NEC: 250.66',
-          ],
-        ),
-      ],
-
-      codeRefs: const [
-        'NEC 250.6',
-        'NEC 250.24',
-        'NEC 250.28',
-        'NEC 250.30',
-        'NEC 250.50',
-        'NEC 250.66',
-        'NEC 250.102(C)',
-        'NEC 250.122',
-        'NEC 250.118',
-      ],
-
-      branchLinks: [
-        CodeBranchLink(
-          label: 'Neutral–Ground Bond Location (MBJ vs SBJ)',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const GroundingBondingCodeScreen()),
-          ),
-        ),
-        CodeBranchLink(
-          label: 'Grounding Conductor Sizing (EGC vs GEC charts)',
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const GroundingConductorSizingCodeScreen()),
-          ),
-        ),
+      title: 'Grounding & Bonding Quick Reference',
+      shortAnswer: '',
+      codeRefs: [
+        '2023 NEC Article 100; 250.24(B), (C); 250.28 — Service bonding',
+        '250.30(A)(1), (5); 250.102(C) — System and supply-side bonding',
+        '250.118; 250.122 — Equipment grounding conductors',
+        '250.50; 250.66(A)–(C) — Electrodes and GEC sizing',
+        '250.4(A)(5); 230.85(B) — Fault path and emergency disconnects',
       ],
     );
+    return const CodeTopicScreen(
+      topic: topic,
+      openingContent: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Grounding & Bonding\nQuick Reference',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 23,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 6),
+          Text('2023 NEC • What it does • Where it goes • Sizing basis',
+              style: TextStyle(color: Colors.white70, fontSize: 16)),
+          SizedBox(height: 14),
+          _QuickEntry(
+            title: 'EGC — Equipment Grounding Conductor',
+            description:
+                'Fault-current path from equipment back to the source. Wire or a permitted metal wiring method.',
+            sizing: 'Wire sizing: breaker or fuse rating • Table 250.122',
+          ),
+          _QuickEntry(
+            title: 'GEC — Grounding Electrode Conductor',
+            description:
+                'Connects the system to its grounding electrodes. Earth does not replace the equipment fault-current path.',
+            sizing:
+                'Sizing: service or derived-system conductors • Table 250.66; electrode allowances apply.',
+          ),
+          _QuickEntry(
+            title: 'MBJ — Main Bonding Jumper',
+            description:
+                'Bonds the grounded conductor, enclosure, and equipment grounding system in each service disconnect enclosure. Feeder-panel neutrals stay isolated.',
+            sizing: 'Sizing: service conductors • 250.28(D), 250.102(C)',
+          ),
+          _QuickEntry(
+            title: 'SBJ — System Bonding Jumper',
+            description:
+                'Bond for a grounded separately derived system. Typical indoor transformer: secondary neutral point or first secondary disconnect; GEC at the same point. Outdoor-source exceptions apply.',
+            sizing: 'Sizing: derived-system conductors • 250.30(A), 250.102(C)',
+          ),
+          _QuickEntry(
+            title: 'SSBJ — Supply-Side Bonding Jumper',
+            description:
+                'Bonds supply-side metal, such as between a transformer and its secondary disconnect, to the fault-current path.',
+            sizing: 'Wire sizing: supplied ungrounded conductors • 250.102(C)',
+          ),
+          Text(
+            'Bonding connects equipment metal back to the source. If a hot conductor contacts that metal, the fault-current path lets the breaker or fuse operate. The grounding electrode system connects the electrical system to earth to help stabilize voltage and limit lightning or surge voltages. These are two different jobs; soil does not replace the equipment grounding path.',
+            style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.35),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
-    return CodeTopicScreen(topic: topic);
+class _QuickEntry extends StatelessWidget {
+  final String title;
+  final String description;
+  final String sizing;
+
+  const _QuickEntry({
+    required this.title,
+    required this.description,
+    required this.sizing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF202022),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFB0B0B0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  color: Color(0xFFEF5350),
+                  fontSize: 19,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Text(description,
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 17, height: 1.3)),
+          const SizedBox(height: 8),
+          Text(sizing,
+              style: const TextStyle(
+                  color: Colors.white70, fontSize: 16, height: 1.3)),
+        ],
+      ),
+    );
   }
 }

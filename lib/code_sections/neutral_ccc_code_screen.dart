@@ -10,77 +10,49 @@ class NeutralCccCodeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final topic = CodeTopic(
       id: 'neutral_current_carrying_conductor',
-      title: 'When is the Neutral a Current-Carrying Conductor (CCC)?',
+      title: 'One hot and its neutral: does the neutral count?',
       shortAnswer:
-      'In 2-wire circuits, the neutral always counts. In multi-wire branch circuits (MWBCs), it does not count unless non-linear loads are present — which is common in modern commercial lighting and office environments.',
+          'Yes. On a two-wire line-to-neutral circuit, the neutral carries the same load current as the hot, so both count as current-carrying conductors for ampacity adjustment.',
       corePoints: const [
-        '2-wire (hot + neutral) → YES, neutral counts (CCC).',
-        'MWBC with mostly linear loads + balanced phases → NO, neutral does not count.',
-        'MWBC with a major portion of non-linear loads → YES, neutral counts.',
-        '3-phase 4-wire wye lighting with LED drivers →  YES, neutral counts.',
+        'Three separate circuits, each with one hot and its own neutral, give six current-carrying conductors—not three.',
+        'Equipment grounding and bonding conductors do not count for ampacity adjustment. Neutrals and grounds still take up space and count toward conduit fill.',
       ],
       expandSections: const [
         CodeExpandSection(
-          heading: '1) Dedicated Neutral (2-Wire Circuit)',
+          heading:
+              'Two opposite legs of 120/240V sharing a neutral: does it count?',
           bullets: [
-            'YES — neutral counts as CCC.',
-            'One hot, one neutral, one equipment ground.',
-            'The neutral carries the same current as the hot.',
-            'There is no cancellation.',
-            'This affects derating and conduit fill decisions.',
+            'No, when the neutral carries only the unbalanced current from the other conductors of that same circuit. (310.15(E)(1))',
+            'Example: opposite legs supplying 12A and 8A of linear load leave 4A on the shared neutral. Count the two hots for adjustment, not that neutral.',
+            'The loads do not have to be perfectly balanced. Carrying imbalance current alone does not make the neutral count.',
+            'This is a single-phase 120/240V arrangement. Do not apply this answer to two phases of a three-phase wye system.',
           ],
         ),
         CodeExpandSection(
-          heading: '2) MWBC with Linear Loads (Typical “NO” Case)',
+          heading:
+              'Two phases of a three-phase wye system sharing a neutral: does it count?',
           bullets: [
-            'NO — neutral does not count (when mostly linear + balanced).',
-            'Two ungrounded conductors on opposite phases share a neutral.',
-            'With linear loads (heaters, incandescent lighting, resistive loads), phase currents cancel in the neutral.',
-            'The neutral carries only the unbalanced current.',
-            'In this case, the neutral is NOT counted as a CCC.',
+            'Yes. In a three-wire circuit using two phases and the neutral of a four-wire, three-phase wye system, count all three. This applies even with linear loads. (310.15(E)(2))',
+            'Examples include two phases plus neutral from a 120/208V or 277/480V wye system.',
+            'Those phases are 120° apart, not the opposite legs of a 120/240V single-phase system. Their neutral currents do not cancel the same way.',
           ],
         ),
         CodeExpandSection(
-          heading: '3) MWBC with Non-Linear Loads (Important Exception)',
+          heading:
+              'All three phases plus neutral on a wye circuit: does it count?',
           bullets: [
-            'YES — neutral counts (non-linear loads).',
-            'Non-linear loads draw current in pulses instead of a smooth sine wave.',
-            'Examples: computers, LED drivers, electronic ballasts, VFDs, switching power supplies.',
-            'Harmonics do NOT cancel in the neutral — they add together.',
-            'In this case, the neutral MUST be counted as a CCC.',
-          ],
-        ),
-        CodeExpandSection(
-          heading: '4) 3-Phase 4-Wire Systems (277/480 Wye)',
-          bullets: [
-            'YES — in modern LED lighting systems, expect it to count.',
-            'Common in commercial lighting panels (brown, orange, yellow + neutral).',
-            'Modern 277V LED fixtures contain electronic drivers (non-linear).',
-            'Triplen harmonics (3rd, 9th, 15th…) add in the neutral instead of canceling.',
-            'The neutral often carries significant current and must be counted as a CCC.',
-          ],
-        ),
-        CodeExpandSection(
-          heading: 'Modern Commercial Reality',
-          bullets: [
-            'Office buildings, data environments, and LED lighting systems are heavy in non-linear loads.',
-            'If a major portion of the load is non-linear (electronics/LED drivers), count the neutral as a CCC.',
-            'In many modern commercial installations, this is frequently the case.',
-            'When in doubt, evaluate the load type before excluding the neutral from your CCC count.',
-          ],
-        ),
-        CodeExpandSection(
-          heading: 'Why This Matters',
-          bullets: [
-            'Sometimes one conductor determines whether you upsize the conduit.',
-            'If the neutral counts, your CCC total increases.',
-            'This changes derating factors and allowable ampacity.',
-            'That can force upsizing of conductors and/or conduit.',
+            'With linear loads, a neutral carrying only the imbalance of the three phases need not count for adjustment. Count the three phase conductors. (310.15(E)(1))',
+            'When the major portion of the load is nonlinear, count the neutral too: four current-carrying conductors. (310.15(E)(3))',
+            'Electronic loads such as LED drivers and computer power supplies can produce triplen harmonics that add in the neutral instead of canceling. Evaluate the load; the presence of a single LED fixture alone is not the rule.',
+            'Counting the neutral can move the circuit into a lower ampacity factor. It does not change whether that wire counts for conduit fill—it always does.',
           ],
         ),
       ],
       codeRefs: const [
-        'NEC 310.15(E)',
+        '2023 NEC',
+        'NEC 310.15(E)(1)–(3)',
+        'NEC 310.15(F)',
+        'NEC Table 310.15(C)(1)',
       ],
       branchLinks: [
         CodeBranchLink(

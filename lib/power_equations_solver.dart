@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:math' as math;
 import 'package:pipe_and_wire_clean/power_formulas.dart';
 import 'package:pipe_and_wire_clean/code_screen.dart';
+import 'package:pipe_and_wire_clean/keypad_volt_drop.dart' show VoltDropKeypad;
 
 void main() {
   runApp(
@@ -52,9 +53,11 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
   double _pf = 1.0;
   double _efficiency = 0.85;
   bool _isThreePhase = false;
-  bool _highSF = true; // Service Factor toggle
+  bool _highSF = false; // Confirm the marked service factor before using 125%.
+  bool _lowTemperatureRise = false;
+  double? _nameplateFLA;
   String _protectionType = "Inverse Time Breaker";
-  String _motorDesign = "Design B";
+  String _motorDesign = "Other";
   String _motorType = "Squirrel Cage";
 
   // AC Inputs
@@ -129,7 +132,7 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
             pf: _pf,
             isThreePhase: _isThreePhase,
           );
-          return {"value": "${res.toStringAsFixed(1)} Amps", "label": "MOTOR AMPS"};
+          return {"value": "${res.toStringAsFixed(1)} Amps", "label": "ESTIMATED MOTOR AMPS"};
         }
       } else if (_selectedGoal == "Volts") {
         res = PowerFormulas.solveVolts(
@@ -163,33 +166,39 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
         res = PowerFormulas.solveKVA(volts: _volts, amps: _amps, isThreePhase: _isThreePhase);
         return {"value": "${res.toStringAsFixed(2)} kVA", "label": "APPARENT POWER"};
       } else if (_selectedGoal == "Motor") {
+        try {
         final motorResults = PowerFormulas.solveFullMotorCircuit(
           hp: _hp,
           volts: _volts,
           isThreePhase: _isThreePhase,
           highServiceFactor: _highSF,
+          lowTemperatureRise: _lowTemperatureRise,
+          nameplateFLA: _nameplateFLA,
           protectionType: _protectionType,
           motorDesign: _motorDesign,
           motorType: _motorType,
         );
 
-        String breakerRef = "250%";
-        if (_protectionType == "Dual-Element Fuse") breakerRef = "175%";
-        if (_protectionType == "Non-Time Delay Fuse") breakerRef = "300%";
-        if (_protectionType == "Instantaneous Trip") breakerRef = _motorDesign == "Design B" ? "800%" : "1100%";
+        final breakerRef = '${(motorResults["protectionMultiplier"]! * 100).round()}% max';
 
         return {
           "flc": "${motorResults["flc"]!.toStringAsFixed(1)}A",
           "wire": "${motorResults["conductor"]!.toStringAsFixed(1)}A",
-          "overload": "${motorResults["overload"]!.toStringAsFixed(1)}A",
+          "overload": motorResults["overload"] == null
+              ? (_hp <= 1 ? 'See 430.32(B)' : 'Enter FLA')
+              : "${motorResults["overload"]!.toStringAsFixed(2)}A",
+          "overloadRef": '${(motorResults["overloadMultiplier"]! * 100).round()}% nameplate max',
           "breaker": _protectionType == "Instantaneous Trip" 
               ? "${motorResults["breaker"]!.toStringAsFixed(1)}A"
               : "${motorResults["breaker"]!.toInt()}A",
           "breakerLabel": _protectionType,
           "breakerRef": breakerRef,
           "disconnect": "${motorResults["disconnect"]!.toStringAsFixed(1)}A",
-          "label": "FULL NEC MOTOR CIRCUIT"
+          "label": "MOTOR CIRCUIT PREVIEW"
         };
+        } on ArgumentError catch (error) {
+          return {'label': 'CHECK MOTOR SELECTION', 'error': '${error.message}'};
+        }
       }
     } else {
       // 2. Resolve Bottom Goal (AC Circuit Puzzle)
@@ -241,7 +250,16 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
         children: [
           _buildGoalSelector(),
           Expanded(
-            child: Stack(
+            child: _isTopActive && _selectedGoal == 'Motor'
+                ? ListView(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    children: [
+                      _buildPuzzleGrid(),
+                      _buildMotorNameplateInputs(),
+                      _buildResultsArea(),
+                    ],
+                  )
+                : Stack(
               children: [
                 // --- BACKGROUND BUBBLE AREA (TOP) ---
                 AnimatedPositioned(
@@ -453,11 +471,14 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
 
     if (_selectedGoal == "Motor") {
       title = "NEC Motor Math Guide";
-      content = "Calculating motor circuits requires a 4-step sequence per NEC Art 430:\n\n"
+      content = "Preview for one continuous-duty, normal-speed/normal-torque induction motor:\n\n"
           "1. FLC Table: Use NEC Tables, not the nameplate.\n"
           "2. Wire: Size conductors at 125% of FLC.\n"
-          "3. Overload: Use Nameplate FLA (toggle S.F. for 125% vs 115%).\n"
-          "4. Breaker: Standard Inverse Time is 250% (next size up allowed).";
+          "3. Separate overload, over 1 HP: nameplate amps times 125% when marked S.F. is at least 1.15 or marked temperature rise is 40°C or less; otherwise 115%. Smaller motors need 430.32(B).\n"
+          "4. Protection: Table 430.52 maximums, with next standard size where permitted. Wound-rotor values differ.\n"
+          "5. Disconnect: 115% minimum ampere rating. Also check horsepower and locked-rotor ratings.\n\n"
+          "Design B efficient means energy-efficient or premium-efficiency, not every Design B motor. Instantaneous-trip devices require a listed combination motor controller.\n"
+          "This preview does not choose wire gauge, apply starting exceptions, or size HVAC compressors (Article 440).";
     }
 
     showDialog(
@@ -650,9 +671,9 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
             if (_protectionType == "Instantaneous Trip")
               Positioned(
                 bottom: 240, right: 30,
-                child: _buildUnitBubble("Design", _motorDesign.split(' ').last, Icons.tune, true, isSmall: true,
+                child: _buildUnitBubble("Design", _motorDesign == 'Other' ? 'Other' : 'B efficient', Icons.tune, true, isSmall: true,
                   sizeOverride: secondarySize,
-                  onTap: () => setState(() => _motorDesign = (_motorDesign == "Design B") ? "Other" : "Design B")
+                  onTap: () => setState(() => _motorDesign = (_motorDesign == "Design B efficient") ? "Other" : "Design B efficient")
                 ),
               ),
             Positioned(
@@ -877,9 +898,44 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
     }
   }
 
+  Widget _buildMotorNameplateInputs() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(24, 0, 24, 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: kSilver), borderRadius: BorderRadius.circular(6)),
+      child: Column(children: [
+        OutlinedButton(
+          onPressed: () => showModalBottomSheet<void>(
+            context: context, isScrollControlled: true,
+            builder: (context) => VoltDropKeypad(
+              title: 'Motor nameplate amps',
+              initialValue: _nameplateFLA?.toString() ?? '0',
+              onConfirm: (value) {
+                setState(() => _nameplateFLA = value > 0 && value.isFinite ? value : null);
+                Navigator.pop(context);
+              },
+            ),
+          ),
+          child: Text(_nameplateFLA == null ? 'Enter nameplate amps for overload'
+              : 'Nameplate amps: ${_nameplateFLA!.toStringAsFixed(2)} A'),
+        ),
+        CheckboxListTile(
+          dense: true, contentPadding: EdgeInsets.zero,
+          activeColor: Colors.green,
+          title: const Text('Marked temperature rise 40°C or less'),
+          value: _lowTemperatureRise,
+          onChanged: (value) => setState(() => _lowTemperatureRise = value ?? false),
+        ),
+        const Text('Set S.F. from the nameplate above. These markings determine the separate overload limit.',
+            style: TextStyle(color: Colors.white70)),
+      ]),
+    );
+  }
+
   Widget _buildResultsArea() {
     final sol = _solve();
-    final bool isMotor = _selectedGoal == "Motor";
+    final bool isMotor = _isTopActive && _selectedGoal == "Motor";
 
     return Container(
       width: double.infinity,
@@ -902,7 +958,9 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
             )
           ),
           const SizedBox(height: 12),
-          if (isMotor) ...[
+          if (sol['error'] != null)
+            Text(sol['error']!, style: const TextStyle(color: Colors.amber))
+          else if (isMotor) ...[
             // Two-column layout for motor steps
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -911,8 +969,8 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
                   child: Column(
                     children: [
                       _buildMotorStep("Table FLC", sol["flc"]!, "NEC Table"),
-                      _buildMotorStep("Min Wire", sol["wire"]!, "125%"),
-                      _buildMotorStep("Disconnect", sol["disconnect"]!, "115%"),
+                      _buildMotorStep("Min ampacity", sol["wire"]!, "430.22: 125%"),
+                      _buildMotorStep("Disconnect min", sol["disconnect"]!, "430.110: 115%"),
                     ],
                   ),
                 ),
@@ -920,13 +978,18 @@ class _PowerEquationsSolverState extends State<PowerEquationsSolver> with Ticker
                 Expanded(
                   child: Column(
                     children: [
-                      _buildMotorStep("Overload", sol["overload"]!, _highSF ? "125%" : "115%"),
+                      _buildMotorStep("Overload max", sol["overload"]!, sol['overloadRef']!),
                       _buildMotorStep(sol["breakerLabel"]!, sol["breaker"]!, sol["breakerRef"]!),
                     ],
                   ),
                 ),
               ],
             ),
+            const Text('NEC 430.248 / 430.250, 430.32 and 430.52. Protection is a maximum; conductor ampacity is a minimum. Check wire temperature/derating and disconnect HP/locked-rotor ratings.',
+                style: TextStyle(color: Colors.white70, fontSize: 12)),
+            if (_protectionType == 'Instantaneous Trip')
+              const Text('Instantaneous trip: listed combination motor controller required.',
+                  style: TextStyle(color: Colors.amber, fontSize: 12)),
           ] else ...[
             Text(sol["value"] ?? "0.0", style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w900, color: Colors.greenAccent)),
           ],

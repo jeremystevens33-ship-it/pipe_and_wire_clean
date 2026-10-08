@@ -28,10 +28,12 @@ class CodeTopic {
 class CodeExpandSection {
   final String heading;
   final List<String> bullets;
+  final Widget? content;
 
   const CodeExpandSection({
     required this.heading,
     required this.bullets,
+    this.content,
   });
 }
 
@@ -52,11 +54,15 @@ class CodeBranchLink {
 class CodeTopicScreen extends StatelessWidget {
   final CodeTopic topic;
   final bool showAppBar;
+  final Widget? openingContent;
+  final Widget? afterOpeningContent;
 
   const CodeTopicScreen({
     super.key,
     required this.topic,
     this.showAppBar = true,
+    this.openingContent,
+    this.afterOpeningContent,
   });
 
   @override
@@ -75,62 +81,27 @@ class CodeTopicScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
           children: [
-            Text(
-              topic.title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 22,
-                height: 1.2,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionLabel('Short answer'),
-                  const SizedBox(height: 8),
-                  Text(
-                    topic.shortAnswer,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      height: 1.3,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            if (topic.corePoints.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _Card(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const _SectionLabel('Core triggers / rules'),
-                    const SizedBox(height: 10),
-                    ...topic.corePoints.map((t) => _BulletLine(text: t)),
-                  ],
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: openingContent ?? _ExpandCard(
+                section: CodeExpandSection(
+                  heading: topic.title,
+                  bullets: [topic.shortAnswer, ...topic.corePoints],
                 ),
               ),
-            ],
+            ),
+
+            if (afterOpeningContent != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: afterOpeningContent!,
+              ),
 
             if (topic.expandSections.isNotEmpty) ...[
-              const SizedBox(height: 14),
-              const _SectionHeader(
-                icon: Icons.account_tree_outlined,
-                title: 'Details',
-                subtitle: 'Tap to expand',
-              ),
-              const SizedBox(height: 10),
               ...topic.expandSections.map(
                     (s) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _ExpandCard(section: s),
+                  child: _ExpandCard(section: s, content: s.content),
                 ),
               ),
             ],
@@ -252,15 +223,19 @@ class _SectionHeader extends StatelessWidget {
 }
 class _Card extends StatelessWidget {
   final Widget child;
-  const _Card({required this.child});
+  final bool question;
+  const _Card({required this.child, this.question = false});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF121214),
+        color: question ? const Color(0xFF202024) : const Color(0xFF121214),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF2C2C30), width: 1.2),
+        border: Border.all(
+          color: question ? const Color(0xFF909096) : const Color(0xFF2C2C30),
+          width: question ? 1.4 : 1.2,
+        ),
         boxShadow: const [
           BoxShadow(
             color: Color.fromRGBO(0, 0, 0, 0.65),
@@ -312,9 +287,23 @@ class _BulletLine extends StatelessWidget {
   }
 }
 
+class CodeExpandableContent extends StatelessWidget {
+  final String heading;
+  final Widget child;
+
+  const CodeExpandableContent({super.key, required this.heading, required this.child});
+
+  @override
+  Widget build(BuildContext context) => _ExpandCard(
+    section: CodeExpandSection(heading: heading, bullets: const []),
+    content: child,
+  );
+}
+
 class _ExpandCard extends StatefulWidget {
   final CodeExpandSection section;
-  const _ExpandCard({required this.section});
+  final Widget? content;
+  const _ExpandCard({required this.section, this.content});
 
   @override
   State<_ExpandCard> createState() => _ExpandCardState();
@@ -326,6 +315,7 @@ class _ExpandCardState extends State<_ExpandCard> {
   @override
   Widget build(BuildContext context) {
     return _Card(
+      question: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -336,12 +326,21 @@ class _ExpandCardState extends State<_ExpandCard> {
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 children: [
+                  Container(
+                    width: 4,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE53935),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       widget.section.heading,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 16,
+                        fontSize: 18,
                         height: 1.2,
                         fontWeight: FontWeight.w800,
                       ),
@@ -352,7 +351,7 @@ class _ExpandCardState extends State<_ExpandCard> {
                     duration: const Duration(milliseconds: 180),
                     child: const Icon(
                       Icons.expand_more,
-                      color: Colors.white70,
+                      color: Color(0xFFE53935),
                       size: 26,
                     ),
                   ),
@@ -364,7 +363,7 @@ class _ExpandCardState extends State<_ExpandCard> {
             firstChild: const SizedBox.shrink(),
             secondChild: Padding(
               padding: const EdgeInsets.only(top: 10),
-              child: Column(
+              child: widget.content ?? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: widget.section.bullets
                     .map((t) => _BulletLine(text: t))

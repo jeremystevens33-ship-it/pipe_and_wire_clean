@@ -9,75 +9,53 @@ class VoltageDropCodeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final topic = CodeTopic(
       id: 'voltage_drop',
-
-      title: 'When does voltage drop become a problem?',
-
+      title: 'What voltage-drop target should I use?',
       shortAnswer:
-      'Voltage drop occurs when conductors are too long or too small for the load. The NEC recommends limiting voltage drop to 3% on branch circuits and 5% total for feeders and branch circuits combined.',
-
+          'The general NEC informational notes recommend no more than 3% on the branch circuit and 5% for the feeder and branch circuit combined, measured to the farthest outlet.',
       corePoints: const [
-        'Voltage drop increases with longer conductor runs.',
-        'Higher current loads cause more voltage drop.',
-        'Larger conductors reduce voltage drop.',
-        'Good design keeps total system voltage drop under 5%.',
+        'These informational notes are design guidance, not a universal mandatory ceiling. Specific NEC installations, local rules, or project specifications may impose requirements.',
+        'Keep the combined total within 5%; allowing 3% on both the feeder and branch circuit would total 6%.',
       ],
-
       expandSections: const [
         CodeExpandSection(
-          heading: 'NEC recommended limits',
+          heading: 'What does 3% mean in volts?',
           bullets: [
-            'Branch circuit voltage drop → 3% maximum',
-            'Feeder + branch circuit combined → 5% maximum',
-            'These are design recommendations, not enforceable rules',
+            '120V × 3% = 3.6V drop, leaving about 116.4V at the load when the source is 120V.',
+            'If the feeder uses 2% of the voltage-drop allowance, 3% remains for the branch circuit within the combined 5% target.',
           ],
         ),
-
         CodeExpandSection(
-          heading: 'What causes voltage drop',
+          heading: 'Which length and current do I enter in the calculator?',
           bullets: [
-            'Long conductor distance',
-            'High current load',
-            'Small conductor size',
+            'Use the one-way run length from source to load. The calculator accounts for the single-phase return path; do not double the entered distance.',
+            'Use the expected actual load current, not automatically the breaker rating or the 125% conductor-sizing value. For distributed loads, putting the entire load at the far end is a conservative estimate.',
+            'In the linked calculator, Auto uses the calculated breaker size as its load estimate. Enter the actual load amps when you want a calculation for that load.',
+            'Check motor starting separately where needed; a running-current calculation does not predict the momentary starting voltage drop.',
           ],
         ),
-
         CodeExpandSection(
-          heading: 'Typical field solutions',
+          heading: 'What should I change when the drop is too high?',
           bullets: [
-            'Increase conductor size',
-            'Shorten conductor run',
-            'Move equipment closer to the source',
-          ],
-        ),
-
-        CodeExpandSection(
-          heading: 'Quick field example',
-          bullets: [
-            'Long 120V circuit feeding equipment',
-            'Lights dim or motors struggle to start',
-            'Upsizing the conductors reduces voltage drop',
+            'Increase conductor size, shorten the run, or reduce the load carried by that run. Check connections as well; upsizing wire does not repair a loose or damaged connection.',
+            'Recheck conduit fill and terminations when upsizing. Increasing ungrounded conductors for voltage drop can also require a proportionately larger wire EGC under 250.122(B).',
           ],
         ),
       ],
-
       branchLinks: [
         CodeBranchLink(
           label: 'Open Pipe & Box Fill / Derate / Voltage Drop Calculator',
           onTap: () => Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const PipeAndBoxFill(),
-            ),
+            MaterialPageRoute(builder: (_) => const PipeAndBoxFill()),
           ),
         ),
       ],
-
       codeRefs: const [
-        'NEC 210.19(A)(1) Informational Note',
-        'NEC 215.2(A)(1) Informational Note',
+        '2023 NEC 210.19(A), 215.2(A) — Voltage-drop informational notes',
+        '90.5(C) — Informational notes are explanatory',
+        '250.122(B) — Wire EGC increase with conductor upsizing',
       ],
     );
-
     return CodeTopicScreen(topic: topic);
   }
 }

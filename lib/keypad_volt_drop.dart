@@ -12,12 +12,18 @@ class VoltDropKeypad extends StatefulWidget {
   final String initialValue;
   final Function(double) onConfirm;
   final String? title; // ADDED: Allows a title to be passed
+  final double heightFraction;
+  final ValueChanged<String>? onChanged;
+  final bool showDisplay;
 
   const VoltDropKeypad({
     super.key,
     required this.initialValue,
     required this.onConfirm,
     this.title, // ADDED: Accepts the optional title
+    this.heightFraction = 0.4,
+    this.onChanged,
+    this.showDisplay = true,
   });
 
   @override
@@ -47,8 +53,9 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
 
       switch (value) {
         case '⌫':
-          _displayValue = _displayValue.isNotEmpty ? _displayValue.substring(
-              0, _displayValue.length - 1) : "";
+          _displayValue = _displayValue.isNotEmpty
+              ? _displayValue.substring(0, _displayValue.length - 1)
+              : "";
           if (_displayValue.isEmpty) _displayValue = "0";
           break;
         case '.':
@@ -65,6 +72,7 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
           break;
       }
     });
+    if (value != '✔') widget.onChanged?.call(_displayValue);
   }
 
   void _startBackspace() {
@@ -80,11 +88,8 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery
-          .of(context)
-          .size
-          .height * 0.4, // Set height to 40% of screen height
-      color: kBlack.withOpacity(0.9),
+      height: MediaQuery.of(context).size.height * widget.heightFraction,
+      color: kBlack.withValues(alpha: 0.9),
       padding: const EdgeInsets.fromLTRB(4.0, 8.0, 4.0, 4.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -102,8 +107,10 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
             ),
             const SizedBox(height: 8),
           ],
-          _buildDisplay(),
-          const SizedBox(height: 8),
+          if (widget.showDisplay) ...[
+            _buildDisplay(),
+            const SizedBox(height: 8),
+          ],
           Flexible(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -161,9 +168,12 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
     return Flexible(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: values.map((value) =>
-            Expanded(child: Padding(padding: const EdgeInsets.all(2.0),
-                child: _buildButton(value)))).toList(),
+        children: values
+            .map((value) => Expanded(
+                child: Padding(
+                    padding: const EdgeInsets.all(2.0),
+                    child: _buildButton(value))))
+            .toList(),
       ),
     );
   }
@@ -172,12 +182,13 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
     final bool isIcon = value == '⌫';
     final bool isConfirm = value == '✔';
     final Color buttonColor = isConfirm ? kGreen : const Color(0xFF4E4E52);
-    final Color splashColor = isConfirm ? Colors.lightGreen : const Color(
-        0xFF616161);
+    final Color splashColor =
+        isConfirm ? Colors.lightGreen : const Color(0xFF616161);
     final Widget child = isIcon
         ? const Icon(Icons.backspace_outlined, color: kLight, size: 24)
-        : Text(value, style: const TextStyle(
-        fontSize: 20, fontWeight: FontWeight.w600, color: kLight));
+        : Text(value,
+            style: const TextStyle(
+                fontSize: 20, fontWeight: FontWeight.w600, color: kLight));
 
     return Container(
       decoration: BoxDecoration(
@@ -201,8 +212,8 @@ class _VoltDropKeypadState extends State<VoltDropKeypad> {
           onLongPressUp: value == '⌫' ? _stopBackspace : null,
           child: Center(
             child: isConfirm
-                ? const Icon(
-                Icons.check_circle_outline, color: kLight, size: 28)
+                ? const Icon(Icons.check_circle_outline,
+                    color: kLight, size: 28)
                 : child,
           ),
         ),

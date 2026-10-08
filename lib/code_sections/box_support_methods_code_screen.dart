@@ -6,79 +6,57 @@ class BoxSupportMethodsCodeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final topic = CodeTopic(
+    const topic = CodeTopic(
       id: 'box_support_methods',
-
-      title: 'How are boxes and enclosures required to be supported?',
-
+      title: 'How do I support a box or enclosure?',
       shortAnswer:
-      'Boxes and enclosures must be securely fastened by an approved support method. Some enclosures are permitted to be supported by raceways, but those installations have size limits, raceway-entry requirements, and support-distance rules.',
-
-      corePoints: const [
-        'Boxes generally must be securely fastened in place.',
-        'Raceway-supported enclosures are limited by cubic-inch size and entry type.',
-        'Support distance changes depending on whether the enclosure contains devices or luminaires.',
-        'Single-raceway support is limited to specific exception cases.',
+          'Fasten it securely to the building surface, framing, or a suitable brace. Use mounting hardware or supports identified for the installation.',
+      corePoints: [
+        'Old-work boxes can use identified clamps, anchors, or fittings that secure the box to the wall or ceiling.',
+        'Conduit-supported boxes and suspended-ceiling boxes have the specific limits below.',
       ],
-
-      expandSections: const [
+      expandSections: [
         CodeExpandSection(
-          heading: 'General support idea',
+          heading: 'Can conduit support a junction box without devices?',
           bullets: [
-            'Boxes and enclosures must be securely fastened by an approved method.',
-            'Support can be by framing, structure, or other permitted means.',
-            'Some enclosures are allowed to be supported by the raceways entering them.',
+            'Yes: up to 100 cu in., with threaded entries or identified hubs and at least two supporting conduits threaded wrench-tight into them. Splicing devices are allowed. (314.23(E))',
+            'Secure each supporting conduit within 3 ft of the box. If all entries are on the same side, the limit is 18 in.',
+            'Ordinary EMT connectors in knockouts do not meet this threaded-conduit support arrangement.',
           ],
         ),
-
         CodeExpandSection(
-          heading: 'Raceway-supported enclosures without devices',
+          heading: 'What if the box contains devices or supports a light?',
           bullets: [
-            'Applies to enclosures that do not contain devices, luminaires, or lampholders.',
-            'Maximum size: 100 cubic inches.',
-            'Must have threaded entries or identified hubs.',
-            'Must be supported by two or more raceways threaded wrench-tight into the enclosure or hubs.',
-            'Each supporting raceway must be secured within 3 ft of the enclosure, or within 18 in if all raceways enter from the same side.',
+            'The ordinary conduit-supported arrangement is limited to 100 cu in., with threaded entries or identified hubs and at least two supporting conduits threaded wrench-tight. Secure each within 18 in. (314.23(F))',
+            'This applies when the enclosure contains devices other than splicing devices, or supports a luminaire, lampholder, or other equipment.',
+            'A separate luminaire-support exception for unbroken RMC or IMC has additional conditions; it is not a general single-conduit box allowance. (314.23(F), Exception No. 2)',
           ],
         ),
-
         CodeExpandSection(
-          heading: 'Raceway-supported enclosures with devices or luminaires',
+          heading: 'Can one conduit support an LB or other conduit body?',
           bullets: [
-            'Applies to enclosures containing devices, luminaires, lampholders, or other equipment.',
-            'Maximum size: 100 cubic inches.',
-            'Must have threaded entries or identified hubs.',
-            'Must be supported by two or more raceways threaded wrench-tight into the enclosure or hubs.',
-            'Each supporting raceway must be secured within 18 in of the enclosure.',
+            'Yes. For a conduit body without devices or supported equipment, the exception allows IMC, RMC, PVC, RTRC, or EMT, including bodies with only one entry.',
+            'The body’s trade size cannot exceed the largest entering conduit or tubing trade size. Normal raceway support requirements still apply. (314.23(E), Exception)',
+            'For a conduit body containing devices or supporting equipment, the corresponding exception permits RMC or IMC, with the same trade-size limit. (314.23(F), Exception No. 1)',
           ],
         ),
-
         CodeExpandSection(
-          heading: 'Single-raceway exception (field reminder)',
+          heading: 'How can I support a box above a suspended ceiling?',
           bullets: [
-            'Certain exception cases allow a single raceway to support specific boxes or conduit bodies.',
-            'These exceptions are limited and depend on box type and wiring method.',
-            'If in doubt, use independent support rather than assuming one raceway is enough.',
-          ],
-        ),
-
-        CodeExpandSection(
-          heading: 'Quick field reminder',
-          bullets: [
-            'No devices: think 100 cu in, two raceways, 3 ft support (or 18 in if same side).',
-            'With devices/luminaires: think 100 cu in, two raceways, 18 in support.',
-            'Exception cases exist, but do not assume every box can hang from one raceway.',
+            'A box mounted to the ceiling framing or support wires is limited to 100 cu in. (314.23(D))',
+            'Fasten to supported framing with mechanical hardware or clips identified for that framing and box.',
+            'Support wires may be used with identified attachment methods where 300.11(B) permits the installation. Wires used for box support must be fastened at both ends and taut in the ceiling cavity.',
           ],
         ),
       ],
-
-      codeRefs: const [
-        'NEC 314.23',
-        'NEC 314.23(E)',
-        'NEC 314.23(F)',
+      codeRefs: [
+        '2023 NEC 314.23(A), (B), (C)',
+        'NEC 314.23(D) / 300.11(B)',
+        'NEC 314.23(E), including Exception',
+        'NEC 314.23(F), including Exceptions No. 1 and No. 2',
       ],
     );
 
-    return CodeTopicScreen(topic: topic);
+    return const CodeTopicScreen(topic: topic);
   }
 }
