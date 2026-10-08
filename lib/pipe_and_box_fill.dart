@@ -114,13 +114,20 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
   int _extensionRingCount = 0; // New variable for the quantity of the selected type
 
   // --- MAIN SCREEN LAYOUT CONTROLS ---
-  // Tweak these numbers to adjust sizes and gaps live on your phone via Hot Reload!
-  final double _topDividerHeight = 16.0;    // Top divider line height / spacing
-  final double _bottomDividerHeight = 16.0; // Bottom divider line height / spacing
-  final double _pipeCircleSize = 160.0;     // Diameter of Pipe circle
-  final double _boxSquareSize = 152.0;      // Size of Box square
-  final double _visualsGap = 20.0;          // Gap between Pipe circle and Box square
-  final double _deratingLineSpacing = 8.0;  // Spacing between Derating line items
+  // Tweak these numbers to adjust sizes, offsets, and gaps live on your phone via Hot Reload!
+  final double _topDividerTopGap = 8.0;       // Space above top divider line
+  final double _topDividerBottomGap = 8.0;    // Space below top divider line
+  final double _bottomDividerTopGap = 8.0;    // Space above bottom divider line
+  final double _bottomDividerBottomGap = 2.0; // Space below bottom divider line (decrease to move line DOWN closer to steppers!)
+  final double _stepperToInfoBarGap = 2.0;    // Gap between steppers and info bar (decrease for slim/professional look)
+  final double _pipeCircleSize = 170.0;       // Diameter of Pipe circle
+  final double _boxSquareSize = 160.0;        // Size of Box square
+  final double _visualsGap = 40.0;            // Gap between Pipe circle and Box square
+  final double _visualsTopOffset = 30.0;       // Nudge Pipe circle & Box square UP/DOWN
+  final double _deratingCardTopOffset = 45.0;  // Nudge Derating/Voltage Drop card UP/DOWN
+  final double _deratingLineSpacing = 8.0;    // Spacing between Derating line items (increase to grow card taller!)
+  final double _ccBadgeBottomOffset = 65.0;   // CC badge height (decrease e.g. to 32.0 to drop inside Neutral button)
+  final double _ccBadgeLeftOffset = -65.0;    // CC badge horizontal position (negative moves left)
   // -----------------------------------
 
   int _deviceCount = 0;
@@ -1816,7 +1823,9 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
                   child: Column(
                     children: [
                       _buildSelectorGrid(),
-                      Divider(color: Colors.white24, height: _topDividerHeight),
+                      SizedBox(height: _topDividerTopGap),
+                      const Divider(color: Colors.white24, height: 1),
+                      SizedBox(height: _topDividerBottomGap),
                       Expanded(
                         child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1827,9 +1836,11 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
                           ],
                         ),
                       ),
-                      Divider(color: Colors.white24, height: _bottomDividerHeight),
+                      SizedBox(height: _bottomDividerTopGap),
+                      const Divider(color: Colors.white24, height: 1),
+                      SizedBox(height: _bottomDividerBottomGap),
                       _buildResetAndSteppersWithCcOverlay(),
-                      const SizedBox(height: 6),
+                      SizedBox(height: _stepperToInfoBarGap),
                       _buildInfoBar(),
                     ],
                   ),
@@ -2120,7 +2131,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
 
         // CC overlay: anchor to the CENTER of the steppers area, then nudge left
         Positioned(
-          bottom: 48, // up/down
+          bottom: _ccBadgeBottomOffset,
           left: 48,
           right: 0,
           child: IgnorePointer(
@@ -2128,7 +2139,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
             child: Opacity(
               opacity: _hasShownNeutralDialog ? 1.0 : 0.0,
               child: Transform.translate(
-                offset: const Offset(-70, 0), // <-- move left (try -50 to -90)
+                offset: Offset(_ccBadgeLeftOffset, 0),
                 child: Center(child: _buildCcToggle()),
               ),
             ),
@@ -2143,20 +2154,25 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
       child: LayoutBuilder(
         builder: (context, constraints) {
           final double maxH = constraints.maxHeight;
+          final double topOffset = _visualsTopOffset > 0 ? _visualsTopOffset : 0;
+          final double availH = (maxH - topOffset - _visualsGap - 20.0).clamp(0.0, maxH);
           final double pipeSize = maxH > 0
-              ? ((maxH - _visualsGap - 12.0) / 2).clamp(100.0, _pipeCircleSize)
+              ? (availH / 2.2).clamp(50.0, _pipeCircleSize)
               : _pipeCircleSize;
           final double boxSize = pipeSize * (_boxSquareSize / _pipeCircleSize);
 
-          return Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              _buildPipeVisual(results, size: pipeSize),
-              SizedBox(height: _visualsGap),
-              ClipRect(
-                child: _buildBoxVisual(results, size: boxSize),
-              ),
-            ],
+          return Padding(
+            padding: EdgeInsets.only(top: topOffset),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                _buildPipeVisual(results, size: pipeSize),
+                SizedBox(height: _visualsGap),
+                ClipRect(
+                  child: _buildBoxVisual(results, size: boxSize),
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -2453,7 +2469,7 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
           animation: _infoBarBorderColorAnimation,
           builder: (context, child) {
             return Container(
-              height: 48,
+              height: 53,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: const Color(0xFF2C3030),
@@ -2499,13 +2515,15 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
         .isNotEmpty;
 
     return Expanded(
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(4, 2, 4, 6),
-        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
-        decoration: BoxDecoration(
-            color: const Color.fromRGBO(0, 0, 0, 0.75),
-            borderRadius: BorderRadius.circular(6.0),
-            border: Border.all(color: Colors.white54)),
+      child: Padding(
+        padding: EdgeInsets.only(top: _deratingCardTopOffset > 0 ? _deratingCardTopOffset : 0),
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+          padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 6.0),
+          decoration: BoxDecoration(
+              color: const Color.fromRGBO(0, 0, 0, 0.75),
+              borderRadius: BorderRadius.circular(6.0),
+              border: Border.all(color: Colors.white54)),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2627,20 +2645,6 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
                 ),
               ] else ...[
                 // Collapsed Derating summary
-                const SizedBox(height: 4),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    "Breaker: ${isReady ? finalBreakerSize : '--'}A  |  Ground: ${isReady ? groundWireSize : 'N/A'}",
-                    style: TextStyle(
-                      color: hasCalculationRun ? Colors.green : kLight,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    maxLines: 1,
-                  ),
-                ),
               ],
 
               const Divider(color: Colors.white24, height: 16),
@@ -2756,7 +2760,8 @@ class _PipeAndBoxFillState extends State<PipeAndBoxFill>
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildInlineDial({
@@ -4584,8 +4589,9 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
           ),
         ],
       ),
-      body: Center(
-        child: Hero(
+      body: SafeArea(
+        child: Center(
+          child: Hero(
           tag: 'box-hero',
           child: Container(
             // ... keep your margin and dimensions exactly as you already have ...
@@ -5038,8 +5044,8 @@ class _BoxUIDetailViewState extends State<_BoxUIDetailView> {
           ),
         ),
       ),
-
-    );
+    ),
+  );
   }
 
   // NEW: Helper widget to build title with disabled state
