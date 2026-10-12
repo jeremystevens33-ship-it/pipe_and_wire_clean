@@ -1,5 +1,15 @@
 # Pipe & Wire — general to-do
 
+Job Board feature work and captured ideas: [JOB_BOARD_PLAN.md](JOB_BOARD_PLAN.md).
+Current implementation handoff: [JOB_BOARD_HANDOFF.md](JOB_BOARD_HANDOFF.md).
+
+October 11 priority: finish the short Job Board closeout checklist in its master
+plan (iPhone microphone build/phone verification, six latest UI/help topics,
+worker-name update installation, user review),
+then return to Load Calculator. Larger Job Board sharing/inventory ideas stay
+deferred. Decide whether to keep, simplify, or remove Power Hub Solver before
+starting further solver implementation.
+
 Active Android/iPhone layout work: [COMPATIBILITY_TODO.md](COMPATIBILITY_TODO.md).
 As of 2026-09-29, the user has the app running on a physical iPhone from the Mac;
 older Mac/iOS deferral notes below are historical.

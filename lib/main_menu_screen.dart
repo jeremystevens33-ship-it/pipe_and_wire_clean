@@ -19,6 +19,7 @@ import 'package:pipe_and_wire_clean/reference_hub.dart';
 import 'offset_starting_point_screen.dart';
 import 'package:pipe_and_wire_clean/saddle_bend_screen.dart';
 import 'package:pipe_and_wire_clean/angle_finder_screen.dart';
+import 'job_board_screen.dart';
 
 class MainMenuScreen extends StatefulWidget {
   const MainMenuScreen({super.key});
@@ -277,6 +278,7 @@ class _MainMenuScreenState extends State<MainMenuScreen> with TickerProviderStat
                               style: titleStyle,
                               children: [
                                 _buildMenuButton(context, 'Angle Finder & Level', () => const AngleFinderScreen(), subtitle: 'Real-time Tilt Meter'),
+                                _buildMenuButton(context, 'Job Board', () => const JobBoardScreen(), subtitle: 'Tasks, Materials, Workers & Daily Notes'),
                                 _buildMenuButton(context, 'Digital Reference Hub', () => const ReferenceHub(), subtitle: 'Charts, ODs, & Phase Colors'),
                                 _buildMenuButton(context, 'Power Hub Solver', () => const PowerEquationsSolver(), subtitle: 'Ohm\'s Law Bubble Puzzle'),
                                 const SizedBox(height: 4),
