@@ -53,6 +53,24 @@ class MaterialChoice {
       '${category.trim().toLowerCase()}|${splitMaterialName(category, name).name.toLowerCase()}';
 }
 
+/// Familiar box labels without changing stored material identities.
+String materialDisplayName(String category, String name) {
+  if (category == 'Boxes' &&
+      RegExp(r'^4(?:-11/16)?-inch square box(?: shallow| deep)?$',
+              caseSensitive: false)
+          .hasMatch(name)) {
+    final lower = name.toLowerCase();
+    final family = lower.startsWith('4-11/16') ? '5S' : '4S';
+    final depth = lower.endsWith('deep')
+        ? ' Deep'
+        : lower.endsWith('shallow')
+            ? ' Shallow'
+            : '';
+    return '$family$depth box';
+  }
+  return name;
+}
+
 class MaterialNameParts {
   const MaterialNameParts(this.name, this.size);
   final String name, size;
@@ -93,10 +111,10 @@ MaterialNameParts splitMaterialName(String category, String input) {
 }
 
 const materialChoices = [
-  MaterialChoice('Pipe', 'EMT', units: ['sticks', 'feet']),
-  MaterialChoice('Pipe', 'Rigid', units: ['sticks', 'feet']),
-  MaterialChoice('Pipe', 'IMC', units: ['sticks', 'feet']),
-  MaterialChoice('Pipe', 'PVC', units: ['sticks', 'feet']),
+  MaterialChoice('Pipe', 'EMT', units: ['feet', 'sticks']),
+  MaterialChoice('Pipe', 'Rigid', units: ['feet', 'sticks']),
+  MaterialChoice('Pipe', 'IMC', units: ['feet', 'sticks']),
+  MaterialChoice('Pipe', 'PVC', units: ['feet', 'sticks']),
   MaterialChoice('Pipe', 'Flex', units: ['feet', 'rolls']),
   MaterialChoice('Connectors', 'EMT connector',
       family: 'EMT', variant: 'Type not specified'),
@@ -182,17 +200,17 @@ const materialChoices = [
   MaterialChoice('Wire', 'XHHW-2', units: ['feet', 'rolls'], sizeKind: 'gauge'),
   MaterialChoice('Wire', 'Wire', units: ['feet', 'rolls'], sizeKind: 'gauge'),
   MaterialChoice('Boxes', '4-inch square box',
-      sizeKind: 'text', family: '4S', variant: 'Depth not specified'),
+      sizeKind: 'fixed', family: '4S', variant: 'Depth not specified'),
   MaterialChoice('Boxes', '4-inch square box shallow',
-      sizeKind: 'text', family: '4S', variant: 'Shallow'),
+      sizeKind: 'fixed', family: '4S', variant: 'Shallow'),
   MaterialChoice('Boxes', '4-inch square box deep',
-      sizeKind: 'text', family: '4S', variant: 'Deep'),
+      sizeKind: 'fixed', family: '4S', variant: 'Deep'),
   MaterialChoice('Boxes', '4-11/16-inch square box',
-      sizeKind: 'text', family: '5S', variant: 'Depth not specified'),
+      sizeKind: 'fixed', family: '5S', variant: 'Depth not specified'),
   MaterialChoice('Boxes', '4-11/16-inch square box shallow',
-      sizeKind: 'text', family: '5S', variant: 'Shallow'),
+      sizeKind: 'fixed', family: '5S', variant: 'Shallow'),
   MaterialChoice('Boxes', '4-11/16-inch square box deep',
-      sizeKind: 'text', family: '5S', variant: 'Deep'),
+      sizeKind: 'fixed', family: '5S', variant: 'Deep'),
   MaterialChoice('Boxes', 'Junction box', sizeKind: 'text'),
   MaterialChoice('Lights', 'LED fixture', sizeKind: 'text'),
   MaterialChoice('Lights', 'Exit sign', sizeKind: 'text'),
@@ -287,7 +305,7 @@ String normalizeSpokenInchPhrase(String input) => input.replaceAllMapped(
 String formatInchMeasurements(String input) =>
     normalizeSpokenInchPhrase(input).replaceAllMapped(
         RegExp(
-            r'\b((?:one|two)[ -]+and[ -]+(?:a|one)[ -]+(?:half|quarter)|(?:one|three|five|seven)[ -]eighths?|three[ -]quarters?|(?:a |one )?half|(?:a |one )?quarter|\d+(?:[ -]\d+/\d+|/\d+|\.\d+)?)\s*[- ]?\s*(?:inches|inch|in\b|"|″)',
+            r'\b((?:one|two)[ -]+and[ -]+(?:a|one)[ -]+(?:half|quarter)|(?:one|three|five|seven)[ -]eighths?|three[ -]quarters?|(?:a |one )?half|(?:a |one )?quarter|one|two|three|four|five|six|seven|eight|nine|ten|\d+(?:[ -]\d+/\d+|/\d+|\.\d+)?)\s*[- ]?\s*(?:inches|inch|in\b|"|″)',
             caseSensitive: false),
         (match) => formatMaterialInches(match[0]!));
 
@@ -327,7 +345,10 @@ String formatMaterialInches(String input) {
     'four': '4',
     'five': '5',
     'six': '6',
+    'seven': '7',
     'eight': '8',
+    'nine': '9',
+    'ten': '10',
     'one and a quarter': '1 1/4',
     'one and one quarter': '1 1/4',
     'one and a half': '1 1/2',

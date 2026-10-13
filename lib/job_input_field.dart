@@ -101,15 +101,35 @@ class _JobInputFieldState extends State<JobInputField> {
     final generation = ++_generation;
     final original = widget.controller.value;
     var finalized = false;
+    var receivedSpeech = false;
     void applySpeech(String text) {
       final heard = widget.speechTransform?.call(text) ?? text;
       if (heard.trim().isEmpty) return;
+      receivedSpeech = true;
       final selected = original.selection;
       String value;
       int caret;
       if (selected.isValid && !selected.isCollapsed) {
         value = original.text.replaceRange(selected.start, selected.end, heard);
         caret = selected.start + heard.length;
+      } else if (selected.isValid) {
+        final offset = selected.extentOffset;
+        final before = original.text.substring(0, offset);
+        final after = original.text.substring(offset);
+        final separator = widget.appendSpeech ? widget.speechSeparator : '';
+        final prefix = separator.isNotEmpty &&
+                before.isNotEmpty &&
+                !RegExp(r'[\s,;]$').hasMatch(before)
+            ? separator
+            : '';
+        final suffix = separator.isNotEmpty &&
+                after.isNotEmpty &&
+                !RegExp(r'^[\s,;.!?]').hasMatch(after)
+            ? separator
+            : '';
+        final insertion = '$prefix${heard.trim()}$suffix';
+        value = '$before$insertion$after';
+        caret = before.length + insertion.length;
       } else {
         final previous = widget.speechSeparator == ', '
             ? original.text.trim().replaceFirst(RegExp(r'[,;\s]+$'), '')
@@ -122,6 +142,21 @@ class _JobInputFieldState extends State<JobInputField> {
       widget.controller.value = TextEditingValue(
           text: value, selection: TextSelection.collapsed(offset: caret));
       _fieldFocus.requestFocus();
+      // Follow every live preview, not just the final sentence. Wrapping fields
+      // can grow beyond the dialog viewport while dictation is still running.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || generation != _generation) return;
+        if (_textScroll.hasClients) {
+          _textScroll.jumpTo(_textScroll.position.maxScrollExtent);
+        }
+        final fieldContext = _fieldFocus.context;
+        if (fieldContext != null) {
+          Scrollable.ensureVisible(fieldContext,
+              alignment: 1,
+              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+              duration: const Duration(milliseconds: 100));
+        }
+      });
     }
 
     _channel.setMethodCallHandler((call) async {
@@ -180,7 +215,11 @@ class _JobInputFieldState extends State<JobInputField> {
       if (identical(_owner, this) && generation == _generation) {
         _owner = null;
         _channel.setMethodCallHandler(null);
-        if (mounted && !finalized) widget.controller.value = original;
+        // A service timeout after a useful preview must not erase that draft.
+        // Explicit Cancel/Clear invalidate the session separately.
+        if (mounted && !finalized && !receivedSpeech) {
+          widget.controller.value = original;
+        }
       }
       if (mounted && generation == _generation) {
         setState(() {
@@ -364,8 +403,51 @@ class _JobTypingDialogState extends State<_JobTypingDialog> {
     super.dispose();
   }
 
-  void _key(String key) {
+  Future<void> _key(String key) async {
     ContextMenuController.removeAny();
+    if (key == 'Select all') {
+      widget.controller.selection = TextSelection(
+          baseOffset: 0, extentOffset: widget.controller.text.length);
+      _activeFocus.requestFocus();
+      return;
+    }
+    if (key == 'Copy' || key == 'Cut' || key == 'Paste') {
+      try {
+        if (key == 'Paste') {
+          final data = await Clipboard.getData(Clipboard.kTextPlain);
+          if (!mounted || data?.text == null) return;
+          final current = widget.controller.value;
+          final selection = current.selection;
+          final start =
+              selection.isValid ? selection.start : current.text.length;
+          final end = selection.isValid ? selection.end : current.text.length;
+          final pasted = data!.text!;
+          widget.controller.value = TextEditingValue(
+              text: current.text.replaceRange(start, end, pasted),
+              selection:
+                  TextSelection.collapsed(offset: start + pasted.length));
+        } else {
+          final current = widget.controller.value;
+          final selection = current.selection;
+          if (!selection.isValid || selection.isCollapsed) return;
+          await Clipboard.setData(
+              ClipboardData(text: selection.textInside(current.text)));
+          if (!mounted) return;
+          if (key == 'Cut' && widget.controller.value == current) {
+            widget.controller.value = TextEditingValue(
+                text: current.text
+                    .replaceRange(selection.start, selection.end, ''),
+                selection: TextSelection.collapsed(offset: selection.start));
+          }
+        }
+        _activeFocus.requestFocus();
+      } catch (_) {
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Clipboard unavailable. Try again.')));
+      }
+      return;
+    }
     final value = widget.controller.value;
     final selection = value.selection;
     var start = selection.isValid ? selection.start : value.text.length;
@@ -396,7 +478,12 @@ class _JobTypingDialogState extends State<_JobTypingDialog> {
     _activeFocus.requestFocus();
   }
 
-  Widget _button(String key) => Padding(
+  Widget _clipboardRow() => Row(children: [
+        for (final key in ['Select all', 'Cut', 'Copy', 'Paste'])
+          Expanded(child: _button(key, minHeight: 44)),
+      ]);
+
+  Widget _button(String key, {double minHeight = 56}) => Padding(
       padding: const EdgeInsets.all(2),
       child: Material(
           color: const Color(0xFF323236),
@@ -406,7 +493,7 @@ class _JobTypingDialogState extends State<_JobTypingDialog> {
               onTap: () => _key(key),
               borderRadius: BorderRadius.circular(6),
               child: Container(
-                constraints: const BoxConstraints(minHeight: 56),
+                constraints: BoxConstraints(minHeight: minHeight),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                     border: Border.all(
@@ -436,6 +523,7 @@ class _JobTypingDialogState extends State<_JobTypingDialog> {
       return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _clipboardRow(),
             for (final row in rows)
               Row(children: [
                 for (final key in row.split(''))
@@ -504,6 +592,7 @@ class _JobTypingDialogState extends State<_JobTypingDialog> {
                             helperText:
                                 'Tap to place the cursor. Double-tap a word to replace it.')),
                     const SizedBox(height: 8),
+                    _clipboardRow(),
                     for (final row in rows)
                       Row(children: [
                         for (final key in row.split(''))

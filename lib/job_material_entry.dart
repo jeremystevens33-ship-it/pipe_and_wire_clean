@@ -93,6 +93,14 @@ class _MaterialEntryDialogState extends State<MaterialEntryDialog> {
   @override
   Widget build(BuildContext context) {
     final custom = widget.choice == null;
+    final fixedBox = _category == 'Boxes' &&
+        (widget.choice?.family == '4S' ||
+            widget.choice?.family == '5S' ||
+            RegExp(r'^4(?:-11/16)?-inch square box(?: shallow| deep)?$')
+                .hasMatch(_name.text));
+    final boxLabel = fixedBox
+        ? '${_name.text.startsWith('4-11/16') ? '5S' : '4S'}${_name.text.endsWith('shallow') ? ' Shallow' : _name.text.endsWith('deep') ? ' Deep' : ''} box'
+        : _name.text;
     final sizes = _sizeKind == 'inches'
         ? (widget.choice?.quickSizes.isNotEmpty == true
             ? widget.choice!.quickSizes
@@ -112,7 +120,7 @@ class _MaterialEntryDialogState extends State<MaterialEntryDialog> {
           ? 'Edit material'
           : custom
               ? 'Custom material'
-              : _name.text),
+              : boxLabel),
       content: SizedBox(
           width: double.maxFinite,
           child: Form(
@@ -178,7 +186,8 @@ class _MaterialEntryDialogState extends State<MaterialEntryDialog> {
                       Text('Size: ${_size.text}',
                           style: const TextStyle(
                               fontSize: 18, fontWeight: FontWeight.bold))
-                    else if (_category != 'Prefab bends' || _customSize)
+                    else if (!fixedBox &&
+                        (_category != 'Prefab bends' || _customSize))
                       JobInputField(
                           inlineKeyboard: true,
                           controller: _size,
@@ -293,7 +302,7 @@ class _MaterialEntryDialogState extends State<MaterialEntryDialog> {
                       ],
                     ],
                     const SizedBox(height: 12),
-                    if (!widget.editing)
+                    if (!widget.editing && custom)
                       CheckboxListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Save button only'),

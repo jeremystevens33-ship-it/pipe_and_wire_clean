@@ -320,3 +320,22 @@ Workflow preference after this build: user handles hot reload/hot restart and ph
 Boxes now have 4S/5S picker families, each with Deep/Shallow/Depth not specified. Existing generic square-box names remain unchanged for saved-record compatibility; new depth variants carry depth in their material name. Voice recognizes 4S/5S (including spoken four/five S) with deep/shallow wording. No precise depth dimensions are guessed. User requested commit/push of all current project changes, not just Job Board. After pulling master on the Mac, do a full iOS rebuild for AppDelegate/Info.plist native speech/sharing changes, then verify iPhone permissions, microphone behavior, sharing, safe areas, and inventory. Android installation remains user-managed.
 
 Late visual request: main-section red-gray accent now follows pointer interaction with section 2–5 cards or task cards, and Task List opening activates section 1. Only the active main section gets the muted red gradient/red outline; nested silver headers stay the same. Focused analysis of board/catalog/voice found no errors or warnings; nine existing/new style/deprecation informational notes remain (no UI test run or APK/install). GitHub fetch was declined; push can proceed normally without force and will reject if the remote has conflicting new commits.
+# October 12 night closeout
+
+User confirmed repeated worker dictation, Copy/Paste, accordion scrolling, and
+saved entries surviving restart. Cursor-position dictation and saved-location
+selection were confirmed earlier. Stop carrying those as unverified defects.
+
+Today's Dart changes add six-section ordering, bulk saved locations, direct
+Add Task Here / unassigned-task location assignment, visible material assignment,
+task-detail accordion/return scrolling, expanded silver borders, growing uniform
+fields, app clipboard controls, concise box labels, confirmed material removal,
+and populated-first inventory categories with aligned red/gray bars. Pipe
+catalog defaults now use feet, retaining sticks as an option and existing units.
+
+User requested all current changes pushed to GitHub; Git history records the
+resulting commit. User handles hot restart/builds; no device installation.
+Focused analysis found no errors/warnings; existing informational style and
+deprecated callback notes remain. No broad automated UI rounds were run.
+Tomorrow's short list is in TODO.md; Power Hub source review is POWER_HUB_PLAN.md.
+Private Cloudflare hosting remains planned only, with no upload/policy changes.

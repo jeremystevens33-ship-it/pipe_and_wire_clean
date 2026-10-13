@@ -61,6 +61,10 @@ final _jobBoardTheme = ThemeData.dark().copyWith(
       cursorColor: _silver,
       selectionColor: Color(0x665E9BD3),
       selectionHandleColor: _silver),
+  snackBarTheme: const SnackBarThemeData(
+      backgroundColor: Color(0xFF323236),
+      contentTextStyle: TextStyle(color: Colors.white),
+      actionTextColor: Colors.white),
 );
 
 // Dialog routes live above the screen's Theme in the navigator. Apply the
@@ -118,11 +122,101 @@ class JobMaterial {
       );
 }
 
+/// Keep closed task sections inset; reclaim that width while working inside one.
+class _TaskSectionWidth extends StatefulWidget {
+  const _TaskSectionWidth({required this.builder});
+  final Widget Function(bool, ValueChanged<bool>, ExpansibleController) builder;
+  @override
+  State<_TaskSectionWidth> createState() => _TaskSectionWidthState();
+}
+
+class _TaskSectionWidthState extends State<_TaskSectionWidth> {
+  bool _expanded = false;
+  final _controller = ExpansibleController();
+  _TaskAccordionState? _accordion;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _accordion = context
+        .dependOnInheritedWidgetOfExactType<_TaskAccordionScope>()
+        ?.owner;
+  }
+
+  @override
+  void dispose() {
+    _accordion?.remove(_controller);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_expanded, (expanded) {
+        setState(() => _expanded = expanded);
+        _accordion?.changed(_controller, expanded);
+      }, _controller);
+}
+
+class _TaskAccordion extends StatefulWidget {
+  const _TaskAccordion({super.key, required this.child});
+  final Widget child;
+  @override
+  State<_TaskAccordion> createState() => _TaskAccordionState();
+}
+
+class _TaskAccordionState extends State<_TaskAccordion> {
+  final _anchor = GlobalKey();
+  final _controllers = <ExpansibleController>{};
+  ExpansibleController? _active;
+  int _revision = 0;
+  void remove(ExpansibleController controller) {
+    _controllers.remove(controller);
+    if (identical(_active, controller)) _active = null;
+    ++_revision;
+  }
+
+  void changed(ExpansibleController controller, bool expanded) {
+    _controllers.add(controller);
+    if (expanded) {
+      ++_revision;
+      _active = controller;
+      for (final other in _controllers.toList()) {
+        if (!identical(other, controller) && other.isExpanded) other.collapse();
+      }
+    } else if (identical(_active, controller)) {
+      _active = null;
+      final revision = ++_revision;
+      Future<void>.delayed(const Duration(milliseconds: 280), () {
+        final anchorContext = _anchor.currentContext;
+        if (!mounted ||
+            revision != _revision ||
+            _active != null ||
+            anchorContext == null) return;
+        if (!anchorContext.mounted) return;
+        Scrollable.ensureVisible(anchorContext,
+            alignment: 0, duration: const Duration(milliseconds: 200));
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _TaskAccordionScope(
+      owner: this, child: Container(key: _anchor, child: widget.child));
+}
+
+class _TaskAccordionScope extends InheritedWidget {
+  const _TaskAccordionScope({required this.owner, required super.child});
+  final _TaskAccordionState owner;
+  @override
+  bool updateShouldNotify(_TaskAccordionScope oldWidget) =>
+      owner != oldWidget.owner;
+}
+
 class BoardTask {
   BoardTask(
       {required this.id,
       required this.title,
       this.worker = '',
+      this.location = '',
       this.notes = '',
       this.status = 'Not started',
       this.start,
@@ -133,6 +227,7 @@ class BoardTask {
   final String id;
   String title;
   String worker;
+  String location;
   String notes;
   String status;
   DateTime? start;
@@ -154,6 +249,7 @@ class BoardTask {
         'id': id,
         'title': title,
         'worker': worker,
+        'location': location,
         'notes': notes,
         'status': status,
         'start': start?.toIso8601String(),
@@ -165,6 +261,7 @@ class BoardTask {
         id: json['id'] as String,
         title: json['title'] as String,
         worker: json['worker'] as String,
+        location: json['location'] as String? ?? '',
         notes: json['notes'] as String,
         status: json['status'] as String,
         start: DateTime.tryParse(json['start'] as String? ?? ''),
@@ -190,6 +287,8 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
   final List<Map<String, String>> _daily = [];
   final List<MaterialChoice> _rememberedMaterials = [];
   final List<InventoryItem> _inventory = [];
+  final List<String> _savedLocations = [];
+  bool _jobMaterialsOpen = false;
   final Map<String, int> _materialPickerRevision = {};
   bool _loading = true;
   bool _loadFailed = false;
@@ -203,7 +302,32 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
   bool _draggingTask = false;
   int? _activeBoardSection;
   int? _boardSectionNumber(String title) =>
-      int.tryParse(RegExp(r'^([2-5])\. ').firstMatch(title)?.group(1) ?? '');
+      int.tryParse(RegExp(r'^([2-6])\. ').firstMatch(title)?.group(1) ?? '');
+
+  String _cleanLocation(String value) =>
+      value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  String _locationKey(String value) => _cleanLocation(value).toLowerCase();
+  String _formatLocationList(String value) => value
+      .replaceAll(RegExp(r'\bcomma\b', caseSensitive: false), ',')
+      .split(RegExp(r'[,;\n]+'))
+      .map(_cleanLocation)
+      .where((label) => label.isNotEmpty)
+      .join(', ');
+  List<String> get _locations {
+    final locations = <String, String>{};
+    for (final value in _savedLocations) {
+      final label = _cleanLocation(value);
+      if (label.isNotEmpty)
+        locations.putIfAbsent(_locationKey(label), () => label);
+    }
+    for (final task in _tasks) {
+      final label = _cleanLocation(task.location);
+      if (label.isNotEmpty)
+        locations.putIfAbsent(_locationKey(label), () => label);
+    }
+    return locations.values.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  }
 
   void _activateSection(int section) {
     if (_activeBoardSection != section)
@@ -213,6 +337,9 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
   String _infoText = 'Add a task, or open a section to work on your job.';
 
   String _sectionTip(String title) {
+    if (title.contains('Location')) {
+      return 'Add a location when editing a task. Open an area to see its tasks.';
+    }
     if (title.contains('Materials') || title.contains('materials')) {
       return 'Choose a material or tap the microphone. Check its size and quantity before adding.';
     }
@@ -268,6 +395,8 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
         _rememberedMaterials.addAll(remembered);
         _generalMaterials.materials.addAll(generalMaterials);
         _inventory.addAll(inventory);
+        _savedLocations
+            .addAll((data['locations'] as List? ?? []).cast<String>());
       }
     } catch (_) {
       _loadFailed = true;
@@ -276,10 +405,15 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
   }
 
   void _save() {
+    final locations = _locations;
+    _savedLocations
+      ..clear()
+      ..addAll(locations);
     setState(() {});
     final snapshot = jsonEncode({
       'tasks': _tasks.map((t) => t.toJson()).toList(),
       'daily': _daily,
+      'locations': _locations,
       'compactTasks': _compactTasks,
       'inventory': _inventory.map((item) => item.toJson()).toList(),
       'generalMaterials':
@@ -320,7 +454,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
 
   Future<List<String>?> _form(
       String title, List<String> labels, List<String> values,
-      {int multiline = -1}) async {
+      {int multiline = -1, String confirmLabel = 'Save'}) async {
     final controllers =
         values.map((v) => TextEditingController(text: v)).toList();
     final key = GlobalKey<FormState>();
@@ -366,31 +500,39 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                                           const EdgeInsets.only(bottom: 12),
                                       child: JobInputField(
                                         controller: controllers[i],
-                                        minLines: i == multiline ? 3 : 1,
-                                        maxLines: labels[i] == 'Task name' ||
-                                                i == multiline
-                                            ? null
-                                            : 1,
+                                        minLines: 1,
+                                        maxLines: null,
                                         appendSpeech: true,
                                         speechSeparator:
-                                            labels[i].startsWith('Workers')
+                                            labels[i].startsWith('Workers') ||
+                                                    labels[i]
+                                                        .startsWith('Locations')
                                                 ? ', '
                                                 : ' ',
                                         speechPauseMillis:
-                                            labels[i].startsWith('Workers')
+                                            labels[i].startsWith('Workers') ||
+                                                    labels[i]
+                                                        .startsWith('Locations')
                                                 ? 3000
                                                 : null,
-                                        speechTransform:
-                                            labels[i].startsWith('Workers')
+                                        speechTransform: labels[i]
+                                                .startsWith('Locations')
+                                            ? _formatLocationList
+                                            : labels[i].startsWith('Workers')
                                                 ? formatSpokenWorkers
-                                                : i == multiline
+                                                : i == multiline ||
+                                                        labels[i] == 'Task name'
                                                     ? formatInchMeasurements
                                                     : null,
                                         decoration: InputDecoration(
                                             labelText: labels[i],
+                                            floatingLabelBehavior:
+                                                FloatingLabelBehavior.always,
+                                            labelStyle:
+                                                const TextStyle(fontSize: 14),
                                             helperText: labels[i]
-                                                    .startsWith('Workers')
-                                                ? 'Say full names separated by “and,” or number them 1, 2, 3…'
+                                                    .startsWith('Locations')
+                                                ? 'Speak or type locations separated by commas: Room 201, Room 104, Electric room. Tap Done to add them all.'
                                                 : null,
                                             helperMaxLines: 3,
                                             border: const OutlineInputBorder(
@@ -406,11 +548,40 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                                                         color: _silver,
                                                         width: 1.5))),
                                         validator: (v) => i == 0 &&
-                                                (v == null || v.trim().isEmpty)
+                                                (v == null ||
+                                                    (labels[i].startsWith(
+                                                            'Locations')
+                                                        ? _formatLocationList(v)
+                                                            .isEmpty
+                                                        : v.trim().isEmpty))
                                             ? 'Enter ${labels[i].toLowerCase()}'
                                             : null,
                                       ),
                                     ),
+                                  if (labels.contains(
+                                          'Location / room (optional)') &&
+                                      _locations.isNotEmpty)
+                                    DropdownButtonFormField<String>(
+                                        isExpanded: true,
+                                        decoration: const InputDecoration(
+                                            labelText: 'Choose saved location',
+                                            border: OutlineInputBorder()),
+                                        items: _locations
+                                            .map((location) => DropdownMenuItem(
+                                                value: location,
+                                                child: Text(location)))
+                                            .toList(),
+                                        onChanged: (location) {
+                                          if (location == null) return;
+                                          final controller = controllers[
+                                              labels.indexOf(
+                                                  'Location / room (optional)')];
+                                          controller.value = TextEditingValue(
+                                              text: location,
+                                              selection:
+                                                  TextSelection.collapsed(
+                                                      offset: location.length));
+                                        }),
                                 ]),
                           ))),
                   Padding(
@@ -435,7 +606,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                                                     .map((c) => c.text.trim())
                                                     .toList());
                                         },
-                                        child: const Text('Save'))),
+                                        child: Text(confirmLabel))),
                               ]))),
                 ]))),
       ),
@@ -448,27 +619,132 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
     return result;
   }
 
-  Future<void> _editTask([BoardTask? task]) async {
+  Future<void> _addLocation() async {
+    final values = await _form(
+        'Add locations', ['Locations (separate with commas)'], [''],
+        multiline: 0, confirmLabel: 'Done');
+    if (!mounted || values == null) return;
+    final existing = _locations.map(_locationKey).toSet();
+    for (final label in _formatLocationList(values.first).split(', ')) {
+      if (label.isNotEmpty && existing.add(_locationKey(label))) {
+        _savedLocations.add(label);
+      }
+    }
+    _save();
+  }
+
+  Widget _locationActions(String location) => Padding(
+      padding: EdgeInsets.only(
+          top: 12,
+          bottom: _tasks.any((task) =>
+                  _locationKey(task.location) == _locationKey(location))
+              ? 12
+              : 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48)),
+            onPressed: () => _editTask(null, location),
+            icon: const Icon(Icons.add),
+            label: const Text('ADD TASK HERE')),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48)),
+            onPressed: () => _assignLocationTasks(location),
+            icon: const Icon(Icons.assignment_outlined),
+            label: const Text('ASSIGN EXISTING TASKS')),
+      ]));
+
+  Future<void> _assignLocationTasks(String location) async {
+    final available = _tasks
+        .where((task) => !task.isComplete && task.location.trim().isEmpty)
+        .toList();
+    final selected = <String>{};
+    final result = await _showJobDialog<Set<String>>(
+        context: context,
+        builder: (context) => StatefulBuilder(
+            builder: (context, update) => AlertDialog(
+                  insetPadding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 16),
+                  title: Text('Assign existing tasks to $location'),
+                  content: SizedBox(
+                      width: double.maxFinite,
+                      child: SingleChildScrollView(
+                          child:
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                        const Text(
+                            'Choose tasks that do not have a location yet.'),
+                        if (available.isEmpty)
+                          const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: Text(
+                                  'No unassigned tasks. Use Add Task Here to create one for this location.')),
+                        for (final task in available)
+                          CheckboxListTile(
+                              value: selected.contains(task.id),
+                              title: Text(task.title),
+                              subtitle: Text(task.location.isEmpty
+                                  ? 'No location'
+                                  : task.location),
+                              onChanged: (value) => update(() {
+                                    if (value == true) {
+                                      selected.add(task.id);
+                                    } else {
+                                      selected.remove(task.id);
+                                    }
+                                  })),
+                      ]))),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel')),
+                    FilledButton(
+                        onPressed: () =>
+                            Navigator.pop(context, Set<String>.from(selected)),
+                        child: const Text('Save'))
+                  ],
+                )));
+    if (!mounted || result == null) return;
+    for (final task in _tasks) {
+      if (result.contains(task.id) &&
+          task.location.trim().isEmpty &&
+          !task.isComplete) {
+        task.location = location;
+      }
+    }
+    _save();
+  }
+
+  Future<void> _editTask([BoardTask? task, String initialLocation = '']) async {
     final values = await _form(
         task == null ? 'Add task' : 'Edit task',
         [
           'Task name',
           'Workers (separate names with commas)',
-          'Details / blocked reason (optional)'
+          'Details / blocked reason (optional)',
+          'Location / room (optional)'
         ],
-        [task?.title ?? '', task?.worker ?? '', task?.notes ?? ''],
+        [
+          task?.title ?? '',
+          task?.worker ?? '',
+          task?.notes ?? '',
+          task?.location ?? initialLocation
+        ],
         multiline: 2);
     if (values == null || !mounted) return;
     if (task == null) {
       _tasks.add(BoardTask(
           id: DateTime.now().microsecondsSinceEpoch.toString(),
           title: values[0],
-          worker: values[1],
+          worker: formatSpokenWorkers(values[1]),
+          location: _cleanLocation(values[3]),
           notes: values[2]));
     } else {
       task.title = values[0];
-      task.worker = values[1];
+      task.worker = formatSpokenWorkers(values[1]);
       task.notes = values[2];
+      task.location = _cleanLocation(values[3]);
     }
     if (task == null) {
       _filter = 'All';
@@ -653,6 +929,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
     _tasks.clear();
     _daily.clear();
     _generalMaterials.materials.clear();
+    _savedLocations.clear();
     _materialPickerRevision.clear();
     _filter = 'All';
     if (clearButtons) _rememberedMaterials.clear();
@@ -785,14 +1062,20 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
           VoidCallback? onEdit,
           Widget? headerAction,
           bool scrollOnOpen = false,
+          int? taskSection,
+          ValueChanged<bool>? onExpanded,
+          ExpansibleController? expansionController,
+          bool expandedBorder = false,
+          Color? arrowColor,
+          Color? leadingColor,
           String? subtitle,
           Key? tileKey}) =>
       Builder(
           builder: (cardContext) => Listener(
               onPointerDown: _boardSectionNumber(title) != null
                   ? (_) => _activateSection(_boardSectionNumber(title)!)
-                  : _tasks.any((task) => task.title == title)
-                      ? (_) => _activateSection(1)
+                  : taskSection != null
+                      ? (_) => _activateSection(taskSection)
                       : null,
               child: Container(
                 margin: EdgeInsets.only(
@@ -815,13 +1098,15 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                               ? const [Color(0xFF44383C), Color(0xFF211A1D)]
                               : const [Color(0xFF29292D), Color(0xFF111111)]),
                   border: Border.all(
-                      color: nested ||
-                              accent ||
-                              (_boardSectionNumber(title) != null &&
-                                  _activeBoardSection ==
-                                      _boardSectionNumber(title))
-                          ? _red
-                          : _silver,
+                      color: nested && expandedBorder
+                          ? _silver
+                          : nested ||
+                                  accent ||
+                                  (_boardSectionNumber(title) != null &&
+                                      _activeBoardSection ==
+                                          _boardSectionNumber(title))
+                              ? _red
+                              : _silver,
                       width: 1.2),
                   borderRadius: BorderRadius.circular(nested ? 10 : 14),
                 ),
@@ -829,14 +1114,18 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                     data: _jobBoardTheme.copyWith(
                         dividerColor: Colors.transparent),
                     child: ExpansionTile(
+                      controller: expansionController,
                       key: tileKey,
                       initiallyExpanded: open,
                       onExpansionChanged: (expanded) async {
+                        onExpanded?.call(expanded);
                         if (!expanded) return;
                         setState(() => _infoText = _sectionTip(title));
                         if (!scrollOnOpen) return;
                         await Future<void>.delayed(
                             const Duration(milliseconds: 250));
+                        if (expansionController != null &&
+                            !expansionController.isExpanded) return;
                         if (cardContext.mounted) {
                           await Scrollable.ensureVisible(cardContext,
                               alignment: 0,
@@ -857,9 +1146,13 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                               ? const EdgeInsets.symmetric(horizontal: 6)
                               : null,
                       leading: headerLeading ??
-                          Icon(icon, color: _red, size: nested ? 20 : 24),
-                      iconColor: nested ? Colors.black87 : _silver,
-                      collapsedIconColor: nested ? Colors.black87 : _silver,
+                          Icon(icon,
+                              color: leadingColor ?? _red,
+                              size: nested ? 20 : 24),
+                      iconColor:
+                          arrowColor ?? (nested ? Colors.black87 : _silver),
+                      collapsedIconColor:
+                          arrowColor ?? (nested ? Colors.black87 : _silver),
                       title: Row(children: [
                         Expanded(
                             child: Text(title,
@@ -885,7 +1178,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                               overflow: compact ? TextOverflow.ellipsis : null,
                               style: const TextStyle(
                                   color: Colors.white70, fontSize: 13)),
-                      childrenPadding: nested
+                      childrenPadding: nested || taskSection != null
                           ? EdgeInsets.zero
                           : const EdgeInsets.fromLTRB(12, 0, 12, 12),
                       children: nested
@@ -908,150 +1201,178 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
 
   Widget _section(String title, IconData icon, List<Widget> children,
           {String? subtitle}) =>
-      _card(title, icon, children,
-          subtitle: subtitle, nested: true, scrollOnOpen: true);
+      _TaskSectionWidth(
+          builder: (expanded, onExpanded, controller) => Padding(
+              padding: EdgeInsets.symmetric(horizontal: expanded ? 0 : 12),
+              child: _card(title, icon, children,
+                  subtitle: subtitle,
+                  nested: true,
+                  expandedBorder: expanded,
+                  scrollOnOpen: true,
+                  expansionController: controller,
+                  onExpanded: onExpanded)));
 
   Widget _empty(String text) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 14),
       child: Text(text, style: const TextStyle(color: Colors.white70)));
 
-  Widget _taskCard(BoardTask task) => _card(
-      task.title,
-      task.isComplete ? Icons.check_circle : Icons.assignment_outlined,
-      [
-        Align(
-          alignment: Alignment.centerRight,
-          child: PopupMenuButton<String>(
-            tooltip: 'Task actions',
-            onSelected: (action) {
-              if (action == 'edit') {
-                _editTask(task);
-              } else if (action == 'complete') {
-                _setStatus(task, task.isComplete ? 'Not started' : 'Completed');
-              } else if (['up', 'down', 'top', 'bottom'].contains(action)) {
-                _moveTask(task, action);
-              } else {
-                _deleteTask(task);
-              }
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'edit', child: Text('Edit task')),
-              PopupMenuItem(
-                  value: 'complete',
-                  child:
-                      Text(task.isComplete ? 'Reopen task' : 'Complete task')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'up', child: Text('Move up')),
-              const PopupMenuItem(value: 'down', child: Text('Move down')),
-              const PopupMenuItem(value: 'top', child: Text('Move to top')),
-              const PopupMenuItem(
-                  value: 'bottom', child: Text('Move to bottom')),
-              const PopupMenuDivider(),
-              const PopupMenuItem(value: 'delete', child: Text('Delete task')),
-            ],
-          ),
-        ),
-        _section(
-            'Workers',
-            Icons.person_outline,
-            [
+  Widget _taskCard(BoardTask task, {int section = 1}) => _TaskAccordion(
+      key: ValueKey('accordion-${task.id}'),
+      child: _card(
+          task.title,
+          task.isComplete ? Icons.check_circle : Icons.assignment_outlined,
+          [
+            Align(
+              alignment: Alignment.centerRight,
+              child: PopupMenuButton<String>(
+                tooltip: 'Task actions',
+                onSelected: (action) {
+                  if (action == 'edit') {
+                    _editTask(task);
+                  } else if (action == 'complete') {
+                    _setStatus(
+                        task, task.isComplete ? 'Not started' : 'Completed');
+                  } else if (['up', 'down', 'top', 'bottom'].contains(action)) {
+                    _moveTask(task, action);
+                  } else {
+                    _deleteTask(task);
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'edit', child: Text('Edit task')),
+                  PopupMenuItem(
+                      value: 'complete',
+                      child: Text(
+                          task.isComplete ? 'Reopen task' : 'Complete task')),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(value: 'up', child: Text('Move up')),
+                  const PopupMenuItem(value: 'down', child: Text('Move down')),
+                  const PopupMenuItem(value: 'top', child: Text('Move to top')),
+                  const PopupMenuItem(
+                      value: 'bottom', child: Text('Move to bottom')),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem(
+                      value: 'delete', child: Text('Delete task')),
+                ],
+              ),
+            ),
+            _section('Location', Icons.location_on_outlined, [
               ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text(task.workerLabel),
-                  subtitle: const Text('Assignment is saved on this phone.'),
-                  trailing: IconButton(
-                      tooltip: 'Edit workers',
-                      onPressed: () => _editTask(task),
-                      icon: const Icon(Icons.edit_outlined))),
-            ],
-            subtitle: task.workerLabel),
-        _section(
-            'Materials',
-            Icons.inventory_2_outlined,
-            [
+                  title: Text(task.location.isEmpty
+                      ? 'No location assigned'
+                      : task.location),
+                  trailing: const Icon(Icons.edit_outlined),
+                  onTap: () => _editTask(task)),
+              TextButton.icon(
+                  onPressed: () => _editTask(task),
+                  icon: const Icon(Icons.place_outlined),
+                  label: const Text('Assign / change location')),
+            ]),
+            _section(
+                'Workers',
+                Icons.person_outline,
+                [
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(task.workerLabel),
+                      subtitle:
+                          const Text('Assignment is saved on this phone.'),
+                      trailing: IconButton(
+                          tooltip: 'Edit workers',
+                          onPressed: () => _editTask(task),
+                          icon: const Icon(Icons.edit_outlined))),
+                ],
+                subtitle: task.workerLabel),
+            _section(
+                'Materials',
+                Icons.inventory_2_outlined,
+                [
+                  const Text(
+                      'Pick a category, then a type. Choose a size and enter the quantity.',
+                      style: TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 8),
+                  _materialPicker(task),
+                  if (task.materials.isNotEmpty)
+                    _card(
+                        'Added materials (${task.materials.length})',
+                        Icons.list_alt_outlined,
+                        task.materials
+                            .map((material) => _materialRow(task, material))
+                            .toList(),
+                        tileKey: ValueKey(
+                            'added-${task.id}-${_materialPickerRevision[task.id] ?? 0}')),
+                  if (task.materials.isEmpty) _empty('No materials added yet.'),
+                ],
+                subtitle: '${task.materials.length} items'),
+            _section('Details & progress', Icons.notes, [
+              Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(task.notes.isEmpty
+                      ? 'Add instructions or a blocked reason with Edit.'
+                      : task.notes)),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  initialValue: task.status,
+                  key: ValueKey('${task.id}-${task.status}'),
+                  decoration: const InputDecoration(
+                      labelText: 'Status', border: OutlineInputBorder()),
+                  items: ['Not started', 'In progress', 'Blocked', 'Completed']
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                      .toList(),
+                  onChanged: (v) {
+                    if (v != null) _setStatus(task, v);
+                  }),
+            ]),
+            _section('Daily notes', Icons.today_outlined, [
+              FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF323236),
+                      minimumSize: const Size(double.infinity, 52),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: const BorderSide(color: _silver, width: 1.2)),
+                      textStyle: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 1)),
+                  onPressed: () => _dailyNote(task: task),
+                  icon: const Icon(Icons.note_add_outlined),
+                  label: const Text('ADD DAILY NOTE')),
+              ..._daily.where((n) => n['task'] == task.id).map(_noteRow),
+              if (!_daily.any((n) => n['task'] == task.id))
+                _empty('Add a note here. It also appears in 6. Daily notes.'),
+            ]),
+            _section('Dates & completion', Icons.event_outlined, [
+              _dateRow(task, true),
+              _dateRow(task, false),
+              if (task.completed != null)
+                ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Completed'),
+                    subtitle: Text(_date(task.completed))),
               const Text(
-                  'Pick a category, then a type. Choose a size and enter the quantity.',
-                  style: TextStyle(color: Colors.white70)),
-              const SizedBox(height: 8),
-              _materialPicker(task),
-              if (task.materials.isNotEmpty)
-                _card(
-                    'Added materials (${task.materials.length})',
-                    Icons.list_alt_outlined,
-                    task.materials
-                        .map((material) => _materialRow(task, material))
-                        .toList(),
-                    tileKey: ValueKey(
-                        'added-${task.id}-${_materialPickerRevision[task.id] ?? 0}')),
-              if (task.materials.isEmpty) _empty('No materials added yet.'),
-            ],
-            subtitle: '${task.materials.length} items'),
-        _section('Details & progress', Icons.notes, [
-          Align(
-              alignment: Alignment.centerLeft,
-              child: Text(task.notes.isEmpty
-                  ? 'Add instructions or a blocked reason with Edit.'
-                  : task.notes)),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-              isExpanded: true,
-              initialValue: task.status,
-              key: ValueKey('${task.id}-${task.status}'),
-              decoration: const InputDecoration(
-                  labelText: 'Status', border: OutlineInputBorder()),
-              items: ['Not started', 'In progress', 'Blocked', 'Completed']
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                  .toList(),
-              onChanged: (v) {
-                if (v != null) _setStatus(task, v);
-              }),
-        ]),
-        _section('Daily notes', Icons.today_outlined, [
-          FilledButton.icon(
-              style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF323236),
-                  minimumSize: const Size(double.infinity, 52),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      side: const BorderSide(color: _silver, width: 1.2)),
-                  textStyle: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 1)),
-              onPressed: () => _dailyNote(task: task),
-              icon: const Icon(Icons.note_add_outlined),
-              label: const Text('ADD DAILY NOTE')),
-          ..._daily.where((n) => n['task'] == task.id).map(_noteRow),
-          if (!_daily.any((n) => n['task'] == task.id))
-            _empty('Add a note here. It also appears in 5. Daily notes.'),
-        ]),
-        _section('Dates & completion', Icons.event_outlined, [
-          _dateRow(task, true),
-          _dateRow(task, false),
-          if (task.completed != null)
-            ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Completed'),
-                subtitle: Text(_date(task.completed))),
-          const Text(
-              'Due dates flag unfinished work here. Phone notifications are not connected yet.',
-              style: TextStyle(color: Colors.white60, fontSize: 12)),
-        ]),
-      ],
-      subtitle: '${task.workerLabel} • ${_attention(task)}',
-      headerLeading: Tooltip(
-          message: task.isComplete ? 'Reopen task' : 'Complete task',
-          child: Checkbox(
-            key: ValueKey('complete-${task.id}'),
-            value: task.isComplete,
-            onChanged: (value) =>
-                _setStatus(task, value! ? 'Completed' : 'Not started'),
-          )),
-      onEdit: () => _editTask(task),
-      maintainState: false,
-      scrollOnOpen: true,
-      compact: _compactTasks,
-      tileKey: ValueKey('task-${task.id}'));
+                  'Due dates flag unfinished work here. Phone notifications are not connected yet.',
+                  style: TextStyle(color: Colors.white60, fontSize: 12)),
+            ]),
+          ],
+          subtitle:
+              '${task.workerLabel}${task.location.isEmpty ? '' : ' • ${task.location}'} • ${_attention(task)}',
+          headerLeading: Tooltip(
+              message: task.isComplete ? 'Reopen task' : 'Complete task',
+              child: Checkbox(
+                key: ValueKey('complete-${task.id}'),
+                value: task.isComplete,
+                onChanged: (value) =>
+                    _setStatus(task, value! ? 'Completed' : 'Not started'),
+              )),
+          onEdit: () => _editTask(task),
+          taskSection: section,
+          maintainState: false,
+          scrollOnOpen: true,
+          compact: _compactTasks,
+          tileKey: ValueKey('task-${task.id}')));
 
   bool _matchesTaskFilter(BoardTask task) =>
       !task.isComplete &&
@@ -1400,6 +1721,8 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
     summary.writeln('Prepared ${_date(DateTime.now())}');
     for (final task in groups) {
       summary.writeln('\n${task.title}');
+      if (task.location.isNotEmpty)
+        summary.writeln('Location: ${task.location}');
       for (final material in task.materials) {
         final details = [
           if (material.size.isNotEmpty) 'Size: ${material.size}',
@@ -1474,18 +1797,23 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
         builder: (context) => StatefulBuilder(
             builder: (context, update) => AlertDialog(
                   title: const Text('Assign material'),
-                  content: DropdownButtonFormField<String>(
-                    initialValue: selected,
-                    isExpanded: true,
-                    decoration: const InputDecoration(labelText: 'Task'),
-                    items: choices
-                        .map((task) => DropdownMenuItem(
-                            value: task.id,
-                            child: Text(task.title,
-                                overflow: TextOverflow.ellipsis)))
-                        .toList(),
-                    onChanged: (value) => update(() => selected = value!),
-                  ),
+                  insetPadding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 16),
+                  content: SizedBox(
+                      width: double.maxFinite,
+                      child: DropdownButtonFormField<String>(
+                        initialValue: selected,
+                        isExpanded: true,
+                        decoration: const InputDecoration(labelText: 'Task'),
+                        items: choices
+                            .map((task) => DropdownMenuItem(
+                                value: task.id,
+                                child: Text(
+                                    '${task.title}${task.location.isEmpty ? '' : ' — ${task.location}'}',
+                                    overflow: TextOverflow.ellipsis)))
+                            .toList(),
+                        onChanged: (value) => update(() => selected = value!),
+                      )),
                   actions: [
                     TextButton(
                         onPressed: () => Navigator.pop(context),
@@ -1526,6 +1854,21 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
               icon: const Icon(Icons.clear)),
       ]));
 
+  String _materialLabel(JobMaterial material) {
+    if (material.category == 'Boxes' &&
+        RegExp(r'^4(?:-11/16)?-inch square box(?: shallow| deep)?$')
+            .hasMatch(material.name)) {
+      final family = material.name.startsWith('4-11/16') ? '5S' : '4S';
+      final depth = material.name.endsWith('deep')
+          ? ' Deep'
+          : material.name.endsWith('shallow')
+              ? ' Shallow'
+              : '';
+      return '$family$depth box';
+    }
+    return material.name;
+  }
+
   Widget _materialRow(BoardTask task, JobMaterial material) => Theme(
       data: _jobBoardTheme.copyWith(dividerColor: Colors.transparent),
       child: ExpansionTile(
@@ -1533,7 +1876,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
           tilePadding: EdgeInsets.zero,
           title: Text(
               [
-                material.name,
+                _materialLabel(material),
                 if (material.materialType.isNotEmpty &&
                     material.materialType != material.name)
                   material.materialType,
@@ -1551,11 +1894,16 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
               style: const TextStyle(color: Colors.white70)),
           children: [
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(task.id == _generalMaterials.id
+                  ? 'Not assigned to a task yet.'
+                  : 'Task: ${task.title}${task.location.isEmpty ? '' : '\nLocation: ${task.location}'}'),
+              TextButton.icon(
+                  onPressed: () => _assignMaterial(task, material),
+                  icon: const Icon(Icons.assignment_outlined),
+                  label: Text(task.id == _generalMaterials.id
+                      ? 'Assign to task'
+                      : 'Move to another task')),
               Row(children: [
-                IconButton(
-                    tooltip: 'Assign material to task',
-                    onPressed: () => _assignMaterial(task, material),
-                    icon: const Icon(Icons.assignment_outlined)),
                 const Spacer(),
                 IconButton(
                     tooltip: 'Edit material',
@@ -1563,22 +1911,44 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                     icon: const Icon(Icons.edit_outlined)),
                 IconButton(
                     tooltip: 'Remove material',
-                    onPressed: () {
+                    onPressed: () async {
+                      final label = _materialLabel(material);
+                      final remove = await _showJobDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                                  title: const Text('Remove material?'),
+                                  content: Text(
+                                      'Remove $label from this material list?'),
+                                  actions: [
+                                    TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Keep')),
+                                    FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text('Remove')),
+                                  ]));
+                      if (!mounted ||
+                          remove != true ||
+                          !task.materials.contains(material)) return;
                       final index = task.materials.indexOf(material);
                       task.materials.remove(material);
                       _save();
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text('Removed ${material.name}'),
+                          duration: const Duration(seconds: 8),
+                          content: Text('Removed $label'),
                           action: SnackBarAction(
                               label: 'Undo',
                               onPressed: () {
+                                if (task.materials.contains(material)) return;
                                 task.materials.insert(
                                     index.clamp(0, task.materials.length),
                                     material);
                                 _save();
                               })));
                     },
-                    icon: const Icon(Icons.close)),
+                    icon: const Icon(Icons.delete_outline)),
               ]),
               Text(
                   material.quantity.isEmpty
@@ -1677,7 +2047,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                 width: double.maxFinite,
                 child: SingleChildScrollView(
                     child: Text(
-                        'Open Task list, then open a task. Workers, Materials, Details & progress, Daily notes, and Dates & completion fold out inside it.\n\n'
+                        'Sections: 1. Task List, 2. Job Materials, 3. By Location, 4. By Workers, 5. Calendar & Due Dates, 6. Daily Notes. Add a location when adding or editing a task.\n\nOpen Task list, then open a task. Workers, Materials, Details & progress, Daily notes, and Dates & completion fold out inside it.\n\n'
                         'Use the arrows to browse five tasks at a time. Hold a task to drag it within its page. Your order is saved. Compact shows a one-line title; Roomy adds workers and progress.\n\nCheck a task’s box to move it to Completed. Uncheck it to reopen it. Due dates show overdue and due-today work.\n\n'
                         'Your entries are stored on this phone.\n\n'
                         'Materials: tap a category, then a type. Choose or type a size and enter the quantity. Custom materials can be saved as quick buttons for other tasks. Removing a saved button leaves task materials intact.\n\n'
@@ -1783,25 +2153,7 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                                 visible, open, completed, matching.length),
                             SliverList.list(children: [
                               _card(
-                                  '2. Calendar & due dates',
-                                  Icons.calendar_month_outlined,
-                                  [
-                                    if (scheduled.isEmpty)
-                                      _empty(
-                                          'Set due dates inside your tasks to see upcoming work.'),
-                                    for (final task in scheduled)
-                                      ListTile(
-                                          contentPadding: EdgeInsets.zero,
-                                          title: Text(task.title),
-                                          subtitle: Text(_attention(task)),
-                                          trailing: const Icon(
-                                              Icons.edit_calendar_outlined),
-                                          onTap: () => _pickDate(task, false)),
-                                  ],
-                                  subtitle:
-                                      '${scheduled.length} scheduled tasks'),
-                              _card(
-                                  '3. Job materials',
+                                  '2. Job materials',
                                   Icons.inventory_2_outlined,
                                   [
                                     _materialPicker(_generalMaterials),
@@ -1832,17 +2184,72 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                                           'Add materials here, then assign them to a task when ready.'),
                                   ],
                                   subtitle: 'Needed • On hand • Purchased',
-                                  headerAction: IconButton.outlined(
-                                      tooltip: 'Share job materials',
-                                      onPressed: _generalMaterials
-                                                  .materials.isNotEmpty ||
-                                              open.any((task) =>
-                                                  task.materials.isNotEmpty)
-                                          ? _shareJobMaterials
-                                          : null,
-                                      icon: const Icon(Icons.share_outlined))),
+                                  onExpanded: (expanded) => setState(
+                                      () => _jobMaterialsOpen = expanded),
+                                  headerAction: !_jobMaterialsOpen
+                                      ? null
+                                      : IconButton.outlined(
+                                          tooltip: 'Share job materials',
+                                          onPressed: _generalMaterials
+                                                      .materials.isNotEmpty ||
+                                                  open.any((task) =>
+                                                      task.materials.isNotEmpty)
+                                              ? _shareJobMaterials
+                                              : null,
+                                          icon: const Icon(
+                                              Icons.share_outlined))),
                               _card(
-                                  '4. By worker',
+                                  '3. By Location',
+                                  Icons.location_on_outlined,
+                                  [
+                                    Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: TextButton.icon(
+                                            onPressed: _addLocation,
+                                            icon: const Icon(Icons.add),
+                                            label: const Text('ADD LOCATION'))),
+                                    for (final location in [
+                                      ..._locations,
+                                      if (_tasks.any((task) =>
+                                          task.location.trim().isEmpty))
+                                        ''
+                                    ])
+                                      _card(
+                                          location.isEmpty
+                                              ? 'No location'
+                                              : location,
+                                          Icons.place_outlined,
+                                          [
+                                            if (location.isNotEmpty)
+                                              _locationActions(location),
+                                            ..._tasks
+                                                .where((task) =>
+                                                    _locationKey(
+                                                        task.location) ==
+                                                    _locationKey(location))
+                                                .map((task) =>
+                                                    _taskCard(task, section: 3))
+                                                .toList()
+                                          ],
+                                          leadingColor: _tasks.any((task) =>
+                                                  _locationKey(task.location) ==
+                                                  _locationKey(location))
+                                              ? _red
+                                              : Colors.white,
+                                          arrowColor: _tasks.any((task) =>
+                                                  _locationKey(task.location) ==
+                                                  _locationKey(location))
+                                              ? _red
+                                              : Colors.white,
+                                          subtitle:
+                                              '${_tasks.where((task) => _locationKey(task.location) == _locationKey(location)).length} tasks'),
+                                    if (_locations.isEmpty && _tasks.isEmpty)
+                                      _empty(
+                                          'Add a location when adding or editing a task.'),
+                                  ],
+                                  subtitle: 'See tasks by room or area'),
+                              _card(
+                                  '4. By Workers',
                                   Icons.groups_outlined,
                                   [
                                     for (final worker in workers)
@@ -1874,7 +2281,25 @@ class _JobBoardScreenState extends State<JobBoardScreen> {
                                   ],
                                   subtitle: 'See assignments and progress'),
                               _card(
-                                  '5. Daily notes',
+                                  '5. Calendar & due dates',
+                                  Icons.calendar_month_outlined,
+                                  [
+                                    if (scheduled.isEmpty)
+                                      _empty(
+                                          'Set due dates inside your tasks to see upcoming work.'),
+                                    for (final task in scheduled)
+                                      ListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          title: Text(task.title),
+                                          subtitle: Text(_attention(task)),
+                                          trailing: const Icon(
+                                              Icons.edit_calendar_outlined),
+                                          onTap: () => _pickDate(task, false)),
+                                  ],
+                                  subtitle:
+                                      '${scheduled.length} scheduled tasks'),
+                              _card(
+                                  '6. Daily notes',
                                   Icons.today_outlined,
                                   [
                                     FilledButton.icon(

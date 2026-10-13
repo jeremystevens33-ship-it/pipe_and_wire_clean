@@ -3,12 +3,25 @@
 Job Board feature work and captured ideas: [JOB_BOARD_PLAN.md](JOB_BOARD_PLAN.md).
 Current implementation handoff: [JOB_BOARD_HANDOFF.md](JOB_BOARD_HANDOFF.md).
 
-October 11 priority: finish the short Job Board closeout checklist in its master
-plan (iPhone microphone build/phone verification, six latest UI/help topics,
-worker-name update installation, user review),
-then return to Load Calculator. Larger Job Board sharing/inventory ideas stay
-deferred. Decide whether to keep, simplify, or remove Power Hub Solver before
-starting further solver implementation.
+## Tomorrow — October 13, 2026
+
+- Check today's GitHub version on the Mac/iPhone and report any differences;
+  user confirmed repeated worker dictation, Copy/Paste, accordion scrolling,
+  and saved entries surviving restart. Do not keep those as unresolved bugs.
+- Spot-check the final pipe default (feet, with sticks optional) and inventory
+  populated-first categories on the phone; preserve existing quantities/bases.
+- Return to Load Calculator: review Repeating/Mixed Load progress and choose
+  the next saved-circuit / room-lighting panel-schedule chunk.
+- Review Power Hub's bubble layout and supported goals using
+  [POWER_HUB_PLAN.md](POWER_HUB_PLAN.md); agree on a small first pass.
+- Keep crew sync/order reconciliation and private Cloudflare web testing queued;
+  they are separate future work, not tonight's Job Board closeout.
+
+October 12 acceptance: user confirms repeated worker dictation, Copy/Paste,
+accordion scrolling, and saving/reopening entries all work. Locations, section
+order, box quantity entry, and cursor-position dictation were also reviewed
+positively. New pipe defaults and final inventory polish remain available for
+normal phone use/review; no additional broad UI test round is requested.
 
 Active Android/iPhone layout work: [COMPATIBILITY_TODO.md](COMPATIBILITY_TODO.md).
 As of 2026-09-29, the user has the app running on a physical iPhone from the Mac;
@@ -86,8 +99,12 @@ manual acceptance and source checks. No store-readiness claim is implied.
 
 ## Website and YouTube button details
 
-- [ ] Obtain the exact website URL and YouTube channel/page URL from the user.
-  The recalled website name is not a confirmed destination.
+- [x] Identify the website domain and existing source: `pipeandwireapp.com`,
+  registered with Cloudflare. Complete landing-page folder found at
+  `C:\Users\jerem\OneDrive\Desktop\website` (`index.html`, `styles.css`,
+  and `assets/images/pipe-wire-logo.png`).
+- [ ] Obtain the exact YouTube channel/page URL from the user; confirm the
+  website is ready before connecting the app's WEB button.
 - [ ] Connect the existing YouTube icon and WEB button in the main menu footer
   (`lib/main_menu_screen.dart`). Both currently have empty onTap callbacks.
 - [ ] Open the intended destinations through the platform's supported URL handler;
@@ -98,6 +115,40 @@ manual acceptance and source checks. No store-readiness claim is implied.
 Done when both existing buttons open the user-supplied destinations successfully.
 The adjacent UPLOAD button is also a placeholder, but its behavior is unspecified
 and is not part of this link-wiring task. Do not invent an upload destination.
+
+## Private website and app testing — captured October 12, 2026
+
+Queued for a later session; no website upload, publication, or access-policy
+change has been made. Domain registration is complete, but the signed-in
+Cloudflare Workers & Pages dashboard showed no projects. The local HTML page
+is a marketing website; it does not contain a playable Flutter app.
+
+- [ ] Resume in Cloudflare **Workers & Pages** and set up the landing-page
+  hosting from the complete Desktop `website` folder. Keep this private while
+  the website and app are unfinished.
+- [ ] Configure Cloudflare Zero Trust / Access for invite-only testing: begin
+  with the owner's email, then explicitly allowed tester emails using emailed
+  sign-in codes. Review any plan/billing prompts with the user.
+- [ ] Protect every deployed address, including the custom domain, production
+  `pages.dev` address, and preview addresses. Arrange protection before uploading
+  actual draft content; a hidden link alone is not private access.
+- [ ] Verify signed-out access is blocked and an allowed tester can sign in
+  before distributing the testing link.
+- [ ] Add Flutter web support to this project (no `web/` folder at the initial
+  inspection), adapt native microphone/share features for browser use, and
+  review browser support for sensor-dependent tools. Preserve phone builds.
+- [ ] Build the browser app into `build/web` and host it behind the same private
+  access setup, with a clear entry from the landing page. Website upload and
+  Flutter app upload are separate steps.
+- [ ] Establish a simple update/feedback workflow for invited testers while
+  continuing the user's Android and iPhone checks. Browser testing does not
+  automatically add crew sharing or sync locally saved Job Board data.
+
+When resumed, walk through the actual Cloudflare screen one step at a time.
+Useful setup references:
+- [Cloudflare Pages direct upload](https://developers.cloudflare.com/pages/get-started/direct-upload/)
+- [Access policies for specific emails](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/common-policies/)
+- [Pages preview access protection](https://developers.cloudflare.com/pages/configuration/preview-deployments/)
 
 ## Existing app completion work
 

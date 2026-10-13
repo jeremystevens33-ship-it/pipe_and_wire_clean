@@ -1,6 +1,6 @@
 # Job Board project list
 
-Updated October 11, 2026. This is the master feature and idea list for Job Board.
+Updated October 12, 2026. This is the master feature and idea list for Job Board.
 Implementation status and verification context: [JOB_BOARD_HANDOFF.md](JOB_BOARD_HANDOFF.md).
 Unchecked entries are proposed or pending, not existing functionality.
 
@@ -8,7 +8,137 @@ Layout direction for this and future screens:
 [LAYOUT_GUIDELINES.md](LAYOUT_GUIDELINES.md). Start with compact phones, bound
 vertical scaling, and let expanding lists scroll naturally on every phone size.
 
+## October 12 night closeout — user-confirmed acceptance
+
+- [x] Repeated worker dictation retains names; user reports it now works.
+- [x] Copy/Paste works on the phone.
+- [x] Task accordion scrolling works.
+- [x] Saved entries persist across restart/reopening.
+- [x] Cursor-position dictation and saved-location selection confirmed earlier.
+- [x] New catalog EMT/Rigid/IMC/PVC requests default to feet; sticks stays an
+  option. Existing material entries/inventory counts keep their recorded units.
+- [ ] Normal user review of the final pipe defaults/inventory category polish
+  on the latest Mac/iPhone version; fix specific new reports only.
+
+Earlier pending phone-check notes below are historical where these confirmations
+supersede them. No claim is made about airplane-mode speech or every numerical
+measurement phrase; investigate those only as specifically reported.
+
 ## Finish this version — current remaining work
+
+Inventory category ordering refinement: populated categories first, alphabetized;
+empty categories follow, also alphabetized. Items remain alphabetized inside each
+category with five-entry paging. Every category has the same-width left bar:
+red when it has entries, silver-gray when empty, with no inventory icon. Stable
+category keys preserve expansion state as ordering changes. This ordering applies
+to inventory categories only; the material-picker button order is unchanged.
+
+Inventory polish — October 12: Add Inventory Item and existing inventory rows/
+share summaries now display 4S/5S Shallow/Deep names while retaining stored
+identities and balances. Catalog 4S/5S entries omit the redundant size field.
+Categories with entries have a flat muted red-gray background, red left accent,
+red inventory icon/arrow, and bolder stock count; empty categories stay quiet.
+Use “1 stock entry” and plural “stock entries” otherwise. Stock-row Empty/Low
+colors remain tied to balances/thresholds. User visual review pending.
+
+Latest field-layout polish: Add/Edit Task inputs all start at one line, share
+spacing, and expand vertically with entered text (including Details and Location).
+Workers keeps “separate names with commas” in a smaller, always-floating label;
+the extra worker coaching sentence is removed. Home-screen location icons and
+arrows are white when empty and red when populated. Location actions use matching
+full-width 48-high outlined buttons with 12-pixel spacing/padding.
+User confirmed cursor-position dictation, comma-separated worker entry, saved
+location selection, Roomy summaries, and the wire gauge groups look/work well.
+This does not replace the repeated-recording or latest-layout phone checks.
+
+Latest October 12 cursor/location update — implemented, user review pending:
+- Dictation now inserts at a valid collapsed cursor, replaces selected text,
+  and uses the existing append/replace fallback only when selection is invalid.
+  Live previews rebuild from the starting draft/cursor so they do not duplicate.
+- Populated home-screen location cards have red arrows and task counts; empty
+  locations have silver arrows and zero tasks.
+- ADD TASK HERE opens Add Task with that location prefilled. Assign existing
+  tasks now offers only unfinished tasks without a location, and never clears
+  or moves tasks already located elsewhere. Change assigned locations through
+  task editing. This supersedes the earlier reassignment checkbox behavior.
+
+### Tonight's short closeout — October 12
+
+Implementation and phone acceptance are separate. Locations, new card order,
+bulk location entry, two-way task/location assignment, material assignment labels,
+accordion scrolling, expanded silver borders, clipboard keys, and box quantity
+entry are implemented. All current changes are being committed/pushed at the user’s request; see
+Git history for the final commit.
+
+1. [ ] Material unit/prompt pass: Pipe catalog still defaults EMT/Rigid/IMC/PVC
+   to sticks, while inventory uses feet. Decide on consistent new-entry defaults
+   (feet for pipe/wire/Unistrut/threaded rod; pieces for counted items), keep
+   optional bases accessible, and never silently reinterpret saved quantities.
+   Check boxes, fasteners, bends, and custom items for redundant size/unit prompts.
+2. [x] User check repeated worker dictation: a second recording must keep earlier
+   names, wrapped text must remain visible, and saving must retain every name.
+   Preview retention and live scrolling are implemented; the reported loss is
+   not yet confirmed resolved.
+3. [ ] Voice measurement follow-up if the user reports remaining issues;
+   selection/clipboard phone check is confirmed. Previously proposed checks:
+   Cut/Copy/Paste, selected-word voice correction, `1/2"`, and `2"`.
+4. [ ] One short connected walkthrough: add locations, assign a task, assign a
+   material to that task, complete/reopen it, and reopen the app to check saved
+   data. Confirm accordion return scrolling, borders, and hidden collapsed Share.
+5. [ ] When the user requests it, commit/push all current project changes so the
+   Mac/iPhone receives the same version. User handles builds/hot restart.
+
+Automatic crew sync, order-versus-stock reconciliation, richer inventory/order
+tracking, and private web testing stay queued separately. They do not block this
+working version. Return to Load Calculator after this closeout.
+
+### October 12 field-use addition: By Location
+
+- [x] Add an optional Location / room field to Add/Edit Task with the same app
+  keyboard and microphone. Accept room numbers, named areas, and combined labels
+  such as Electrical room / Room 201 or Transformer yard.
+- [x] Reorder and renumber the main cards: 1. Task List, 2. Job Materials,
+  3. By Location, 4. By Workers, 5. Calendar & Due Dates, 6. Daily Notes.
+  Keep ADD TASK above the cards. Update guide text, section-specific info-bar
+  guidance, active-section accents, and references to old card numbers together.
+  Locations expand to the existing task cards, using the same task
+  records so edits/completion are reflected in every view.
+- [x] Offer already-used locations as quick choices to reduce repeated typing
+  and inconsistent naming. Group case/extra-whitespace variants together without
+  guessing a location from task descriptions. Provide No location for older or
+  unassigned tasks; a missing stored location defaults to empty.
+- [x] Show location on Roomy task summaries and in shared material summaries
+  when supplied. Keep Compact titles single-line.
+- [x] Start with one location per task; optional area/room hierarchy and multiple
+  locations can be added later if actual field use needs them. Reuse local storage
+  and existing filters/actions; no server or chatbot is required for grouping.
+
+### October 12 iPhone feedback — next fixes
+
+- [x] **Multiple worker names:** investigate why dictating several names saved
+  only the final name, Rogowski. Preserve the complete worker list through live
+  speech updates and final results; split names on “and,” commas, or numbered
+  list markers while retaining first/last names. Check whether the loss occurs
+  in dictation, name parsing, saving, or the Workers display before changing it.
+- [ ] **Voice measurements on iPhone:** normalize spoken measurements in task
+  and material inputs consistently, including “half-inch” to `1/2"` and
+  “two-inch” to `2"`. Review actual recognition output; missing recognized
+  numbers must not be guessed. Keep typed measurements and ordinary prose intact.
+- [ ] **Selection and clipboard controls:** make word selection consistent in
+  Add Task, Edit Task, Workers, and other app input fields. Support dragging
+  selection handles and add Copy/Paste (and Cut where useful) to the app keyboard;
+  replacement by typing or microphone should apply to the selected text.
+  Here “drag” means adjusting text selection, separate from task reordering.
+- [ ] **Focused user recheck:** after the fixes, have the user try multiple
+  workers, a selected-name replacement, clipboard actions, and inch measurements
+  on iPhone. User performs phone checks; no installation or extra broad UI tests.
+
+Confirmed by the user's October 12 iPhone walkthrough: Add Task microphone
+starts and shows live text; word highlighting works in Edit Task; entry text
+wraps; bottom content/info-bar layout is not cut off; the wide app keyboard looks
+usable. This is partial acceptance, not confirmation of offline speech, clipboard
+support, measurement accuracy, or saving all worker names. Prior notes below
+about iPhone verification being entirely pending are historical for these paths.
 
 This is the active closeout list. The larger ideas below remain recorded for
 later; they do not need to be implemented before returning to Load Calculator.
@@ -91,7 +221,8 @@ implemented; structured packet import and automatic updates remain pending.
 
 ### Initial Share Job Materials — implemented, phone review pending
 
-- [x] Share button in card 3, disabled when there are no materials to share.
+- [x] Share button in card 2, visible only while Job Materials is expanded,
+  disabled when there are no materials to share.
 - [x] Confirmation/preview of current unassigned and open-task material lists,
   grouped by task, with sizes, quantities/bases, optional details, and status.
 - [x] Android and iOS native text share menus. Choose the messaging/email app
@@ -644,3 +775,77 @@ section headers have a silver finish, black lettering and thin red borders.
 Reusable fitting buttons show only the type inside their chosen category
 (Couplings → Liquid-tight), with inch size kept separate on task entries.
 Saved box dimensions and wire gauges are preserved.
+
+## October 12 implementation update
+
+- Locations and six-card order implemented in Dart. Missing stored locations
+  remain empty; No location groups older tasks. Used locations are quick choices
+  in Add/Edit Task, and case/whitespace variants group together.
+- 4S/5S box quantity forms retain familiar box/depth headings, omit the optional
+  size field, and omit Save button only for existing catalog choices. Junction
+  boxes still allow a size because their dimensions are not fixed.
+- Task-name voice input now uses the narrative measurement formatter, including
+  spelled whole-number inches. Workers fields wrap to show the entire entry and
+  worker separators are normalized again when saving. Lost-name dictation cause
+  remains pending; these changes do not establish that the reported loss is fixed.
+- User handles hot reload/restart and phone acceptance. No device installation.
+
+## October 12 follow-up: expanded width and continuing worker dictation
+
+Expanded task-detail borders now use the outer task's silver color; closing a
+section restores its red border and silver header. App keyboards now include
+Select all, Cut, Copy, and Paste controls, including numeric/inch keypads and
+standalone typing dialogs. Copy/Cut use selected text; Paste replaces a selection
+or inserts at the cursor. Existing native drag handles remain; consistent phone
+selection behavior and repeated worker dictation still await user acceptance.
+
+Task accordion follow-up: within each task, opening Location, Workers,
+Materials, Details & progress, Daily Notes, or Dates & completion closes the
+previously open detail section. Opening still scrolls that section to the top;
+manually closing the active detail section returns to the task title after the
+collapse settles. Switching sections does not trigger the return scroll. Each
+task/view owns its controllers, and closing the task resets its detail sections.
+Home-screen sections retain independent expansion. User phone review pending.
+
+Bulk location entry supersedes the initial one-location Add flow: ADD LOCATION
+opens a wrapping Locations input with comma coaching and Done. Typed commas,
+spoken “comma,” semicolons, and line breaks separate locations; numbers within
+room names are preserved, empty entries ignored, and case/whitespace duplicates
+skipped. All locations save together; no assignment dialog interrupts this flow.
+Assign tasks afterward from each home-screen location card or the task dropdown.
+
+Home-screen section follow-up: Share Job Materials is visible only while that
+section is expanded. Home-screen By Location has ADD LOCATION with voice/app
+keyboard, stores locations independently of task assignments, and offers an
+Assign tasks checklist per location. Task editors offer a saved-location dropdown
+alongside typed/voiced location entry. Unchecking an assigned task in the location
+checklist clears its location; selecting a task moves it to the chosen location.
+Existing task locations seed the saved choices; Clear Board clears saved locations.
+Distinguish home-screen By Location from the Location card inside a task.
+Phone review pending; materials continue to inherit location through their task.
+
+Material removal feedback: replaced the immediate X action with a trash icon
+and Keep/Remove confirmation. Retain Undo for eight seconds and use readable
+dark snackbar styling. Material row/removal labels use 4S/5S Shallow/Deep while
+preserving existing stored identities. User confirmed 5S Deep selection goes
+directly to quantity; removal screenshot showed the old unconfirmed action.
+
+Material/location connection follow-up: task details now include a Location card
+with Assign / change location opening Add/Edit Task. Expanded material entries
+show their task and location, plus a labeled Assign to task / Move to another task
+action. The task chooser includes the task's location and supports moving back to
+Unassigned materials. Materials keep one task owner; location follows that task
+rather than being separately duplicated on each material. User phone review pending.
+
+- [x] Closed task-detail sections remain inset; expanding Workers, Materials,
+  Details, Daily Notes, or Dates takes the task card's full internal width.
+  Closing restores the inset width; safe outer page margins remain intact.
+- [x] Follow live voice previews as wrapped input grows, rather than waiting
+  for the final result to scroll. Worker inputs already wrap without a line cap.
+- [x] Keep a received speech preview if recognition fails to finalize, instead
+  of silently restoring the previous draft. Repeated recordings continue from
+  the original field contents unless text is selected for replacement.
+- [ ] User check: record a long worker list, stop, then record another name with
+  no text highlighted. Verify earlier names stay present and the entry follows
+  the text. Also check replacing a selected name. The precise cause of the
+  reported loss is not yet proven; investigate any remaining phone failure.

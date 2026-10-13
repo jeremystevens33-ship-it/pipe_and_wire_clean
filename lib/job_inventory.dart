@@ -25,7 +25,10 @@ class InventoryItem {
   String unit;
   double balance, low;
   final List<Map<String, dynamic>> history;
-  String get label => [name, if (size.isNotEmpty) size].join(' • ');
+  String get label => [
+        materialDisplayName(category, name),
+        if (size.isNotEmpty) size
+      ].join(' • ');
   String get identity => '$category|$name|$size|$unit'.toLowerCase();
   String get status => balance == 0
       ? 'Empty'
@@ -122,7 +125,9 @@ class _JobInventoryScreenState extends State<JobInventoryScreen> {
       showDialog<T>(context: context, builder: builder);
 
   Future<void> _add([MaterialChoice? choice]) async {
-    final name = TextEditingController(text: choice?.name ?? '');
+    final displayName =
+        choice == null ? '' : materialDisplayName(choice.category, choice.name);
+    final name = TextEditingController(text: displayName);
     final size = TextEditingController(text: choice?.defaultSize ?? '');
     final quantity = TextEditingController();
     final key = GlobalKey<FormState>();
@@ -172,17 +177,19 @@ class _JobInventoryScreenState extends State<JobInventoryScreen> {
                                                 : 'each';
                                           })),
                                   const SizedBox(height: 12),
-                                  JobInputField(
-                                      controller: size,
-                                      kind: JobKeypadKind.inches,
-                                      speechTransform: formatInchMeasurements,
-                                      decoration: InputDecoration(
-                                          labelText:
-                                              choice?.defaultSize.isNotEmpty ==
-                                                      true
-                                                  ? 'Selected size'
-                                                  : 'Size (optional)',
-                                          border: OutlineInputBorder())),
+                                  if (!(category == 'Boxes' &&
+                                      choice?.sizeKind == 'fixed'))
+                                    JobInputField(
+                                        controller: size,
+                                        kind: JobKeypadKind.inches,
+                                        speechTransform: formatInchMeasurements,
+                                        decoration: InputDecoration(
+                                            labelText: choice?.defaultSize
+                                                        .isNotEmpty ==
+                                                    true
+                                                ? 'Selected size'
+                                                : 'Size (optional)',
+                                            border: OutlineInputBorder())),
                                   if (choice?.sizeKind == 'inches')
                                     Wrap(spacing: 6, children: [
                                       for (final value
@@ -249,7 +256,11 @@ class _JobInventoryScreenState extends State<JobInventoryScreen> {
     if (added == true && mounted) {
       if (_lengthStock(category, name.text)) unit = 'feet';
       final item = InventoryItem(
-          name: name.text.trim(),
+          name: choice != null &&
+                  category == choice.category &&
+                  name.text.trim() == displayName
+              ? choice.name
+              : name.text.trim(),
           size: choice?.sizeKind == 'inches'
               ? formatMaterialInches(size.text)
               : size.text.trim(),
@@ -547,18 +558,39 @@ class _JobInventoryScreenState extends State<JobInventoryScreen> {
     final page = (_pages[category] ?? 0).clamp(0, last).toInt();
     _pages[category] = page;
     return Container(
+        key: ValueKey('inventory-category-$category'),
         margin: const EdgeInsets.only(bottom: 8),
         decoration: BoxDecoration(
-            color: const Color(0xFF212121),
+            color: items.isNotEmpty
+                ? const Color(0xFF2D292C)
+                : const Color(0xFF191919),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: const Color(0xFFC0C0C0), width: 1.2)),
         child: ExpansionTile(
             key: ValueKey('stock-$category-${_search.text.isNotEmpty}'),
             initiallyExpanded: _search.text.isNotEmpty,
+            leading: Container(
+                width: 4,
+                height: 40,
+                decoration: BoxDecoration(
+                    color: items.isNotEmpty
+                        ? const Color(0xFFE53935)
+                        : const Color(0xFFC0C0C0),
+                    borderRadius: BorderRadius.circular(2))),
+            iconColor:
+                items.isNotEmpty ? const Color(0xFFE53935) : Colors.white54,
+            collapsedIconColor:
+                items.isNotEmpty ? const Color(0xFFE53935) : Colors.white54,
             title: Text(category,
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            subtitle: Text('${items.length} stock entries'),
+            subtitle: Text(
+                '${items.length} stock ${items.length == 1 ? 'entry' : 'entries'}',
+                style: TextStyle(
+                    color: items.isNotEmpty ? Colors.white : Colors.white54,
+                    fontWeight: items.isNotEmpty
+                        ? FontWeight.w700
+                        : FontWeight.normal)),
             childrenPadding: const EdgeInsets.fromLTRB(6, 0, 6, 6),
             children: [
               if (items.isEmpty)
@@ -599,7 +631,13 @@ class _JobInventoryScreenState extends State<JobInventoryScreen> {
     final categories = <String>{
       ...materialCategories,
       ...widget.items.map((item) => item.category)
-    };
+    }.toList();
+    final populated = widget.items.map((item) => item.category).toSet();
+    categories.sort((a, b) {
+      final group = (populated.contains(a) ? 0 : 1)
+          .compareTo(populated.contains(b) ? 0 : 1);
+      return group != 0 ? group : a.toLowerCase().compareTo(b.toLowerCase());
+    });
     return Scaffold(
         appBar: AppBar(title: const Text('INVENTORY'), actions: [
           IconButton(
